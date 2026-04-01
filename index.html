@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Staffbase Prototypes</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #F5F5F7;
+      --surface: #FFFFFF;
+      --border: #E4E4E7;
+      --text-primary: #18181B;
+      --text-secondary: #71717A;
+      --text-muted: #A1A1AA;
+      --accent: #7C3AED;
+      --accent-light: #EDE9FE;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.06);
+      --shadow-hover: 0 4px 8px rgba(0,0,0,0.08), 0 12px 32px rgba(0,0,0,0.10);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text-primary);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 40px;
+    }
+
+    .header-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-mark {
+      width: 32px;
+      height: 32px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+    }
+
+    .logo-mark svg { display: block; }
+
+    .logo-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    .logo-divider {
+      width: 1px;
+      height: 18px;
+      background: var(--border);
+      margin: 0 10px;
+    }
+
+    .logo-sub {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .header-meta {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    /* ── Hero ── */
+    .hero {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 48px 40px 32px;
+    }
+
+    .hero h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+
+    .hero p {
+      font-size: 15px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* ── Filters ── */
+    .filters-wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 40px 24px;
+    }
+
+    .filters {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .filter-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-right: 4px;
+    }
+
+    .filter-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      padding: 5px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .filter-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .filter-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    /* ── Grid ── */
+    .grid-wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 40px 60px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 20px;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      transition: box-shadow 0.2s, transform 0.2s;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card:hover {
+      box-shadow: var(--shadow-hover);
+      transform: translateY(-2px);
+    }
+
+    .card-thumb {
+      height: 180px;
+      display: grid;
+      place-items: center;
+      font-size: 40px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card-thumb::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.06));
+    }
+
+    .card-body {
+      padding: 20px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .card-tags {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .tag {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 4px;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      line-height: 1.3;
+      color: var(--text-primary);
+    }
+
+    .card-desc {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      flex: 1;
+    }
+
+    .card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      margin-top: 4px;
+    }
+
+    .card-date {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .card-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent);
+      text-decoration: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: var(--accent-light);
+      transition: background 0.15s;
+    }
+
+    .card-link:hover { background: #DDD6FE; }
+
+    /* ── Empty state ── */
+    .empty {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--text-muted);
+    }
+
+    .empty p { font-size: 15px; margin-top: 8px; }
+
+    /* ── Status badge ── */
+    .status {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 1;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 100px;
+    }
+
+    .status-wip   { background: #FEF9C3; color: #854D0E; }
+    .status-ready { background: #DCFCE7; color: #166534; }
+    .status-draft { background: #F1F5F9; color: #475569; }
+
+    /* ── Count ── */
+    .results-count {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+
+    @media (max-width: 640px) {
+      header, .hero, .filters-wrap, .grid-wrap { padding-left: 20px; padding-right: 20px; }
+      .hero h1 { font-size: 22px; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo">
+      <div class="logo-mark">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <rect x="2" y="2" width="5" height="5" rx="1.5" fill="white"/>
+          <rect x="9" y="2" width="5" height="5" rx="1.5" fill="white" opacity=".7"/>
+          <rect x="2" y="9" width="5" height="5" rx="1.5" fill="white" opacity=".7"/>
+          <rect x="9" y="9" width="5" height="5" rx="1.5" fill="white" opacity=".4"/>
+        </svg>
+      </div>
+      <span class="logo-name">Staffbase</span>
+      <div class="logo-divider"></div>
+      <span class="logo-sub">Product Prototypes</span>
+    </div>
+    <span class="header-meta" id="totalCount"></span>
+  </div>
+</header>
+
+<section class="hero">
+  <h1>Prototype Gallery</h1>
+  <p>Interactive explorations for product features and epics — click any card to open the prototype.</p>
+</section>
+
+<div class="filters-wrap">
+  <div class="filters" id="filters">
+    <span class="filter-label">Epic</span>
+    <!-- injected by JS -->
+  </div>
+</div>
+
+<div class="grid-wrap">
+  <div class="results-count" id="resultsCount"></div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+  // ─────────────────────────────────────────────
+  // PROTOTYPES REGISTRY
+  // To add a new prototype, append an object here.
+  // ─────────────────────────────────────────────
+  const PROTOTYPES = [
+    {
+      id: "example-navigation-redesign",
+      title: "Navigation Redesign",
+      description: "Exploring a collapsed sidebar pattern with contextual section labels, active state treatment, and improved information hierarchy.",
+      epic: "Navigation",
+      status: "wip",
+      date: "2026-04-01",
+      emoji: "🧭",
+      thumbBg: "#EDE9FE",
+      file: "prototypes/example-navigation-redesign.html"
+    },
+    // ── ADD NEW PROTOTYPES ABOVE THIS LINE ──
+  ];
+
+  // ─────────────────────────────────────────────
+  // Epic → colour mapping (auto-generates for new epics)
+  // ─────────────────────────────────────────────
+  const EPIC_COLORS = {
+    "Navigation":      { bg: "#EDE9FE", text: "#6D28D9" },
+    "Onboarding":      { bg: "#DCFCE7", text: "#15803D" },
+    "Analytics":       { bg: "#FEF9C3", text: "#A16207" },
+    "Notifications":   { bg: "#FFE4E6", text: "#BE123C" },
+    "Content":         { bg: "#E0F2FE", text: "#0369A1" },
+    "Search":          { bg: "#FEF3C7", text: "#B45309" },
+    "Mobile":          { bg: "#F0FDF4", text: "#166534" },
+    "Admin":           { bg: "#F1F5F9", text: "#334155" },
+  };
+
+  const FALLBACK_COLORS = [
+    { bg: "#F3E8FF", text: "#7E22CE" }, { bg: "#ECFDF5", text: "#065F46" },
+    { bg: "#FFF7ED", text: "#9A3412" }, { bg: "#EFF6FF", text: "#1D4ED8" },
+  ];
+
+  function epicColor(epic) {
+    if (EPIC_COLORS[epic]) return EPIC_COLORS[epic];
+    const idx = [...epic].reduce((a, c) => a + c.charCodeAt(0), 0) % FALLBACK_COLORS.length;
+    return FALLBACK_COLORS[idx];
+  }
+
+  function statusLabel(s) {
+    return { draft: "Draft", wip: "In Progress", ready: "Ready" }[s] || s;
+  }
+
+  function formatDate(d) {
+    return new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  }
+
+  // ─────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────
+  let activeFilter = "all";
+
+  function renderFilters() {
+    const epics = ["all", ...new Set(PROTOTYPES.map(p => p.epic))];
+    const container = document.getElementById("filters");
+    container.innerHTML = '<span class="filter-label">Epic</span>';
+    epics.forEach(epic => {
+      const btn = document.createElement("button");
+      btn.className = "filter-btn" + (epic === activeFilter ? " active" : "");
+      btn.textContent = epic === "all" ? "All" : epic;
+      btn.onclick = () => { activeFilter = epic; renderFilters(); renderGrid(); };
+      container.appendChild(btn);
+    });
+  }
+
+  function renderGrid() {
+    const grid = document.getElementById("grid");
+    const filtered = activeFilter === "all" ? PROTOTYPES : PROTOTYPES.filter(p => p.epic === activeFilter);
+
+    document.getElementById("resultsCount").textContent =
+      filtered.length === 0 ? "" :
+      filtered.length === 1 ? "1 prototype" :
+      `${filtered.length} prototypes`;
+
+    document.getElementById("totalCount").textContent =
+      PROTOTYPES.length > 0 ? `${PROTOTYPES.length} total` : "";
+
+    if (PROTOTYPES.length === 0) {
+      grid.innerHTML = `
+        <div class="empty">
+          <div style="font-size:48px">🧪</div>
+          <p>No prototypes yet — add your first one!</p>
+          <p style="margin-top:4px; font-size:13px">See <code>CLAUDE.md</code> for instructions.</p>
+        </div>`;
+      return;
+    }
+
+    if (filtered.length === 0) {
+      grid.innerHTML = `<div class="empty"><div style="font-size:32px">🔍</div><p>No prototypes in this epic.</p></div>`;
+      return;
+    }
+
+    grid.innerHTML = filtered.map(p => {
+      const ec = epicColor(p.epic);
+      return `
+      <div class="card">
+        <div class="card-thumb" style="background:${p.thumbBg || ec.bg}">
+          <span class="status status-${p.status}">${statusLabel(p.status)}</span>
+          <span style="font-size:48px">${p.emoji || "🧩"}</span>
+        </div>
+        <div class="card-body">
+          <div class="card-tags">
+            <span class="tag" style="background:${ec.bg};color:${ec.text}">${p.epic}</span>
+          </div>
+          <div class="card-title">${p.title}</div>
+          <div class="card-desc">${p.description}</div>
+          <div class="card-footer">
+            <span class="card-date">${formatDate(p.date)}</span>
+            <a class="card-link" href="${p.file}">
+              View
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M2 6h8M6 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </a>
+          </div>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  renderFilters();
+  renderGrid();
+</script>
+</body>
+</html>
