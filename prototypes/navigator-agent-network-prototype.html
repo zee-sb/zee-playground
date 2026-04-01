@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Navigator Agent Network — Studio Prototype</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    * { font-family: 'Inter', sans-serif; box-sizing: border-box; }
+    body { margin: 0; background: #F3F4F6; padding-top: 48px; }
+    /* height fix for full-screen React app below the proto-bar */
+    #root > div { height: calc(100vh - 48px) !important; }
+
+    /* ── Prototype chrome bar ── */
+    .proto-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 9999; background: #1C1C1E; color: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 48px; font-size: 13px; }
+    .proto-bar-left { display: flex; align-items: center; gap: 12px; }
+    .proto-back { display: inline-flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.6); text-decoration: none; font-size: 13px; transition: color 0.15s; }
+    .proto-back:hover { color: #fff; }
+    .proto-divider { width: 1px; height: 16px; background: rgba(255,255,255,0.15); }
+    .proto-title { font-weight: 500; }
+    .proto-tags { display: flex; gap: 6px; }
+    .proto-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    .tag-navigator { background: #1D4ED8; color: #BFDBFE; }
+    .tag-ready { background: #14532D; color: #86EFAC; }
+    .tag-wip { background: #422006; color: #FCD34D; }
+    .nav-pill { background: #111827; color: #fff; border-radius: 20px; padding: 4px 14px; font-size: 13px; font-weight: 500; }
+    .sidebar-item { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13.5px; color: #374151; transition: background 0.1s; }
+    .sidebar-item:hover { background: #F9FAFB; }
+    .sidebar-item.active { background: #EFF6FF; color: #1D4ED8; font-weight: 500; }
+    .sidebar-section { font-size: 11px; font-weight: 600; color: #9CA3AF; text-transform: uppercase; letter-spacing: 0.05em; padding: 12px 12px 4px; }
+    .tab { padding: 10px 0; font-size: 14px; color: #6B7280; cursor: pointer; border-bottom: 2px solid transparent; font-weight: 400; transition: color 0.15s; }
+    .tab:hover { color: #374151; }
+    .tab.active { color: #111827; border-bottom-color: #3B82F6; font-weight: 500; }
+    .card { background: #fff; border: 1px solid #E5E7EB; border-radius: 8px; }
+    .btn-primary { background: #3B82F6; color: #fff; border: none; border-radius: 6px; padding: 7px 16px; font-size: 13.5px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
+    .btn-primary:hover { background: #2563EB; }
+    .btn-secondary { background: #fff; color: #374151; border: 1px solid #D1D5DB; border-radius: 6px; padding: 7px 16px; font-size: 13.5px; font-weight: 500; cursor: pointer; }
+    .btn-secondary:hover { background: #F9FAFB; }
+    .btn-ghost { background: transparent; color: #374151; border: none; border-radius: 6px; padding: 7px 16px; font-size: 13.5px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+    .btn-ghost:hover { background: #F3F4F6; }
+    .badge { display: inline-flex; align-items: center; border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 600; }
+    .badge-beta { background: #F3F4F6; color: #6B7280; }
+    .badge-external { background: #EFF6FF; color: #1D4ED8; }
+    .badge-internal { background: #F0FDF4; color: #15803D; }
+    .badge-global { background: #FEF9C3; color: #854D0E; }
+    .badge-active { background: #F0FDF4; color: #15803D; }
+    .badge-degraded { background: #FEF3C7; color: #92400E; }
+    .badge-inactive { background: #F3F4F6; color: #6B7280; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+    .dot-green { background: #22C55E; }
+    .dot-amber { background: #F59E0B; }
+    .dot-red { background: #EF4444; }
+    .input { width: 100%; border: 1px solid #D1D5DB; border-radius: 6px; padding: 8px 12px; font-size: 14px; color: #111827; outline: none; }
+    .input:focus { border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+    .textarea { width: 100%; border: 1px solid #D1D5DB; border-radius: 6px; padding: 10px 12px; font-size: 14px; color: #111827; outline: none; resize: vertical; min-height: 90px; }
+    .textarea:focus { border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+    .select { width: 100%; border: 1px solid #D1D5DB; border-radius: 6px; padding: 8px 12px; font-size: 14px; color: #111827; outline: none; background: #fff; }
+    .radio-option { border: 1px solid #E5E7EB; border-radius: 8px; padding: 14px 16px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+    .radio-option.selected { border-color: #3B82F6; background: #EFF6FF; }
+    .code-block { background: #1E293B; color: #E2E8F0; border-radius: 8px; padding: 16px; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.6; overflow-x: auto; }
+    .code-key { color: #93C5FD; }
+    .code-val { color: #86EFAC; }
+    .code-str { color: #FCA5A5; }
+    .alert-warning { background: #FFFBEB; border: 1px solid #FCD34D; border-radius: 8px; padding: 14px 16px; }
+    .alert-success { background: #F0FDF4; border: 1px solid #86EFAC; border-radius: 8px; padding: 14px 16px; }
+    .progress-step { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; }
+    .progress-step.done { background: #3B82F6; color: #fff; }
+    .progress-step.active { background: #3B82F6; color: #fff; }
+    .progress-step.pending { background: #E5E7EB; color: #9CA3AF; }
+    .progress-line { height: 2px; flex: 1; }
+    .progress-line.done { background: #3B82F6; }
+    .progress-line.pending { background: #E5E7EB; }
+    .list-row { display: flex; align-items: center; padding: 14px 16px; border-bottom: 1px solid #F3F4F6; cursor: pointer; transition: background 0.1s; }
+    .list-row:hover { background: #F9FAFB; }
+    .list-row:last-child { border-bottom: none; }
+    .agent-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+    .screen-nav { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1E293B; border-radius: 12px; padding: 10px 20px; display: flex; gap: 8px; align-items: center; z-index: 1000; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }
+    .screen-btn { padding: 5px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; border: none; color: #94A3B8; background: transparent; font-weight: 500; white-space: nowrap; transition: all 0.15s; }
+    .screen-btn:hover { color: #fff; background: #334155; }
+    .screen-btn.active { background: #3B82F6; color: #fff; }
+  </style>
+</head>
+<body>
+
+<nav class="proto-bar">
+  <div class="proto-bar-left">
+    <a class="proto-back" href="../index.html">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Gallery
+    </a>
+    <div class="proto-divider"></div>
+    <span class="proto-title">Navigator — Agent Network Studio</span>
+  </div>
+  <div class="proto-tags">
+    <span class="proto-tag tag-navigator">Navigator</span>
+    <span class="proto-tag tag-ready">Ready</span>
+  </div>
+</nav>
+
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+
+// ── Icons (inline SVG) ──────────────────────────────────────────────────────
+const Icon = ({ name, size = 16, color = 'currentColor', className = '' }) => {
+  const paths = {
+    chevronDown: <polyline points="6 9 12 15 18 9"/>,
+    chevronRight: <polyline points="9 18 15 12 9 6"/>,
+    arrowLeft: <><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></>,
+    plus: <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
+    settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></>,
+    users: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>,
+    barChart: <><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></>,
+    zap: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>,
+    shield: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>,
+    link: <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></>,
+    check: <polyline points="20 6 9 12 4 9"/>,
+    checkCircle: <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>,
+    alertTriangle: <><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>,
+    x: <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
+    play: <polygon points="5 3 19 12 5 21 5 3"/>,
+    externalLink: <><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></>,
+    refresh: <><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></>,
+    globe: <><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></>,
+    cpu: <><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></>,
+    key: <><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></>,
+    activity: <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>,
+    info: <><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></>,
+    copy: <><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></>,
+    trash: <><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></>,
+    navigator: <><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></>,
+    puzzle: <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82zM7 7h.01"/>,
+  };
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      {paths[name]}
+    </svg>
+  );
+};
+
+// ── Shared Shell ──────────────────────────────────────────────────────────────
+const Shell = ({ children, activeSidebarItem = 'Navigator', activeTab = null, onTabChange, tabs = [], pageTitle, pageSubtitle, actions, backLabel, onBack, warningBanner }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#F3F4F6' }}>
+    {/* Top Nav */}
+    <div style={{ background: '#fff', borderBottom: '1px solid #E5E7EB', height: 52, display: 'flex', alignItems: 'center', padding: '0 20px', gap: 24, flexShrink: 0, zIndex: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 8 }}>
+        <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#1E293B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="navigator" size={14} color="#fff" />
+        </div>
+        <span style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>Staffbase Studio</span>
+      </div>
+      {['Dashboard','Planning','Content','Email','SMS','Screens','External Content','Files','Analytics'].map(n => (
+        <span key={n} style={{ fontSize: 13.5, cursor: 'pointer' }}>
+          {n === 'Content' ? <span className="nav-pill">{n}</span> : <span style={{ color: '#6B7280', fontWeight: 400 }}>{n}</span>}
+        </span>
+      ))}
+      <div style={{ marginLeft: 'auto', display: 'flex', gap: 12, alignItems: 'center' }}>
+        <Icon name="users" size={18} color="#6B7280" />
+        <Icon name="settings" size={18} color="#6B7280" />
+        <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#6366F1', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 600 }}>ZA</div>
+      </div>
+    </div>
+
+    <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      {/* Sidebar */}
+      <div style={{ width: 192, background: '#fff', borderRight: '1px solid #E5E7EB', overflow: 'auto', flexShrink: 0, padding: '8px 8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 14px', cursor: 'pointer' }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>All Employees</div>
+          <Icon name="chevronDown" size={14} color="#9CA3AF" />
+        </div>
+        <div className="sidebar-section">Content</div>
+        {['News','Pages','Embedded Pages','Surveys','Links','Journeys','Directory','Forms','Event Registration'].map(n => (
+          <div key={n} className="sidebar-item" style={{ fontSize: 13 }}>{n}</div>
+        ))}
+        <div className="sidebar-item" style={{ color: '#3B82F6', fontSize: 13, marginTop: 4 }}>
+          <Icon name="plus" size={13} color="#3B82F6" /> Add Plugin
+        </div>
+        <div className="sidebar-section" style={{ marginTop: 8 }}>Space</div>
+        <div className="sidebar-item" style={{ fontSize: 13, justifyContent: 'space-between' }}>
+          <span>Groups</span><span className="badge badge-beta">Beta</span>
+        </div>
+        <div className="sidebar-section" style={{ marginTop: 8 }}>System</div>
+        {['Spaces','Menu','Launchpad'].map(n => (
+          <div key={n} className="sidebar-item" style={{ fontSize: 13 }}>{n}</div>
+        ))}
+        <div className={`sidebar-item ${activeSidebarItem === 'Navigator' ? 'active' : ''}`} style={{ fontSize: 13 }}>Navigator</div>
+        {['Comments','Trash'].map(n => (
+          <div key={n} className="sidebar-item" style={{ fontSize: 13 }}>{n}</div>
+        ))}
+      </div>
+
+      {/* Main */}
+      <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+        {warningBanner && (
+          <div className="alert-warning" style={{ margin: '16px 24px 0', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+            <Icon name="alertTriangle" size={18} color="#D97706" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 13.5, color: '#92400E' }}>{warningBanner.title}</div>
+              <div style={{ fontSize: 13, color: '#78350F', marginTop: 2 }}>{warningBanner.message}</div>
+            </div>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+              <button className="btn-secondary" style={{ fontSize: 12, padding: '5px 10px' }}>{warningBanner.action}</button>
+              <button className="btn-secondary" style={{ fontSize: 12, padding: '5px 10px' }}>Dismiss</button>
+            </div>
+          </div>
+        )}
+
+        {/* Page header */}
+        <div style={{ padding: '20px 24px 0', background: '#F3F4F6' }}>
+          {onBack && (
+            <button className="btn-ghost" style={{ padding: '4px 0', marginBottom: 10, color: '#6B7280', fontSize: 13 }} onClick={onBack}>
+              <Icon name="arrowLeft" size={14} /> {backLabel || 'Back'}
+            </button>
+          )}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#111827' }}>{pageTitle}</h1>
+              {pageSubtitle && <p style={{ margin: '3px 0 0', fontSize: 13.5, color: '#6B7280' }}>{pageSubtitle}</p>}
+            </div>
+            {actions && <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>{actions}</div>}
+          </div>
+          {tabs.length > 0 && (
+            <div style={{ display: 'flex', gap: 24, marginTop: 16, borderBottom: '1px solid #E5E7EB' }}>
+              {tabs.map(t => (
+                <div key={t} className={`tab ${activeTab === t ? 'active' : ''}`} onClick={() => onTabChange && onTabChange(t)}>{t}</div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: '20px 24px', flex: 1 }}>{children}</div>
+      </div>
+    </div>
+  </div>
+);
+
+// ── Screen 1: Navigator Agents Tab ───────────────────────────────────────────
+const AgentsScreen = ({ onConnect, onOpenAgent, onOpenExternal }) => {
+  const internalAgents = [
+    { name: 'My Kitchen Guide', type: 'internal', icon: '🍽️', groups: 'Kitchen Staff', status: 'active' },
+    { name: 'Employee Handbook', type: 'internal', icon: '📋', groups: 'All Employees', status: 'active' },
+  ];
+  const externalAgents = [
+    { name: 'IT Helpdesk (Copilot Studio)', type: 'external', icon: '🤖', provider: 'copilot', attachment: 'Global Agent', groups: 'All Employees', status: 'active', latency: '1.2s', completion: '94%' },
+    { name: 'HR Bot (Workday)', type: 'external', icon: '👥', provider: 'custom', attachment: 'Global Agent', groups: 'All Employees', status: 'degraded', latency: '4.1s', completion: '71%' },
+  ];
+  return (
+    <Shell
+      pageTitle="Navigator"
+      pageSubtitle="Configure Navigator settings and preferences"
+      tabs={['Identity','Knowledge','Agents','Settings']}
+      activeTab="Agents"
+      actions={<>
+        <button className="btn-ghost"><Icon name="barChart" size={15} /> Analytics</button>
+        <button className="btn-ghost"><Icon name="puzzle" size={15} /> Branding</button>
+        <button className="btn-primary">Save</button>
+      </>}
+      warningBanner={{
+        title: 'HR Bot (Workday) is degraded',
+        message: '3 health checks failed in the last 5 minutes. Navigator is routing matching queries to the Global Agent fallback.',
+        action: 'View health log'
+      }}
+    >
+      {/* Internal Assistants */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ padding: '18px 20px', borderBottom: '1px solid #F3F4F6' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontWeight: 600, fontSize: 15, color: '#111827' }}>Assistants</span>
+                <span style={{ background: '#EFF6FF', color: '#1D4ED8', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20 }}>2/10 Added</span>
+              </div>
+              <p style={{ margin: '4px 0 0', fontSize: 13, color: '#6B7280' }}>Internal knowledge assistants scoped to specific content and groups.</p>
+            </div>
+            <button className="btn-secondary" style={{ fontSize: 13 }} onClick={onConnect}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="plus" size={13} /> Create Assistant</span>
+            </button>
+          </div>
+        </div>
+        {internalAgents.map((a, i) => (
+          <div key={i} className="list-row" onClick={() => onOpenAgent(a)}>
+            <div className="agent-icon" style={{ background: '#F3F4F6', marginRight: 12 }}>{a.icon}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 500, fontSize: 14, color: '#111827' }}>{a.name}</span>
+                <span className="badge badge-internal">Internal</span>
+              </div>
+              <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>{a.groups}</div>
+            </div>
+            <Icon name="chevronRight" size={16} color="#9CA3AF" />
+          </div>
+        ))}
+      </div>
+
+      {/* External Agents */}
+      <div className="card">
+        <div style={{ padding: '18px 20px', borderBottom: '1px solid #F3F4F6' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontWeight: 600, fontSize: 15, color: '#111827' }}>External Agents</span>
+                <span style={{ background: '#EFF6FF', color: '#1D4ED8', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20 }}>2 Connected</span>
+              </div>
+              <p style={{ margin: '4px 0 0', fontSize: 13, color: '#6B7280' }}>Connect agents from Copilot Studio, Gemini, or any MCP-compatible platform.</p>
+            </div>
+            <button className="btn-primary" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }} onClick={onConnect}>
+              <Icon name="plus" size={13} /> Connect External Agent
+            </button>
+          </div>
+        </div>
+        {externalAgents.map((a, i) => (
+          <div key={i} className="list-row" onClick={() => onOpenExternal(a)}>
+            <div className="agent-icon" style={{ background: a.provider === 'copilot' ? '#EFF6FF' : '#F0FDF4', marginRight: 12 }}>{a.icon}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 500, fontSize: 14, color: '#111827' }}>{a.name}</span>
+                <span className="badge badge-external">External</span>
+                <span className={`badge ${a.status === 'active' ? 'badge-active' : 'badge-degraded'}`}>
+                  <span className={`status-dot ${a.status === 'active' ? 'dot-green' : 'dot-amber'}`} style={{ marginRight: 4 }} />
+                  {a.status === 'active' ? 'Active' : 'Degraded'}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>
+                Attached to: {a.attachment} · {a.groups} · Avg {a.latency} · {a.completion} completion
+              </div>
+            </div>
+            <Icon name="chevronRight" size={16} color="#9CA3AF" />
+          </div>
+        ))}
+        <div style={{ padding: '14px 20px', borderTop: '1px solid #F3F4F6' }}>
+          <button className="btn-ghost" style={{ color: '#3B82F6', fontSize: 13, padding: 0 }} onClick={onConnect}>
+            <Icon name="plus" size={13} color="#3B82F6" /> Connect another external agent
+          </button>
+        </div>
+      </div>
+    </Shell>
+  );
+};
+
+// ── Screen 2: Wizard Step 1 — Attachment ────────────────────────────────────
+const WizardStep1 = ({ onNext, onBack }) => {
+  const [selected, setSelected] = useState('attached');
+  const [attachTo, setAttachTo] = useState('global');
+  return (
+    <Shell pageTitle="Connect External Agent" pageSubtitle="Connect an agent from Copilot Studio, Gemini, or any MCP-compatible platform"
+      onBack={onBack} backLabel="Back to Agents"
+      actions={<><button className="btn-secondary" onClick={onBack}>Cancel</button><button className="btn-primary" onClick={onNext}>Continue</button></>}>
+      {/* Progress */}
+      <div style={{ display: 'flex', alignItems: 'center', maxWidth: 480, margin: '0 auto 28px' }}>
+        {[1,2,3].map((s, i) => (<React.Fragment key={s}>
+          <div className={`progress-step ${i === 0 ? 'active' : 'pending'}`}>{s}</div>
+          {i < 2 && <div className={`progress-line ${i < 0 ? 'done' : 'pending'}`} />}
+        </React.Fragment>))}
+        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', position: 'absolute', marginTop: 40 }} />
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 28, maxWidth: 560, margin: '0 auto 28px' }}>
+        {['Attachment','Connection','Capabilities'].map((l,i) => (
+          <div key={l} style={{ flex: 1, textAlign: 'center', fontSize: 12, fontWeight: i===0?600:400, color: i===0?'#3B82F6':'#9CA3AF' }}>{l}</div>
+        ))}
+      </div>
+
+      <div style={{ maxWidth: 560, margin: '0 auto' }}>
+        <div className="card" style={{ padding: 24 }}>
+          <h3 style={{ margin: '0 0 6px', fontSize: 15, fontWeight: 600, color: '#111827' }}>How should this external agent work?</h3>
+          <p style={{ margin: '0 0 20px', fontSize: 13.5, color: '#6B7280' }}>Choose how Navigator routes to this agent and where it appears in your assistant setup.</p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className={`radio-option ${selected === 'attached' ? 'selected' : ''}`} onClick={() => setSelected('attached')}>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <input type="radio" checked={selected === 'attached'} readOnly style={{ marginTop: 2, accentColor: '#3B82F6' }} />
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>Attach to an existing agent</div>
+                  <div style={{ fontSize: 13, color: '#6B7280', marginTop: 3 }}>The external agent handles specific intents within a Global or Dedicated Agent you already manage. Your internal agent stays in control of the conversation.</div>
+                  <div style={{ marginTop: 6, display: 'inline-flex', background: '#DBEAFE', color: '#1E40AF', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4 }}>Recommended for most setups</div>
+                </div>
+              </div>
+              {selected === 'attached' && (
+                <div style={{ marginTop: 16, marginLeft: 24 }}>
+                  <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 6 }}>Attach to</label>
+                  <select className="select" value={attachTo} onChange={e => setAttachTo(e.target.value)}>
+                    <option value="global">Global Agent</option>
+                    <option value="hr">HR Assistant</option>
+                    <option value="kitchen">My Kitchen Guide</option>
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className={`radio-option ${selected === 'standalone' ? 'selected' : ''}`} onClick={() => setSelected('standalone')}>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <input type="radio" checked={selected === 'standalone'} readOnly style={{ marginTop: 2, accentColor: '#3B82F6' }} />
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>Set up as standalone agent</div>
+                  <div style={{ fontSize: 13, color: '#6B7280', marginTop: 3 }}>The external agent routes independently, like a Dedicated Agent with its own group assignments and priority. Use when the external agent fully owns a specific domain.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Shell>
+  );
+};
+
+// ── Screen 3: Wizard Step 2 — Connection ────────────────────────────────────
+const WizardStep2 = ({ onNext, onBack }) => {
+  const [provider, setProvider] = useState('copilot');
+  const [transport, setTransport] = useState('mcp');
+  const [tested, setTested] = useState(false);
+  return (
+    <Shell pageTitle="Connect External Agent" pageSubtitle="Configure the connection to your external agent"
+      onBack={onBack} backLabel="Step 1: Attachment"
+      actions={<><button className="btn-secondary" onClick={onBack}>Back</button><button className="btn-primary" onClick={onNext} disabled={!tested} style={{ opacity: tested ? 1 : 0.5 }}>Continue</button></>}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 28, maxWidth: 560, margin: '0 auto 28px' }}>
+        {['Attachment','Connection','Capabilities'].map((l,i) => (
+          <div key={l} style={{ flex: 1, textAlign: 'center', fontSize: 12, fontWeight: i===1?600:400, color: i===1?'#3B82F6':'#9CA3AF' }}>{l}</div>
+        ))}
+      </div>
+      <div style={{ maxWidth: 560, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="card" style={{ padding: 24 }}>
+          <h3 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 600, color: '#111827' }}>Agent details</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 6 }}>Agent name <span style={{ color: '#EF4444' }}>*</span></label>
+              <input className="input" defaultValue="IT Helpdesk (Copilot Studio)" />
+            </div>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 6 }}>Description</label>
+              <input className="input" defaultValue="Handles IT requests via our existing Copilot Studio bot" />
+            </div>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 8 }}>Provider</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[['copilot','🤖 Copilot Studio'],['gemini','✨ Gemini'],['custom','⚙️ Custom']].map(([v,l]) => (
+                  <div key={v} onClick={() => setProvider(v)} style={{ flex: 1, padding: '10px 12px', border: `1.5px solid ${provider===v?'#3B82F6':'#E5E7EB'}`, borderRadius: 8, cursor: 'pointer', background: provider===v?'#EFF6FF':'#fff', textAlign: 'center', fontSize: 13, fontWeight: provider===v?600:400, color: provider===v?'#1D4ED8':'#374151' }}>
+                    {l}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: 24 }}>
+          <h3 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 600, color: '#111827' }}>Connection</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 8 }}>Connection type</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[['mcp','MCP endpoint'],['rest','REST endpoint']].map(([v,l]) => (
+                  <div key={v} onClick={() => setTransport(v)} style={{ flex: 1, padding: '10px 12px', border: `1.5px solid ${transport===v?'#3B82F6':'#E5E7EB'}`, borderRadius: 8, cursor: 'pointer', background: transport===v?'#EFF6FF':'#fff', textAlign: 'center', fontSize: 13, fontWeight: transport===v?600:400, color: transport===v?'#1D4ED8':'#374151' }}>
+                    {l} {v==='mcp' && <span style={{ fontSize: 10, background: '#D1FAE5', color: '#065F46', padding: '1px 6px', borderRadius: 4, marginLeft: 4 }}>Recommended</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 6 }}>Endpoint URL <span style={{ color: '#EF4444' }}>*</span></label>
+              <input className="input" defaultValue="https://acme.internal/it-agent/mcp" />
+            </div>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 8 }}>Authentication</label>
+              <select className="select" style={{ marginBottom: 12 }}>
+                <option>OAuth 2.0 — Entra ID / Service Principal (recommended)</option>
+                <option>OAuth 2.0 — Client Credentials</option>
+                <option>API Key</option>
+                <option>Mutual TLS (mTLS)</option>
+              </select>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, color: '#6B7280', display: 'block', marginBottom: 4 }}>Client ID</label>
+                  <input className="input" placeholder="Enter client ID" />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, color: '#6B7280', display: 'block', marginBottom: 4 }}>Client Secret</label>
+                  <input className="input" type="password" placeholder="Stored securely" />
+                </div>
+              </div>
+            </div>
+            <div>
+              <button className="btn-secondary" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px 16px' }} onClick={() => setTested(true)}>
+                <Icon name="play" size={13} /> Test connection
+              </button>
+              {tested && (
+                <div className="alert-success" style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="checkCircle" size={16} color="#16A34A" />
+                  <div>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#15803D' }}>Connection successful</span>
+                    <span style={{ fontSize: 12, color: '#166534', marginLeft: 8 }}>Response in 312ms · Health check passed</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </Shell>
+  );
+};
+
+// ── Screen 4: Wizard Step 3 — Capabilities ───────────────────────────────────
+const WizardStep3 = ({ onDone, onBack }) => {
+  const [mode, setMode] = useState('wizard');
+  const [topics, setTopics] = useState(['IT support','Access management','Hardware']);
+  return (
+    <Shell pageTitle="Connect External Agent" pageSubtitle="Define what this agent can handle so Navigator routes correctly"
+      onBack={onBack} backLabel="Step 2: Connection"
+      actions={<><button className="btn-secondary" onClick={onBack}>Back</button><button className="btn-primary" onClick={onDone}>Connect Agent</button></>}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 28, maxWidth: 560, margin: '0 auto 28px' }}>
+        {['Attachment','Connection','Capabilities'].map((l,i) => (
+          <div key={l} style={{ flex: 1, textAlign: 'center', fontSize: 12, fontWeight: i===2?600:400, color: i===2?'#3B82F6':'#9CA3AF' }}>{l}</div>
+        ))}
+      </div>
+      <div style={{ maxWidth: 560, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="card" style={{ padding: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#111827' }}>Capability definition</h3>
+            <div style={{ display: 'flex', gap: 0, border: '1px solid #E5E7EB', borderRadius: 6, overflow: 'hidden' }}>
+              {['wizard','yaml'].map(m => (
+                <button key={m} onClick={() => setMode(m)} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 500, border: 'none', cursor: 'pointer', background: mode===m?'#111827':'#fff', color: mode===m?'#fff':'#6B7280' }}>
+                  {m === 'wizard' ? 'Wizard' : 'YAML'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {mode === 'wizard' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 8 }}>What topics does this agent handle?</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {topics.map(t => (
+                    <span key={t} style={{ background: '#EFF6FF', color: '#1D4ED8', fontSize: 12, fontWeight: 500, padding: '4px 10px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {t} <Icon name="x" size={11} color="#1D4ED8" />
+                    </span>
+                  ))}
+                  <span style={{ border: '1px dashed #D1D5DB', color: '#9CA3AF', fontSize: 12, padding: '4px 10px', borderRadius: 20, cursor: 'pointer' }}>+ Add topic</span>
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 6 }}>Describe what questions this agent answers</label>
+                <textarea className="textarea" defaultValue="Handles employee IT requests including password resets, software access provisioning, hardware issues, and general IT troubleshooting." />
+              </div>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 8 }}>Example questions it handles well <span style={{ fontWeight: 400, color: '#9CA3AF' }}>(improves routing accuracy)</span></label>
+                {["I can't log in","Reset my password","Request access to Salesforce"].map((q, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    <input className="input" defaultValue={q} style={{ flex: 1 }} />
+                    <button className="btn-secondary" style={{ padding: '8px 10px' }}><Icon name="x" size={13} /></button>
+                  </div>
+                ))}
+                <button className="btn-ghost" style={{ fontSize: 13, color: '#3B82F6', padding: 0 }}>
+                  <Icon name="plus" size={13} color="#3B82F6" /> Add example
+                </button>
+              </div>
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 8 }}>When this agent can't answer, what should happen?</label>
+                <select className="select">
+                  <option>Fall back to the attached agent's knowledge base</option>
+                  <option>Return a message and escalate</option>
+                  <option>Show a generic error</option>
+                </select>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="code-block" style={{ fontSize: 12 }}>
+                <div><span className="code-key">navigator_manifest_version</span>: <span className="code-str">"1.0"</span></div>
+                <div style={{ marginTop: 8 }}><span className="code-key">agent</span>:</div>
+                <div style={{ paddingLeft: 16 }}><span className="code-key">id</span>: <span className="code-str">"acme-it-helpdesk"</span></div>
+                <div style={{ paddingLeft: 16 }}><span className="code-key">display_name</span>: <span className="code-str">"IT Helpdesk (Copilot Studio)"</span></div>
+                <div style={{ paddingLeft: 16 }}><span className="code-key">provider</span>: <span className="code-str">"copilot_studio"</span></div>
+                <div style={{ paddingLeft: 16 }}><span className="code-key">attachment_mode</span>: <span className="code-str">"attached"</span></div>
+                <div style={{ marginTop: 8 }}><span className="code-key">capabilities</span>:</div>
+                <div style={{ paddingLeft: 16 }}><span className="code-key">intents</span>:</div>
+                <div style={{ paddingLeft: 32 }}>- <span className="code-key">id</span>: <span className="code-str">"password_reset"</span></div>
+                <div style={{ paddingLeft: 40 }}><span className="code-key">confidence_threshold</span>: <span className="code-val">0.75</span></div>
+                <div style={{ paddingLeft: 32 }}>- <span className="code-key">id</span>: <span className="code-str">"software_request"</span></div>
+                <div style={{ paddingLeft: 40 }}><span className="code-key">confidence_threshold</span>: <span className="code-val">0.80</span></div>
+              </div>
+              <button className="btn-secondary" style={{ marginTop: 12, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Icon name="copy" size={13} /> Copy manifest
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </Shell>
+  );
+};
+
+// ── Screen 5: External Agent Detail ──────────────────────────────────────────
+const AgentDetailScreen = ({ agent, onBack, onTestMode }) => {
+  const [activeTab, setActiveTab] = useState('Overview');
+  return (
+    <Shell pageTitle={agent?.name || 'IT Helpdesk (Copilot Studio)'}
+      pageSubtitle="External agent · Attached to: Global Agent"
+      onBack={onBack} backLabel="Back to Agents"
+      tabs={['Overview','Capabilities','Authentication','Test Mode','Analytics']}
+      activeTab={activeTab} onTabChange={t => { setActiveTab(t); if (t === 'Test Mode') onTestMode(); }}
+      actions={<>
+        <button className="btn-secondary" style={{ color: '#EF4444', borderColor: '#FECACA', fontSize: 13 }}>Detach</button>
+        <button className="btn-secondary" style={{ fontSize: 13 }}>Disable</button>
+        <button className="btn-primary">Save</button>
+      </>}>
+
+      {activeTab === 'Overview' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 720 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+            {[
+              { label: 'Status', value: 'Active', sub: 'Health OK', color: '#15803D', bg: '#F0FDF4' },
+              { label: 'Avg Latency', value: '1.2s', sub: 'p95: 2.8s', color: '#1D4ED8', bg: '#EFF6FF' },
+              { label: 'Completion', value: '94%', sub: 'Last 7 days', color: '#7C3AED', bg: '#F5F3FF' },
+              { label: 'Today', value: '47', sub: 'Invocations', color: '#B45309', bg: '#FFFBEB' },
+            ].map(s => (
+              <div key={s.label} className="card" style={{ padding: '16px 18px', background: s.bg, border: `1px solid ${s.bg}` }}>
+                <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 4 }}>{s.label}</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{s.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="card" style={{ padding: 20 }}>
+            <h4 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 600, color: '#111827' }}>Configuration</h4>
+            {[
+              ['Provider','Microsoft Copilot Studio'],['Transport','MCP endpoint'],
+              ['Endpoint','https://acme.internal/it-agent/mcp'],['Authentication','OAuth 2.0 · Entra ID Service Principal'],
+              ['Attachment','Global Agent'],['Groups','All Employees'],
+              ['Priority','10'],['Fallback','Pass to Global Agent knowledge base'],
+            ].map(([k,v]) => (
+              <div key={k} style={{ display: 'flex', padding: '8px 0', borderBottom: '1px solid #F9FAFB' }}>
+                <div style={{ width: 180, fontSize: 13, color: '#6B7280', flexShrink: 0 }}>{k}</div>
+                <div style={{ fontSize: 13, color: '#111827', fontFamily: k==='Endpoint'?'monospace':'inherit', fontSize: k==='Endpoint'?12:13 }}>{v}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="card" style={{ padding: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#111827' }}>Health log</h4>
+              <button className="btn-ghost" style={{ fontSize: 12, padding: '4px 8px' }}><Icon name="refresh" size={13} /> Refresh</button>
+            </div>
+            {[
+              { time: '14:26', status: 'pass', ms: '284ms' },{ time: '14:25', status: 'pass', ms: '301ms' },
+              { time: '14:24', status: 'pass', ms: '298ms' },{ time: '14:23', status: 'pass', ms: '319ms' },
+            ].map((h, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid #F9FAFB', fontSize: 13 }}>
+                <span className={`status-dot ${h.status==='pass'?'dot-green':'dot-red'}`} />
+                <span style={{ color: '#9CA3AF', fontFamily: 'monospace', fontSize: 12 }}>{h.time}</span>
+                <span style={{ color: '#374151' }}>Health check {h.status === 'pass' ? 'passed' : 'failed'}</span>
+                <span style={{ marginLeft: 'auto', color: '#9CA3AF', fontSize: 12 }}>{h.ms}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'Capabilities' && (
+        <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="card" style={{ padding: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#111827' }}>Declared intents</h4>
+              <button className="btn-secondary" style={{ fontSize: 12 }}>+ Add intent</button>
+            </div>
+            {[
+              { id: 'password_reset', desc: 'User wants to reset or recover a password', threshold: 0.75, examples: ["I can't log in","Reset my password","Locked out"] },
+              { id: 'software_request', desc: 'User requesting access to a software application or license', threshold: 0.80, examples: ["Get me access to Salesforce","I need Figma"] },
+            ].map(intent => (
+              <div key={intent.id} style={{ border: '1px solid #E5E7EB', borderRadius: 8, padding: 16, marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13.5, color: '#111827', fontFamily: 'monospace' }}>{intent.id}</div>
+                    <div style={{ fontSize: 13, color: '#6B7280', marginTop: 3 }}>{intent.desc}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: '#6B7280' }}>Threshold:</span>
+                    <span style={{ background: '#F0FDF4', color: '#15803D', fontSize: 12, fontWeight: 600, padding: '2px 8px', borderRadius: 4 }}>{intent.threshold}</span>
+                  </div>
+                </div>
+                <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {intent.examples.map(e => (
+                    <span key={e} style={{ background: '#F3F4F6', color: '#374151', fontSize: 11.5, padding: '3px 9px', borderRadius: 4 }}>"{e}"</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="card" style={{ padding: 20 }}>
+            <h4 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 600, color: '#111827' }}>Topics</h4>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {['IT support','Access management','Hardware','Software licensing'].map(t => (
+                <span key={t} style={{ background: '#EFF6FF', color: '#1D4ED8', fontSize: 12, fontWeight: 500, padding: '4px 12px', borderRadius: 20 }}>{t}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </Shell>
+  );
+};
+
+// ── Screen 6: Test Mode ───────────────────────────────────────────────────────
+const TestModeScreen = ({ onBack }) => {
+  const [ran, setRan] = useState(false);
+  const [query, setQuery] = useState("I can't log into Salesforce");
+  return (
+    <Shell pageTitle="IT Helpdesk (Copilot Studio)" pageSubtitle="External agent · Test Mode"
+      onBack={onBack} backLabel="Back to Agent Detail"
+      tabs={['Overview','Capabilities','Authentication','Test Mode','Analytics']}
+      activeTab="Test Mode" onTabChange={() => {}}>
+      <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="card" style={{ padding: 20 }}>
+          <h4 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 600, color: '#111827' }}>Simulate a request</h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 6 }}>Simulate as</label>
+              <select className="select">
+                <option>Maria Rossi — Manager, HR Italy</option>
+                <option>Tom Baker — IT Support, UK</option>
+                <option>Ana Silva — Frontline, Brazil</option>
+              </select>
+              <p style={{ margin: '5px 0 0', fontSize: 12, color: '#9CA3AF' }}>Uses this user's real profile fields to generate the signed JWT sent to the external agent.</p>
+            </div>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 6 }}>Query</label>
+              <input className="input" value={query} onChange={e => setQuery(e.target.value)} />
+            </div>
+            <button className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 8, width: 'fit-content', padding: '9px 20px' }} onClick={() => setRan(true)}>
+              <Icon name="play" size={14} /> Run test
+            </button>
+          </div>
+        </div>
+
+        {ran && (
+          <>
+            <div className="card" style={{ padding: 20 }}>
+              <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600, color: '#111827' }}>Routing decision</h4>
+              {[
+                { icon: 'checkCircle', color: '#16A34A', text: 'Matched intent: password_reset', detail: 'Confidence: 0.84 (threshold: 0.75)' },
+                { icon: 'checkCircle', color: '#16A34A', text: 'User groups match', detail: 'Maria Rossi → All Employees ✓' },
+                { icon: 'checkCircle', color: '#16A34A', text: 'Agent status: Active', detail: 'Health check passed 2 min ago' },
+                { icon: 'zap', color: '#3B82F6', text: 'Routing to: IT Helpdesk (Copilot Studio)', detail: '' },
+              ].map((row, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '6px 0', borderBottom: '1px solid #F9FAFB' }}>
+                  <Icon name={row.icon} size={15} color={row.color} style={{ marginTop: 2, flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: '#111827' }}>{row.text}</div>
+                    {row.detail && <div style={{ fontSize: 12, color: '#6B7280' }}>{row.detail}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="card" style={{ padding: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#111827' }}>Request sent</h4>
+                <span style={{ fontSize: 12, color: '#9CA3AF' }}>Latency: <strong style={{ color: '#111827' }}>1.1s</strong></span>
+              </div>
+              <div className="code-block">
+                <div><span style={{ color: '#94A3B8' }}>POST</span> <span className="code-str">https://acme.internal/it-agent/mcp</span></div>
+                <div style={{ marginTop: 6 }}><span className="code-key">Authorization</span>: Bearer [oauth token ✓]</div>
+                <div><span className="code-key">X-Staffbase-User</span>: [JWT — Maria Rossi, Manager, HR Italy ✓]</div>
+                <div style={{ marginTop: 8 }}>&#123;</div>
+                <div style={{ paddingLeft: 16 }}><span className="code-key">"query"</span>: <span className="code-str">"{query}"</span>,</div>
+                <div style={{ paddingLeft: 16 }}><span className="code-key">"conversation_history"</span>: [],</div>
+                <div style={{ paddingLeft: 16 }}><span className="code-key">"user_context"</span>: &#123; <span className="code-key">"role"</span>: <span className="code-str">"manager"</span>, <span className="code-key">"dept"</span>: <span className="code-str">"HR"</span> &#125;</div>
+                <div>&#125;</div>
+              </div>
+            </div>
+
+            <div className="card" style={{ padding: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#111827' }}>Response received</h4>
+                <span className="badge badge-active" style={{ fontSize: 12 }}>
+                  <span className="status-dot dot-green" style={{ marginRight: 4 }} /> Valid response
+                </span>
+              </div>
+              <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: 16, fontSize: 13.5, color: '#1E293B', lineHeight: 1.6 }}>
+                "I can help you regain access to Salesforce. I've located your account and can trigger a password reset. Should I send the reset link to <strong>m.rossi@acme.com</strong>?"
+              </div>
+              <div style={{ display: 'flex', gap: 16, marginTop: 12 }}>
+                {[['Response type','text + action_proposal'],['Completion','✓ Valid response returned'],['Personalized','✓ User identity JWT validated']].map(([k,v]) => (
+                  <div key={k}>
+                    <div style={{ fontSize: 11, color: '#9CA3AF' }}>{k}</div>
+                    <div style={{ fontSize: 12.5, color: '#374151', fontWeight: 500 }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </Shell>
+  );
+};
+
+// ── Screen 7: Success / Connected ────────────────────────────────────────────
+const SuccessScreen = ({ onDone }) => (
+  <Shell pageTitle="Agent Connected" pageSubtitle="" onBack={onDone} backLabel="Back to Agents" actions={<button className="btn-primary" onClick={onDone}>Done</button>}>
+    <div style={{ maxWidth: 520, margin: '40px auto', textAlign: 'center' }}>
+      <div style={{ width: 64, height: 64, background: '#F0FDF4', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+        <Icon name="checkCircle" size={32} color="#16A34A" />
+      </div>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: '#111827', margin: '0 0 8px' }}>IT Helpdesk (Copilot Studio) is connected</h2>
+      <p style={{ fontSize: 14, color: '#6B7280', margin: '0 0 28px', lineHeight: 1.6 }}>
+        Navigator will now route matching IT requests to your Copilot Studio agent. Employees don't see anything different — they just get better, faster answers.
+      </p>
+      <div className="card" style={{ padding: 20, textAlign: 'left', marginBottom: 20 }}>
+        {[
+          ['Attached to','Global Agent'],['Groups served','All Employees'],
+          ['Intents declared','2 (password_reset, software_request)'],
+          ['Authentication','OAuth 2.0 · Entra ID ✓'],['Status','Active'],
+        ].map(([k,v]) => (
+          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #F9FAFB', fontSize: 13 }}>
+            <span style={{ color: '#6B7280' }}>{k}</span>
+            <span style={{ color: '#111827', fontWeight: 500 }}>{v}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+        <button className="btn-secondary" style={{ fontSize: 13 }}>View agent details</button>
+        <button className="btn-primary" onClick={onDone}>Back to Agents</button>
+      </div>
+    </div>
+  </Shell>
+);
+
+// ── App ───────────────────────────────────────────────────────────────────────
+const SCREENS = ['Agents List','Wizard: Step 1','Wizard: Step 2','Wizard: Step 3','Agent Detail','Test Mode','Success'];
+
+function App() {
+  const [screen, setScreen] = useState(0);
+  const [selectedAgent, setSelectedAgent] = useState(null);
+
+  const renderScreen = () => {
+    switch(screen) {
+      case 0: return <AgentsScreen onConnect={() => setScreen(1)} onOpenAgent={a => { setSelectedAgent(a); setScreen(4); }} onOpenExternal={a => { setSelectedAgent(a); setScreen(4); }} />;
+      case 1: return <WizardStep1 onNext={() => setScreen(2)} onBack={() => setScreen(0)} />;
+      case 2: return <WizardStep2 onNext={() => setScreen(3)} onBack={() => setScreen(1)} />;
+      case 3: return <WizardStep3 onDone={() => setScreen(6)} onBack={() => setScreen(2)} />;
+      case 4: return <AgentDetailScreen agent={selectedAgent} onBack={() => setScreen(0)} onTestMode={() => setScreen(5)} />;
+      case 5: return <TestModeScreen onBack={() => setScreen(4)} />;
+      case 6: return <SuccessScreen onDone={() => setScreen(0)} />;
+      default: return null;
+    }
+  };
+
+  return (
+    <div>
+      {renderScreen()}
+
+      {/* Screen navigator */}
+      <div className="screen-nav">
+        <span style={{ fontSize: 11, color: '#64748B', marginRight: 4, fontWeight: 600 }}>SCREENS</span>
+        {SCREENS.map((s, i) => (
+          <button key={i} className={`screen-btn ${screen === i ? 'active' : ''}`} onClick={() => setScreen(i)}>{s}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

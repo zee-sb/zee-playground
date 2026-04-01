@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Navigator — Chat UI Framework + Voice</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    * { font-family: 'Inter', sans-serif; box-sizing: border-box; }
+    body { margin: 0; background: #F3F4F6; padding-top: 48px; }
+    /* height fix for full-screen React app below the proto-bar */
+    #root > div { height: calc(100vh - 48px) !important; }
+
+    /* ── Prototype chrome bar ── */
+    .proto-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 9999; background: #1C1C1E; color: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 48px; font-size: 13px; }
+    .proto-bar-left { display: flex; align-items: center; gap: 12px; }
+    .proto-back { display: inline-flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.6); text-decoration: none; font-size: 13px; transition: color 0.15s; }
+    .proto-back:hover { color: #fff; }
+    .proto-divider { width: 1px; height: 16px; background: rgba(255,255,255,0.15); }
+    .proto-title { font-weight: 500; }
+    .proto-tags { display: flex; gap: 6px; }
+    .proto-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    .tag-navigator { background: #1D4ED8; color: #BFDBFE; }
+    .tag-ready { background: #14532D; color: #86EFAC; }
+    .tag-wip { background: #422006; color: #FCD34D; }
+
+    /* Chat bubbles */
+    .bubble-user { background: #3B82F6; color: #fff; border-radius: 18px 18px 4px 18px; padding: 10px 14px; max-width: 72%; font-size: 14px; line-height: 1.5; }
+    .bubble-nav { background: #fff; color: #111827; border-radius: 18px 18px 18px 4px; padding: 10px 14px; max-width: 72%; font-size: 14px; line-height: 1.5; box-shadow: 0 1px 2px rgba(0,0,0,0.08); border: 1px solid #F3F4F6; }
+    .bubble-voice { background: #F5F3FF; color: #4C1D95; border-radius: 18px 18px 18px 4px; padding: 10px 14px; max-width: 80%; font-size: 14px; line-height: 1.5; border: 1px solid #DDD6FE; }
+
+    /* Cards */
+    .ui-card { background: #fff; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden; max-width: 340px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+    .ui-card-header { padding: 12px 14px; background: #F9FAFB; border-bottom: 1px solid #F3F4F6; }
+    .ui-card-body { padding: 14px; }
+    .ui-card-footer { padding: 10px 14px; border-top: 1px solid #F3F4F6; display: flex; gap: 8px; }
+
+    /* Form inputs in chat */
+    .chat-input { width: 100%; border: 1.5px solid #D1D5DB; border-radius: 8px; padding: 9px 12px; font-size: 14px; color: #111827; outline: none; background: #fff; }
+    .chat-input:focus { border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+    .chat-select { width: 100%; border: 1.5px solid #D1D5DB; border-radius: 8px; padding: 9px 12px; font-size: 14px; color: #111827; outline: none; background: #fff; }
+
+    /* Buttons */
+    .btn-confirm { background: #3B82F6; color: #fff; border: none; border-radius: 8px; padding: 9px 18px; font-size: 13.5px; font-weight: 600; cursor: pointer; flex: 1; }
+    .btn-confirm:hover { background: #2563EB; }
+    .btn-cancel { background: #fff; color: #374151; border: 1px solid #D1D5DB; border-radius: 8px; padding: 9px 18px; font-size: 13.5px; font-weight: 500; cursor: pointer; flex: 1; }
+    .btn-cancel:hover { background: #F9FAFB; }
+    .btn-action { background: #fff; color: #1D4ED8; border: 1.5px solid #BFDBFE; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 500; cursor: pointer; width: 100%; text-align: left; transition: all 0.15s; }
+    .btn-action:hover { background: #EFF6FF; border-color: #3B82F6; }
+    .btn-redirect { background: #fff; color: #374151; border: 1px solid #D1D5DB; border-radius: 8px; padding: 9px 14px; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; }
+    .btn-redirect:hover { background: #F9FAFB; }
+
+    /* Info card rows */
+    .info-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #F9FAFB; font-size: 13px; }
+    .info-row:last-child { border-bottom: none; }
+    .info-label { color: #6B7280; }
+    .info-value { color: #111827; font-weight: 600; }
+    .info-value.highlight { color: #2563EB; }
+
+    /* Source tag */
+    .source-tag { display: inline-flex; align-items: center; gap: 4px; background: #F3F4F6; color: #6B7280; font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-top: 6px; }
+
+    /* Voice */
+    .voice-wave { display: flex; align-items: center; gap: 3px; height: 32px; }
+    .voice-bar { background: #7C3AED; border-radius: 3px; width: 4px; animation: wave 1s ease-in-out infinite; }
+    @keyframes wave {
+      0%, 100% { height: 8px; opacity: 0.5; }
+      50% { height: 28px; opacity: 1; }
+    }
+    .voice-bar:nth-child(2) { animation-delay: 0.1s; }
+    .voice-bar:nth-child(3) { animation-delay: 0.2s; }
+    .voice-bar:nth-child(4) { animation-delay: 0.3s; }
+    .voice-bar:nth-child(5) { animation-delay: 0.4s; }
+    .voice-bar:nth-child(6) { animation-delay: 0.3s; }
+    .voice-bar:nth-child(7) { animation-delay: 0.2s; }
+
+    /* Typing indicator */
+    .typing-dot { width: 6px; height: 6px; background: #9CA3AF; border-radius: 50%; animation: typing 1.4s infinite; display: inline-block; margin: 0 2px; }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typing { 0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); } 40% { opacity: 1; transform: scale(1); } }
+
+    /* Schema panel */
+    .schema-panel { background: #0F172A; color: #E2E8F0; border-radius: 10px; padding: 14px 16px; font-family: 'Courier New', monospace; font-size: 11.5px; line-height: 1.7; overflow-x: auto; }
+    .sk { color: #93C5FD; }
+    .sv { color: #86EFAC; }
+    .ss { color: #FCA5A5; }
+    .sc { color: #94A3B8; }
+    .sn { color: #FCD34D; }
+
+    .screen-nav { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1E293B; border-radius: 12px; padding: 10px 20px; display: flex; gap: 6px; align-items: center; z-index: 1000; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }
+    .snav-btn { padding: 5px 11px; border-radius: 6px; font-size: 11.5px; cursor: pointer; border: none; color: #94A3B8; background: transparent; font-weight: 500; white-space: nowrap; transition: all 0.15s; }
+    .snav-btn:hover { color: #fff; background: #334155; }
+    .snav-btn.active { background: #3B82F6; color: #fff; }
+
+    .schema-toggle { background: #1E293B; color: #94A3B8; border: none; border-radius: 6px; padding: 4px 10px; font-size: 11px; cursor: pointer; font-family: monospace; transition: all 0.15s; }
+    .schema-toggle:hover { color: #fff; }
+    .schema-toggle.on { color: #86EFAC; }
+    .badge-agent { background: #EFF6FF; color: #1D4ED8; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<nav class="proto-bar">
+  <div class="proto-bar-left">
+    <a class="proto-back" href="../index.html">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Gallery
+    </a>
+    <div class="proto-divider"></div>
+    <span class="proto-title">Navigator — Chat UI &amp; Voice Framework</span>
+  </div>
+  <div class="proto-tags">
+    <span class="proto-tag tag-navigator">Navigator</span>
+    <span class="proto-tag tag-ready">Ready</span>
+  </div>
+</nav>
+
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// ── Icon ─────────────────────────────────────────────────────────────────────
+const I = ({ n, s=16, c='currentColor' }) => {
+  const p = {
+    send: <><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></>,
+    mic: <><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></>,
+    ext: <><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></>,
+    check: <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>,
+    info: <><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></>,
+    nav: <><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></>,
+    close: <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
+    alert: <><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>,
+    clap: <path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm-1-5l-3-3 1.4-1.4 1.6 1.6 4.6-4.6L17 9l-6 6z"/>,
+  };
+  return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">{p[n]}</svg>;
+};
+
+// ── Schema Viewer ─────────────────────────────────────────────────────────────
+const SchemaBlock = ({ data }) => (
+  <div className="schema-panel" style={{ marginTop: 12 }}>
+    {data.map((line, i) => <div key={i} dangerouslySetInnerHTML={{ __html: line }} />)}
+  </div>
+);
+
+// ── Chat Shell ────────────────────────────────────────────────────────────────
+const ChatShell = ({ mode, onToggleMode, children, inputPlaceholder = 'Message Navigator...', inputDisabled = false }) => (
+  <div style={{ display: 'flex', height: '100vh', background: '#F3F4F6', flexDirection: 'column' }}>
+    {/* Nav bar */}
+    <div style={{ background: '#fff', borderBottom: '1px solid #E5E7EB', padding: '0 20px', height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#1E293B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <I n="nav" s={16} c="#fff" />
+        </div>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>Navigator</div>
+          <div style={{ fontSize: 11, color: '#22C55E', fontWeight: 500 }}>● Online</div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, background: '#F3F4F6', borderRadius: 8, padding: 4 }}>
+        {['Chat','Voice'].map(m => (
+          <button key={m} onClick={() => onToggleMode(m)} style={{ padding: '5px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, background: mode === m ? '#fff' : 'transparent', color: mode === m ? '#111827' : '#9CA3AF', boxShadow: mode === m ? '0 1px 2px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s' }}>
+            {m === 'Voice' ? '🎙 Voice' : '💬 Chat'}
+          </button>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: '#9CA3AF' }}>Maria Rossi · Manager, HR Italy</div>
+    </div>
+
+    {/* Messages */}
+    <div style={{ flex: 1, overflowY: 'auto', padding: '20px 20px 16px' }}>
+      {children}
+    </div>
+
+    {/* Input */}
+    <div style={{ background: '#fff', borderTop: '1px solid #E5E7EB', padding: '12px 16px', display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
+      {mode === 'Voice' ? (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+          <div style={{ fontSize: 13, color: '#6B7280' }}>Tap to speak</div>
+          <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#7C3AED', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 4px 12px rgba(124,58,237,0.4)' }}>
+            <I n="mic" s={20} c="#fff" />
+          </div>
+        </div>
+      ) : (
+        <>
+          <input style={{ flex: 1, border: '1.5px solid #E5E7EB', borderRadius: 24, padding: '10px 16px', fontSize: 14, outline: 'none', background: inputDisabled ? '#F9FAFB' : '#fff', color: '#374151' }} placeholder={inputPlaceholder} disabled={inputDisabled} />
+          <button style={{ width: 38, height: 38, borderRadius: '50%', background: '#3B82F6', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+            <I n="send" s={15} c="#fff" />
+          </button>
+        </>
+      )}
+    </div>
+  </div>
+);
+
+// ── Row helpers ───────────────────────────────────────────────────────────────
+const UserMsg = ({ text }) => (
+  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+    <div className="bubble-user">{text}</div>
+  </div>
+);
+const NavMsg = ({ children, agentTag }) => (
+  <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'flex-start' }}>
+    <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#1E293B', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+      <I n="nav" s={13} c="#fff" />
+    </div>
+    <div>
+      {agentTag && <div style={{ marginBottom: 5 }}><span className="badge-agent">🤖 {agentTag}</span></div>}
+      {children}
+    </div>
+  </div>
+);
+const VoiceMsg = ({ text }) => (
+  <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'flex-start' }}>
+    <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#7C3AED', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
+      <I n="mic" s={13} c="#fff" />
+    </div>
+    <div className="bubble-voice">{text}</div>
+  </div>
+);
+const Typing = () => (
+  <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'flex-start' }}>
+    <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#1E293B', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <I n="nav" s={13} c="#fff" />
+    </div>
+    <div className="bubble-nav" style={{ padding: '12px 16px' }}>
+      <span className="typing-dot"/><span className="typing-dot"/><span className="typing-dot"/>
+    </div>
+  </div>
+);
+
+// ── Screen 1: Text Response ───────────────────────────────────────────────────
+const TextResponseScreen = ({ mode, onToggleMode }) => {
+  const [showSchema, setShowSchema] = useState(false);
+  const schema = [
+    `<span class="sc">// External agent response schema — text</span>`,
+    `{`,
+    `  <span class="sk">"response_type"</span>: <span class="ss">"text"</span>,`,
+    `  <span class="sk">"semantic_response"</span>: <span class="ss">"Your IT ticket TKT-4821..."</span>,`,
+    `  <span class="sk">"voice_hint"</span>: <span class="ss">null</span>, <span class="sc">// uses semantic_response</span>`,
+    `  <span class="sk">"ui_component"</span>: <span class="sn">null</span>,`,
+    `  <span class="sk">"sources"</span>: [{ <span class="sk">"title"</span>: <span class="ss">"ServiceNow TKT-4821"</span>, <span class="sk">"url"</span>: <span class="ss">"..."</span> }],`,
+    `  <span class="sk">"next_action"</span>: <span class="ss">"complete"</span>`,
+    `}`,
+  ];
+  return (
+    <ChatShell mode={mode} onToggleMode={onToggleMode}>
+      <div style={{ maxWidth: 560, margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <span style={{ background: '#F0FDF4', color: '#15803D', fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 20 }}>Component type: text — simplest response</span>
+        </div>
+        <UserMsg text="What's the status of my IT ticket?" />
+        <NavMsg agentTag="IT Helpdesk (Copilot Studio)">
+          <div className="bubble-nav">
+            Your ticket <strong>TKT-4821</strong> (Salesforce access) is currently <strong>In Progress</strong> and assigned to the IT Support team. Expected resolution is today by 5pm. You'll receive an email when it's resolved.
+          </div>
+          <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <span className="source-tag">📎 ServiceNow · TKT-4821</span>
+          </div>
+        </NavMsg>
+        <div style={{ textAlign: 'right', marginTop: -4, marginBottom: 16 }}>
+          <button className="schema-toggle" onClick={() => setShowSchema(!showSchema)}>
+            {showSchema ? '▼ hide schema' : '{ } view response schema'}
+          </button>
+        </div>
+        {showSchema && <SchemaBlock data={schema} />}
+        <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: '#78350F', marginTop: 12 }}>
+          <strong>Voice:</strong> Identical — <code style={{ background: '#FEF3C7', padding: '1px 4px', borderRadius: 3 }}>semantic_response</code> is spoken directly. No adaptation needed.
+        </div>
+      </div>
+    </ChatShell>
+  );
+};
+
+// ── Screen 2: Info Card ───────────────────────────────────────────────────────
+const InfoCardScreen = ({ mode, onToggleMode }) => {
+  const [showSchema, setShowSchema] = useState(false);
+  const schema = [
+    `<span class="sc">// External agent response schema — info_card</span>`,
+    `{`,
+    `  <span class="sk">"response_type"</span>: <span class="ss">"info_card"</span>,`,
+    `  <span class="sk">"semantic_response"</span>: <span class="ss">"You have 12 days of PTO remaining..."</span>,`,
+    `  <span class="sk">"voice_hint"</span>: <span class="ss">"You have 12 days of PTO left this year. 5 days are approved upcoming."</span>,`,
+    `  <span class="sk">"ui_component"</span>: {`,
+    `    <span class="sk">"type"</span>: <span class="ss">"info_card"</span>,`,
+    `    <span class="sk">"title"</span>: <span class="ss">"Your PTO Balance"</span>,`,
+    `    <span class="sk">"fields"</span>: [`,
+    `      { <span class="sk">"label"</span>: <span class="ss">"Remaining days"</span>, <span class="sk">"value"</span>: <span class="ss">"12"</span>, <span class="sk">"highlight"</span>: <span class="sv">true</span> },`,
+    `      { <span class="sk">"label"</span>: <span class="ss">"Used this year"</span>, <span class="sk">"value"</span>: <span class="ss">"8"</span> },`,
+    `      { <span class="sk">"label"</span>: <span class="ss">"Approved upcoming"</span>, <span class="sk">"value"</span>: <span class="ss">"5 days (Aug 12–16)"</span> }`,
+    `    ]`,
+    `  },`,
+    `  <span class="sk">"next_action"</span>: <span class="ss">"complete"</span>`,
+    `}`,
+  ];
+  return (
+    <ChatShell mode={mode} onToggleMode={onToggleMode}>
+      <div style={{ maxWidth: 560, margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <span style={{ background: '#EFF6FF', color: '#1D4ED8', fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 20 }}>Component type: info_card — structured data</span>
+        </div>
+        <UserMsg text="How many PTO days do I have left?" />
+        <NavMsg agentTag="HR Bot (Workday)">
+          <div className="bubble-nav" style={{ marginBottom: 8 }}>Here's your current PTO balance, Maria:</div>
+          <div className="ui-card" style={{ maxWidth: 300 }}>
+            <div className="ui-card-header" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>🏖</span>
+              <span style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>Your PTO Balance</span>
+            </div>
+            <div className="ui-card-body">
+              <div style={{ textAlign: 'center', marginBottom: 14 }}>
+                <div style={{ fontSize: 42, fontWeight: 700, color: '#2563EB', lineHeight: 1 }}>12</div>
+                <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>days remaining</div>
+              </div>
+              <div className="info-row"><span className="info-label">Used this year</span><span className="info-value">8 days</span></div>
+              <div className="info-row"><span className="info-label">Approved upcoming</span><span className="info-value">5 days (Aug 12–16)</span></div>
+              <div className="info-row"><span className="info-label">Carry-over expires</span><span className="info-value">Dec 31, 2026</span></div>
+            </div>
+            <div className="ui-card-footer">
+              <button className="btn-confirm" style={{ fontSize: 13 }}>Request PTO →</button>
+            </div>
+          </div>
+          <div style={{ marginTop: 8 }}><span className="source-tag">📎 Workday · HR data as of today</span></div>
+        </NavMsg>
+        <div style={{ textAlign: 'right', marginTop: -4, marginBottom: 16 }}>
+          <button className="schema-toggle" onClick={() => setShowSchema(!showSchema)}>
+            {showSchema ? '▼ hide schema' : '{ } view response schema'}
+          </button>
+        </div>
+        {showSchema && <SchemaBlock data={schema} />}
+        {mode === 'Voice' && (
+          <VoiceMsg text='"You have 12 days of PTO remaining this year. You have 8 days used and 5 days approved from August 12th to 16th. Would you like to request more time off?"' />
+        )}
+        <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: '#78350F', marginTop: 12 }}>
+          <strong>Voice:</strong> Uses <code style={{ background: '#FEF3C7', padding: '1px 4px', borderRadius: 3 }}>voice_hint</code> — a pre-formatted spoken version. The card is not shown, but all data is conveyed.
+        </div>
+      </div>
+    </ChatShell>
+  );
+};
+
+// ── Screen 3: Form Component ──────────────────────────────────────────────────
+const FormScreen = ({ mode, onToggleMode }) => {
+  const [step, setStep] = useState(0);
+  const [showSchema, setShowSchema] = useState(false);
+  const schema = [
+    `<span class="sc">// External agent response schema — form</span>`,
+    `{`,
+    `  <span class="sk">"response_type"</span>: <span class="ss">"form"</span>,`,
+    `  <span class="sk">"semantic_response"</span>: <span class="ss">"I can submit a PTO request. I need a few details."</span>,`,
+    `  <span class="sk">"ui_component"</span>: {`,
+    `    <span class="sk">"type"</span>: <span class="ss">"form"</span>,`,
+    `    <span class="sk">"title"</span>: <span class="ss">"Request Time Off"</span>,`,
+    `    <span class="sk">"fields"</span>: [`,
+    `      { <span class="sk">"id"</span>: <span class="ss">"start_date"</span>, <span class="sk">"type"</span>: <span class="ss">"date"</span>, <span class="sk">"required"</span>: <span class="sv">true</span>,`,
+    `        <span class="sk">"voice_prompt"</span>: <span class="ss">"What date would you like to start?"</span> },`,
+    `      { <span class="sk">"id"</span>: <span class="ss">"end_date"</span>, <span class="sk">"type"</span>: <span class="ss">"date"</span>, <span class="sk">"required"</span>: <span class="sv">true</span>,`,
+    `        <span class="sk">"voice_prompt"</span>: <span class="ss">"And what date will you return?"</span> },`,
+    `      { <span class="sk">"id"</span>: <span class="ss">"type"</span>, <span class="sk">"type"</span>: <span class="ss">"select"</span>,`,
+    `        <span class="sk">"options"</span>: [<span class="ss">"Annual leave"</span>, <span class="ss">"Sick leave"</span>, <span class="ss">"Parental leave"</span>],`,
+    `        <span class="sk">"voice_prompt"</span>: <span class="ss">"Is this annual leave, sick leave, or parental leave?"</span> }`,
+    `    ],`,
+    `    <span class="sk">"submit_label"</span>: <span class="ss">"Submit request"</span>`,
+    `  },`,
+    `  <span class="sk">"next_action"</span>: <span class="ss">"collect_form"</span>`,
+    `}`,
+  ];
+
+  return (
+    <ChatShell mode={mode} onToggleMode={onToggleMode} inputPlaceholder="Fill in the form above to continue..." inputDisabled={step < 1}>
+      <div style={{ maxWidth: 560, margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <span style={{ background: '#F0FDF4', color: '#15803D', fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 20 }}>Component type: form — input collection</span>
+        </div>
+        <UserMsg text="I'd like to request some time off" />
+        <NavMsg agentTag="HR Bot (Workday)">
+          {mode === 'Chat' ? (
+            <>
+              <div className="bubble-nav" style={{ marginBottom: 10 }}>Of course! I can submit that for you. Please fill in the details:</div>
+              {step === 0 && (
+                <div className="ui-card" style={{ maxWidth: 320 }}>
+                  <div className="ui-card-header">
+                    <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>🏖 Request Time Off</div>
+                    <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>You have 12 days remaining this year</div>
+                  </div>
+                  <div className="ui-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 4 }}>Start date <span style={{ color: '#EF4444' }}>*</span></label>
+                      <input type="date" className="chat-input" defaultValue="2026-08-12" />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 4 }}>End date <span style={{ color: '#EF4444' }}>*</span></label>
+                      <input type="date" className="chat-input" defaultValue="2026-08-16" />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 4 }}>Leave type</label>
+                      <select className="chat-select"><option>Annual leave</option><option>Sick leave</option><option>Parental leave</option></select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 4 }}>Notes (optional)</label>
+                      <input className="chat-input" placeholder="Add a note for your manager..." />
+                    </div>
+                  </div>
+                  <div className="ui-card-footer">
+                    <button className="btn-cancel">Cancel</button>
+                    <button className="btn-confirm" onClick={() => setStep(1)}>Submit request →</button>
+                  </div>
+                </div>
+              )}
+              {step === 1 && (
+                <div className="bubble-nav" style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#15803D' }}>
+                  <I n="check" s={16} c="#16A34A" /> Your PTO request has been submitted and sent to your manager for approval.
+                </div>
+              )}
+            </>
+          ) : (
+            // Voice mode — conversational collection
+            <div>
+              <VoiceMsg text='"Of course! I can submit that for you. What date would you like to start?"' />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <div className="bubble-user">August 12th</div>
+              </div>
+              <VoiceMsg text='"Got it, August 12th. And what date will you return?"' />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <div className="bubble-user">August 16th</div>
+              </div>
+              <VoiceMsg text='"Perfect. Is this annual leave, sick leave, or parental leave?"' />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <div className="bubble-user">Annual leave</div>
+              </div>
+              <VoiceMsg text='"Great. I'll submit a request for 5 days of annual leave from August 12th to 16th. Shall I confirm?"' />
+              <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#4C1D95', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <I n="mic" s={14} c="#7C3AED" /> Awaiting voice confirmation: "Yes" or "Cancel"
+              </div>
+            </div>
+          )}
+        </NavMsg>
+        <div style={{ textAlign: 'right', marginTop: -4, marginBottom: 16 }}>
+          <button className="schema-toggle" onClick={() => setShowSchema(!showSchema)}>
+            {showSchema ? '▼ hide schema' : '{ } view response schema'}
+          </button>
+        </div>
+        {showSchema && <SchemaBlock data={schema} />}
+        <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: '#78350F', marginTop: 12 }}>
+          <strong>Voice adaptation:</strong> Each form field has a <code style={{ background: '#FEF3C7', padding: '1px 4px', borderRadius: 3 }}>voice_prompt</code>. Navigator asks them sequentially. No visual form is shown — inputs are collected by STT and validated before submitting.
+        </div>
+      </div>
+    </ChatShell>
+  );
+};
+
+// ── Screen 4: Confirmation Card ───────────────────────────────────────────────
+const ConfirmationScreen = ({ mode, onToggleMode }) => {
+  const [confirmed, setConfirmed] = useState(false);
+  const [showSchema, setShowSchema] = useState(false);
+  const schema = [
+    `<span class="sc">// External agent response schema — confirmation</span>`,
+    `{`,
+    `  <span class="sk">"response_type"</span>: <span class="ss">"confirmation"</span>,`,
+    `  <span class="sk">"semantic_response"</span>: <span class="ss">"I'm ready to reset your Salesforce password."</span>,`,
+    `  <span class="sk">"voice_hint"</span>: <span class="ss">"I'll send a reset link to m.rossi@acme.com. Say yes to confirm."</span>,`,
+    `  <span class="sk">"ui_component"</span>: {`,
+    `    <span class="sk">"type"</span>: <span class="ss">"confirmation"</span>,`,
+    `    <span class="sk">"title"</span>: <span class="ss">"Reset Salesforce Password"</span>,`,
+    `    <span class="sk">"risk_level"</span>: <span class="ss">"medium"</span>,`,
+    `    <span class="sk">"details"</span>: [`,
+    `      { <span class="sk">"label"</span>: <span class="ss">"Account"</span>, <span class="sk">"value"</span>: <span class="ss">"m.rossi@acme.com"</span> },`,
+    `      { <span class="sk">"label"</span>: <span class="ss">"Method"</span>, <span class="sk">"value"</span>: <span class="ss">"Email reset link"</span> }`,
+    `    ],`,
+    `    <span class="sk">"action_label"</span>: <span class="ss">"Confirm reset"</span>,`,
+    `    <span class="sk">"cancel_label"</span>: <span class="ss">"Cancel"</span>`,
+    `  },`,
+    `  <span class="sk">"next_action"</span>: <span class="ss">"await_confirmation"</span>`,
+    `}`,
+  ];
+  return (
+    <ChatShell mode={mode} onToggleMode={onToggleMode}>
+      <div style={{ maxWidth: 560, margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <span style={{ background: '#FEF9C3', color: '#854D0E', fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 20 }}>Component type: confirmation — action preview before execution</span>
+        </div>
+        <UserMsg text="I can't log into Salesforce, please reset my password" />
+        <NavMsg agentTag="IT Helpdesk (Copilot Studio)">
+          {mode === 'Chat' ? (
+            <>
+              <div className="bubble-nav" style={{ marginBottom: 10 }}>I can reset your Salesforce password right away. Please confirm before I proceed:</div>
+              {!confirmed ? (
+                <div className="ui-card" style={{ maxWidth: 300 }}>
+                  <div className="ui-card-header" style={{ background: '#FFFBEB', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <I n="alert" s={16} c="#D97706" />
+                    <span style={{ fontWeight: 600, fontSize: 14, color: '#92400E' }}>Reset Salesforce Password</span>
+                  </div>
+                  <div className="ui-card-body">
+                    <div className="info-row"><span className="info-label">Account</span><span className="info-value">m.rossi@acme.com</span></div>
+                    <div className="info-row"><span className="info-label">Method</span><span className="info-value">Email reset link</span></div>
+                    <div className="info-row"><span className="info-label">Logged by</span><span className="info-value">Navigator (IT Helpdesk)</span></div>
+                    <div style={{ marginTop: 10, fontSize: 12, color: '#9CA3AF' }}>This action will be logged in ServiceNow.</div>
+                  </div>
+                  <div className="ui-card-footer">
+                    <button className="btn-cancel" onClick={() => {}}>Cancel</button>
+                    <button className="btn-confirm" onClick={() => setConfirmed(true)}>Confirm reset</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="bubble-nav" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <I n="check" s={16} c="#16A34A" /> <span>Done! Reset link sent to <strong>m.rossi@acme.com</strong>. Check your inbox.</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <div>
+              <VoiceMsg text='"I can reset your Salesforce password. I\'ll send a reset link to m.rossi@acme.com and log the action in ServiceNow. Say yes to confirm, or cancel to stop."' />
+              <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#4C1D95', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <I n="mic" s={14} c="#7C3AED" /> Awaiting: "Yes" or "Cancel"
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <div className="bubble-user">Yes</div>
+              </div>
+              <VoiceMsg text='"Done — your password reset link has been sent to your email. Is there anything else I can help with?"' />
+            </div>
+          )}
+        </NavMsg>
+        <div style={{ textAlign: 'right', marginTop: -4, marginBottom: 16 }}>
+          <button className="schema-toggle" onClick={() => setShowSchema(!showSchema)}>
+            {showSchema ? '▼ hide schema' : '{ } view response schema'}
+          </button>
+        </div>
+        {showSchema && <SchemaBlock data={schema} />}
+        <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: '#78350F', marginTop: 12 }}>
+          <strong>Voice:</strong> <code style={{ background: '#FEF3C7', padding: '1px 4px', borderRadius: 3 }}>voice_hint</code> gives a spoken summary of the action. Navigator listens for "yes"/"confirm" or "cancel"/"no". <code style={{ background: '#FEF3C7', padding: '1px 4px', borderRadius: 3 }}>risk_level</code> determines how explicitly the warning is spoken.
+        </div>
+      </div>
+    </ChatShell>
+  );
+};
+
+// ── Screen 5: Action Card ─────────────────────────────────────────────────────
+const ActionCardScreen = ({ mode, onToggleMode }) => {
+  const [selected, setSelected] = useState(null);
+  const [showSchema, setShowSchema] = useState(false);
+  const schema = [
+    `<span class="sc">// External agent response schema — action_card</span>`,
+    `{`,
+    `  <span class="sk">"response_type"</span>: <span class="ss">"action_card"</span>,`,
+    `  <span class="sk">"semantic_response"</span>: <span class="ss">"There are a few ways I can help with this."</span>,`,
+    `  <span class="sk">"voice_hint"</span>: <span class="ss">"I can do three things: submit a ticket, check status, or escalate. Which would you like?"</span>,`,
+    `  <span class="sk">"ui_component"</span>: {`,
+    `    <span class="sk">"type"</span>: <span class="ss">"action_card"</span>,`,
+    `    <span class="sk">"title"</span>: <span class="ss">"How can I help?"</span>,`,
+    `    <span class="sk">"actions"</span>: [`,
+    `      { <span class="sk">"id"</span>: <span class="ss">"new_ticket"</span>, <span class="sk">"label"</span>: <span class="ss">"Submit a new IT ticket"</span>, <span class="sk">"voice_trigger"</span>: <span class="ss">"submit"</span> },`,
+    `      { <span class="sk">"id"</span>: <span class="ss">"check_status"</span>, <span class="sk">"label"</span>: <span class="ss">"Check an existing ticket"</span>, <span class="sk">"voice_trigger"</span>: <span class="ss">"check status"</span> },`,
+    `      { <span class="sk">"id"</span>: <span class="ss">"escalate"</span>, <span class="sk">"label"</span>: <span class="ss">"Escalate to IT support"</span>, <span class="sk">"style"</span>: <span class="ss">"secondary"</span>, <span class="sk">"voice_trigger"</span>: <span class="ss">"escalate"</span> }`,
+    `    ]`,
+    `  },`,
+    `  <span class="sk">"next_action"</span>: <span class="ss">"collect_form"</span>`,
+    `}`,
+  ];
+  return (
+    <ChatShell mode={mode} onToggleMode={onToggleMode}>
+      <div style={{ maxWidth: 560, margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <span style={{ background: '#F5F3FF', color: '#6D28D9', fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 20 }}>Component type: action_card — multiple choices</span>
+        </div>
+        <UserMsg text="I have an issue with my laptop" />
+        <NavMsg agentTag="IT Helpdesk (Copilot Studio)">
+          <div className="bubble-nav" style={{ marginBottom: 10 }}>I can help with that! There are a few ways to handle this:</div>
+          {mode === 'Chat' ? (
+            <div className="ui-card" style={{ maxWidth: 280 }}>
+              <div className="ui-card-header">
+                <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>💻 How can I help?</div>
+              </div>
+              <div className="ui-card-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[
+                  { id: 'new_ticket', label: '🎫 Submit a new IT ticket', desc: 'Log your issue for the IT team' },
+                  { id: 'check_status', label: '🔍 Check an existing ticket', desc: 'See updates on a previous request' },
+                  { id: 'escalate', label: '⚡ Escalate to IT support', desc: 'Connect with a human right now' },
+                ].map(a => (
+                  <button key={a.id} className="btn-action" onClick={() => setSelected(a.id)} style={{ background: selected === a.id ? '#EFF6FF' : '#fff', borderColor: selected === a.id ? '#3B82F6' : '#BFDBFE', textAlign: 'left' }}>
+                    <div style={{ fontWeight: 500, fontSize: 13 }}>{a.label}</div>
+                    <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{a.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <VoiceMsg text='"I can help with that! I can do three things: submit a new IT ticket, check the status of an existing one, or escalate to a live IT support agent. Which would you like?"' />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <div className="bubble-user">Submit a ticket</div>
+              </div>
+              <VoiceMsg text='"Got it. Let me get some details about your laptop issue..."' />
+            </div>
+          )}
+          {selected && mode === 'Chat' && (
+            <div className="bubble-nav" style={{ marginTop: 10 }}>
+              Got it — {selected === 'new_ticket' ? 'let me get some details about your laptop issue.' : selected === 'check_status' ? "what's your ticket number?" : 'connecting you with IT support now...'}
+            </div>
+          )}
+        </NavMsg>
+        <div style={{ textAlign: 'right', marginTop: -4, marginBottom: 16 }}>
+          <button className="schema-toggle" onClick={() => setShowSchema(!showSchema)}>
+            {showSchema ? '▼ hide schema' : '{ } view response schema'}
+          </button>
+        </div>
+        {showSchema && <SchemaBlock data={schema} />}
+        <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: '#78350F', marginTop: 12 }}>
+          <strong>Voice:</strong> Each action has a <code style={{ background: '#FEF3C7', padding: '1px 4px', borderRadius: 3 }}>voice_trigger</code> — spoken keywords Navigator listens for. No button rendering. Options are read aloud from <code style={{ background: '#FEF3C7', padding: '1px 4px', borderRadius: 3 }}>voice_hint</code>.
+        </div>
+      </div>
+    </ChatShell>
+  );
+};
+
+// ── Screen 6: Voice Mode Full ─────────────────────────────────────────────────
+const VoiceFullScreen = ({ mode, onToggleMode }) => {
+  const [phase, setPhase] = useState(0);
+  const phases = [
+    { from: 'user', text: 'Hey Navigator, do I have any PTO left?' },
+    { from: 'nav', text: 'Yes Maria, you have 12 days remaining this year. You also have 5 days already approved in August. Would you like to request more time off?' },
+    { from: 'user', text: 'Yes, I want to take next week off' },
+    { from: 'nav', text: "Sure! Just to confirm — that's April 6th to 10th, 5 days of annual leave. Shall I submit the request to your manager?" },
+    { from: 'user', text: 'Yes please' },
+    { from: 'nav', text: "Done! Your time-off request for April 6th to 10th has been submitted. Your manager will receive a notification. I'll let you know when it's approved." },
+  ];
+  return (
+    <ChatShell mode={mode} onToggleMode={onToggleMode}>
+      <div style={{ maxWidth: 520, margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <span style={{ background: '#F5F3FF', color: '#6D28D9', fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 20 }}>Voice mode — full end-to-end PTO flow</span>
+        </div>
+
+        {/* Voice waveform */}
+        <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 16, padding: '20px', textAlign: 'center', marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+            <div className="voice-wave">
+              {[1,2,3,4,5,6,7].map(i => <div key={i} className="voice-bar" style={{ animationDelay: `${i*0.1}s` }} />)}
+            </div>
+          </div>
+          <div style={{ fontSize: 13, color: '#7C3AED', fontWeight: 500 }}>Listening...</div>
+          <div style={{ fontSize: 11, color: '#A78BFA', marginTop: 4 }}>HR Bot (Workday) · IT Helpdesk (Copilot Studio)</div>
+        </div>
+
+        {/* Conversation */}
+        {phases.slice(0, phase + 1).map((p, i) => (
+          p.from === 'user'
+            ? <div key={i} style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}><div className="bubble-user">{p.text}</div></div>
+            : <VoiceMsg key={i} text={`"${p.text}"`} />
+        ))}
+
+        {phase < phases.length - 1 && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
+            <button onClick={() => setPhase(p => p + 1)} style={{ background: '#7C3AED', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              ▶ Next utterance
+            </button>
+          </div>
+        )}
+
+        <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 10, padding: '14px', fontSize: 13, color: '#4C1D95', marginTop: 20 }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>🎙 How voice works with external agents</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5 }}>
+            {[
+              'Navigator uses semantic_response / voice_hint from each external agent response',
+              'Forms → each field\'s voice_prompt asked sequentially via STT',
+              'Confirmations → "Say yes to confirm" pattern, waits for spoken input',
+              'Action cards → options read aloud from voice_hint, voice_trigger keywords detected',
+              'Info cards → voice_hint gives a spoken-optimised version of the data',
+              'No visual UI is rendered. Entire session is audio only.',
+            ].map((t, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8 }}><span>•</span><span>{t}</span></div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </ChatShell>
+  );
+};
+
+// ── Screen 7: Schema Overview ─────────────────────────────────────────────────
+const SchemaOverviewScreen = ({ mode, onToggleMode }) => (
+  <ChatShell mode={mode} onToggleMode={onToggleMode}>
+    <div style={{ maxWidth: 680, margin: '0 auto' }}>
+      <div style={{ textAlign: 'center', marginBottom: 20 }}>
+        <span style={{ background: '#1E293B', color: '#E2E8F0', fontSize: 12, fontWeight: 600, padding: '4px 12px', borderRadius: 20 }}>{'{ }'} Full Navigator Response Schema — all types</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+        {[
+          { type: 'text', color: '#F0FDF4', tc: '#15803D', desc: 'Plain conversational response. Voice reads semantic_response directly.' },
+          { type: 'info_card', color: '#EFF6FF', tc: '#1D4ED8', desc: 'Structured data display. Voice uses voice_hint for a spoken summary.' },
+          { type: 'form', color: '#F0FDF4', tc: '#15803D', desc: 'Input collection. Voice asks each field via voice_prompt sequentially.' },
+          { type: 'confirmation', color: '#FFFBEB', tc: '#854D0E', desc: 'Action preview before execution. Voice awaits yes/no/cancel.' },
+          { type: 'action_card', color: '#F5F3FF', tc: '#6D28D9', desc: 'Multiple choices. Voice reads options and listens for voice_trigger.' },
+          { type: 'redirect', color: '#FDF4FF', tc: '#86198F', desc: 'Deep link to external system. Voice says "I\'ve sent a link to your phone."' },
+        ].map(c => (
+          <div key={c.type} style={{ background: c.color, border: `1px solid ${c.color}`, borderRadius: 10, padding: '12px 14px' }}>
+            <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, color: c.tc, marginBottom: 4 }}>"{c.type}"</div>
+            <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.5 }}>{c.desc}</div>
+          </div>
+        ))}
+      </div>
+      <div className="schema-panel">
+        <div><span className="sc">// Every external agent response follows this schema</span></div>
+        <div><span className="sc">// MCP tool results are mapped to this by the Response Normalizer</span></div>
+        <div style={{ marginTop: 6 }}><span className="sk">interface</span> <span style={{ color: '#FCD34D' }}>NavigatorAgentResponse</span> {'{'}</div>
+        <div style={{ paddingLeft: 16 }}><span className="sc">// Always required — drives voice in all channels</span></div>
+        <div style={{ paddingLeft: 16 }}><span className="sk">semantic_response</span>: <span className="ss">string</span>;</div>
+        <div style={{ paddingLeft: 16 }}><span className="sc">// Optional — explicit spoken override (shorter, voice-optimised)</span></div>
+        <div style={{ paddingLeft: 16 }}><span className="sk">voice_hint</span>?: <span className="ss">string</span>;</div>
+        <div style={{ paddingLeft: 16 }}><span className="sc">// The visual UI to render — null = text bubble only</span></div>
+        <div style={{ paddingLeft: 16 }}><span className="sk">ui_component</span>?: <span className="ss">FormComponent | InfoCard | Confirmation | ActionCard | Redirect | null</span>;</div>
+        <div style={{ paddingLeft: 16 }}><span className="sc">// Tells Navigator what to do next</span></div>
+        <div style={{ paddingLeft: 16 }}><span className="sk">next_action</span>: <span className="ss">"complete" | "collect_form" | "await_confirmation"</span>;</div>
+        <div style={{ paddingLeft: 16 }}><span className="sc">// Agent can pass state back for multi-turn conversations</span></div>
+        <div style={{ paddingLeft: 16 }}><span className="sk">session_context</span>?: <span className="ss">Record</span>{'<'}<span className="ss">string, any</span>{'>'};</div>
+        <div style={{ paddingLeft: 16 }}><span className="sk">sources</span>?: {'{ title: string; url?: string }[]'};</div>
+        <div>{'}'}</div>
+      </div>
+      <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: '#14532D', marginTop: 16 }}>
+        <strong>MCP connection:</strong> The manifest declares <code style={{ background: '#DCFCE7', padding: '1px 4px', borderRadius: 3 }}>output_schema.response_types</code> listing which component types this agent can return. Navigator's Response Normalizer maps MCP tool results to this schema. External agents never render their own UI — they just declare what they need.
+      </div>
+    </div>
+  </ChatShell>
+);
+
+// ── App ───────────────────────────────────────────────────────────────────────
+const SCREENS = ['text','info_card','form','confirmation','action_card','🎙 voice','schema'];
+const COMPONENTS = [TextResponseScreen, InfoCardScreen, FormScreen, ConfirmationScreen, ActionCardScreen, VoiceFullScreen, SchemaOverviewScreen];
+
+function App() {
+  const [screen, setScreen] = useState(0);
+  const [mode, setMode] = useState('Chat');
+  const Comp = COMPONENTS[screen];
+  useEffect(() => { if (screen === 5) setMode('Voice'); else setMode('Chat'); }, [screen]);
+
+  return (
+    <div>
+      <Comp mode={mode} onToggleMode={m => setMode(m)} />
+      <div className="screen-nav">
+        <span style={{ fontSize: 10, color: '#64748B', marginRight: 4, fontWeight: 700, letterSpacing: '0.05em' }}>UI TYPES</span>
+        {SCREENS.map((s, i) => (
+          <button key={i} className={`snav-btn ${screen === i ? 'active' : ''}`} onClick={() => setScreen(i)}>
+            {s}
+          </button>
+        ))}
+        <div style={{ width: 1, background: '#334155', margin: '0 6px' }} />
+        {['Chat','Voice'].map(m => (
+          <button key={m} onClick={() => setMode(m)} style={{ padding: '5px 11px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', border: 'none', color: mode === m ? '#fff' : '#64748B', background: mode === m ? '#7C3AED' : 'transparent', fontWeight: 500 }}>
+            {m === 'Voice' ? '🎙' : '💬'} {m}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
