@@ -901,17 +901,17 @@ body { font-family: 'Inter', -apple-system, sans-serif; background: #F4F4F8; col
   <div class="sidebar">
     <div class="sidebar-section">
       <div class="sidebar-section-label">Navigator</div>
-      <div class="nav-item" id="nav-agents" onclick="showView("agents")"><div class="nav-icon">🤖</div>Agents <span class="nav-badge">2</span></div>
-      <div class="nav-item" onclick=""><div class="nav-icon">📚</div>Collections</div>
+      <div class="nav-item" id="nav-agents" onclick="showView('agents')"><div class="nav-icon">🤖</div>Agents <span class="nav-badge">2</span></div>
+      <div class="nav-item" onclick="showToast('Collections view — not wired in prototype')"><div class="nav-icon">📚</div>Collections</div>
       <div class="nav-item active" id="nav-integrations" onclick="showView('overview')"><div class="nav-icon">🔌</div>Integrations <span class="nav-badge">2</span></div>
-      <div class="nav-item" onclick=""><div class="nav-icon">💬</div>Conversations</div>
-      <div class="nav-item" onclick=""><div class="nav-icon">📊</div>Analytics</div>
+      <div class="nav-item" onclick="showToast('Conversations view — not wired in prototype')"><div class="nav-icon">💬</div>Conversations</div>
+      <div class="nav-item" onclick="showToast('Analytics view — not wired in prototype')"><div class="nav-icon">📊</div>Analytics</div>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-section-label">Settings</div>
-      <div class="nav-item" onclick=""><div class="nav-icon">👁️</div>Visibility</div>
-      <div class="nav-item" onclick=""><div class="nav-icon">🎨</div>Appearance</div>
-      <div class="nav-item" id="nav-navigator-config" onclick="showView("navigator-config")"><div class="nav-icon">⚙️</div>Navigator</div>
+      <div class="nav-item" onclick="showToast('Visibility settings — not wired in prototype')"><div class="nav-icon">👁️</div>Visibility</div>
+      <div class="nav-item" onclick="showToast('Appearance settings — not wired in prototype')"><div class="nav-icon">🎨</div>Appearance</div>
+      <div class="nav-item" id="nav-navigator-config" onclick="showView('navigator-config')"><div class="nav-icon">⚙️</div>Navigator</div>
     </div>
   </div>
 
@@ -1111,6 +1111,17 @@ function toggleCap(key, module, capName) {
 function showView(v) {
   currentView = v;
   const el = document.getElementById('mainContent');
+  
+  // Handle sidebar active states using the provided utility
+  if (v === 'overview' || v.startsWith('detail-')) {
+    setNavActive('nav-integrations');
+  } else if (v === 'agents' || v.startsWith('agent-detail-')) {
+    setNavActive('nav-agents');
+  } else if (v === 'navigator-config') {
+    setNavActive('nav-navigator-config');
+  }
+
+  // Handle views
   if (v === 'overview') {
     document.getElementById('breadcrumb').textContent = 'Integrations';
     el.innerHTML = renderOverview();
@@ -1120,6 +1131,17 @@ function showView(v) {
   } else if (v === 'detail-bamboo') {
     document.getElementById('breadcrumb').textContent = 'BambooHR';
     el.innerHTML = renderDetail('bamboohr');
+  } else if (v === 'agents') {
+    document.getElementById('breadcrumb').textContent = 'Agents';
+    el.innerHTML = renderAgentsView();
+  } else if (v === 'navigator-config') {
+    document.getElementById('breadcrumb').textContent = 'Navigator Configuration';
+    el.innerHTML = renderNavigatorConfig();
+  } else if (v.startsWith('agent-detail-')) {
+    const agentKey = v.split('agent-detail-')[1];
+    const agent = agentData[agentKey];
+    document.getElementById('breadcrumb').textContent = agent ? agent.name : 'Agent Detail';
+    el.innerHTML = renderAgentDetail(agentKey);
   }
 }
 
@@ -1722,43 +1744,7 @@ function setNavActive(id) {
   if (el) el.classList.add('active');
 }
 
-// ── Extended showView ──────────────────────────────────────
-const _origShowView = showView;
-showView = function(v) {
-  const el = document.getElementById('mainContent');
-  currentView = v;
-  if (v === 'overview') {
-    setNavActive('nav-integrations');
-    document.getElementById('breadcrumb').textContent = 'Integrations';
-    el.innerHTML = renderOverview();
-  } else if (v === 'detail-sn') {
-    setNavActive('nav-integrations');
-    document.getElementById('breadcrumb').textContent = 'ServiceNow';
-    el.innerHTML = renderDetail('servicenow');
-  } else if (v === 'detail-bamboo') {
-    setNavActive('nav-integrations');
-    document.getElementById('breadcrumb').textContent = 'BambooHR';
-    el.innerHTML = renderDetail('bamboohr');
-  } else if (v === 'agents') {
-    setNavActive('nav-agents');
-    document.getElementById('breadcrumb').textContent = 'Agents';
-    el.innerHTML = renderAgentsView();
-  } else if (v === 'agent-detail-hr') {
-    setNavActive('nav-agents');
-    currentAgent = 'hr';
-    document.getElementById('breadcrumb').textContent = 'HR Assistant';
-    el.innerHTML = renderAgentDetail('hr');
-  } else if (v === 'agent-detail-it') {
-    setNavActive('nav-agents');
-    currentAgent = 'it';
-    document.getElementById('breadcrumb').textContent = 'IT Assistant';
-    el.innerHTML = renderAgentDetail('it');
-  } else if (v === 'navigator-config') {
-    setNavActive('nav-navigator-config');
-    document.getElementById('breadcrumb').textContent = 'Navigator';
-    el.innerHTML = renderNavigatorConfig();
-  }
-};
+// ── Extended views (Logic consolidated in showView above) ──────
 
 // ── Agents List View ───────────────────────────────────────
 function renderAgentsView() {
@@ -2068,12 +2054,6 @@ function toggleAgentIntegration(agentKey, intKey, checkbox) {
   setTimeout(() => { agentDetailTab = 'actions'; }, 0);
 }
 
-function toggleIntRow(agentKey, intKey) {
-  const k = agentKey + '|' + intKey;
-  agentIntegrationOpen[k] = !agentIntegrationOpen[k];
-  showView('agent-detail-' + agentKey);
-  setTimeout(() => { agentDetailTab = 'actions'; }, 0);
-}
 
 function toggleAgentCap(agentKey, intKey, capName, checkbox) {
   const a = agentData[agentKey];
@@ -2408,5 +2388,3 @@ showView('overview');
 </script>
 </body>
 </html>
-
-⏳ Process is running. Use read_process_output to get more output.
