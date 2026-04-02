@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Navigator — Self-Service Activation</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f4f5f7; color: #1a1a2e; padding-top: 48px; }
+
+  /* ── Proto bar ── */
+  .proto-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 9999; background: #1C1C1E; color: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 48px; font-size: 13px; }
+  .proto-bar-left { display: flex; align-items: center; gap: 12px; }
+  .proto-back { display: inline-flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.6); text-decoration: none; font-size: 13px; transition: color 0.15s; }
+  .proto-back:hover { color: #fff; }
+  .proto-divider { width: 1px; height: 16px; background: rgba(255,255,255,0.15); }
+  .proto-title { font-weight: 500; }
+  .proto-tags { display: flex; gap: 6px; }
+  .proto-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+  .tag-navigator { background: #1D4ED8; color: #fff; }
+  .tag-wip { background: #854D0E; color: #FEF9C3; }
+
+
+  @keyframes spin    { to { transform: rotate(360deg); } }
+  @keyframes slideUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes fadeIn  { from { opacity:0; } to { opacity:1; } }
+  @keyframes pulseRing { 0% { transform:scale(1); opacity:.5; } 100% { transform:scale(1.6); opacity:0; } }
+
+  .slide-up { animation: slideUp 0.25s ease-out; }
+
+  /* ── App chrome ── */
+  .app { display:flex; flex-direction:column; height:calc(100vh - 48px); }
+  .topbar { height:52px; background:#fff; border-bottom:1px solid #e5e7eb; display:flex; align-items:center; padding:0 20px; gap:32px; flex-shrink:0; }
+  .topbar-logo { font-weight:700; font-size:15px; color:#1a1a2e; display:flex; align-items:center; gap:8px; }
+  .topbar-logo-icon { width:24px; height:24px; background:linear-gradient(135deg,#5a67d8,#805ad5); border-radius:6px; }
+  .topbar-nav { display:flex; gap:4px; }
+  .topbar-nav a { padding:6px 12px; border-radius:6px; font-size:13px; font-weight:500; color:#6b7280; cursor:pointer; transition:background .15s,color .15s; }
+  .topbar-nav a:hover { background:#f3f4f6; color:#1a1a2e; }
+  .topbar-nav a.active { background:#1a1a2e; color:#fff; }
+  .topbar-right { margin-left:auto; }
+  .avatar { width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,#5a67d8,#805ad5); display:flex; align-items:center; justify-content:center; color:#fff; font-size:12px; font-weight:600; }
+
+  .main { display:flex; flex:1; overflow:hidden; }
+
+  /* ── Sidebar ── */
+  .sidebar { width:200px; background:#fff; border-right:1px solid #e5e7eb; padding:16px 0; overflow-y:auto; flex-shrink:0; }
+  .sidebar-label { padding:4px 16px; font-size:11px; font-weight:600; color:#9ca3af; text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
+  .sidebar-item { display:flex; align-items:center; gap:8px; padding:7px 16px; font-size:13px; color:#374151; cursor:pointer; transition:background .1s; white-space:nowrap; }
+  .sidebar-item:hover { background:#f9fafb; }
+  .sidebar-item.active { background:#eff6ff; color:#2563eb; font-weight:500; }
+  .sb-dot { width:7px; height:7px; border-radius:50%; background:#f59e0b; flex-shrink:0; }
+
+  /* ── Content ── */
+  .content { flex:1; overflow-y:auto; padding:32px 40px; }
+
+  /* ── Hub grid ── */
+  .hub-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; max-width:900px; }
+  .feature-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; transition:box-shadow .2s; }
+  .feature-card:hover { box-shadow:0 4px 12px rgba(0,0,0,.07); }
+  .feature-card.nav-pending { border-color:#fcd34d; background:linear-gradient(160deg,#fffbeb 0%,#fff 70%); }
+  .card-preview { height:140px; background:#f9fafb; border-bottom:1px solid #e5e7eb; overflow:hidden; position:relative; }
+  .nav-thumb { width:100%; height:140px; background:linear-gradient(135deg,#1e1b4b 0%,#312e81 100%); display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden; }
+  .nav-thumb-stars { position:absolute; inset:0; background-image:radial-gradient(circle,rgba(255,255,255,.12) 1px,transparent 1px); background-size:24px 24px; }
+  .nav-thumb-chat { background:rgba(255,255,255,.1); border-radius:10px; padding:10px 14px; width:200px; }
+  .nav-thumb-q { background:rgba(255,255,255,.18); border-radius:6px; padding:6px 10px; font-size:10px; color:rgba(255,255,255,.9); margin-bottom:6px; }
+  .nav-thumb-a { background:rgba(255,255,255,.92); border-radius:6px; padding:6px 10px; font-size:10px; color:#1e1b4b; }
+  .nav-thumb-dim { position:absolute; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; }
+  .nav-thumb-badge { position:absolute; bottom:8px; right:10px; background:rgba(245,158,11,.95); border-radius:12px; font-size:10px; color:#fff; padding:3px 9px; font-weight:600; display:flex; align-items:center; gap:4px; }
+  .card-body { padding:16px 20px 20px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+  .card-name { font-size:15px; font-weight:600; color:#1a1a2e; margin-bottom:4px; display:flex; align-items:center; gap:6px; }
+  .card-desc { font-size:12px; color:#6b7280; line-height:1.5; }
+  .ai-tag { background:linear-gradient(135deg,#5a67d8,#805ad5); color:#fff; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:600; }
+
+  /* Buttons */
+  .btn-primary   { padding:9px 20px; background:#5a67d8; color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:500; cursor:pointer; transition:background .15s; display:inline-flex; align-items:center; gap:6px; }
+  .btn-primary:hover { background:#4c51bf; }
+  .btn-secondary { padding:9px 20px; background:#fff; color:#374151; border:1.5px solid #e5e7eb; border-radius:8px; font-size:13px; font-weight:500; cursor:pointer; transition:all .15s; }
+  .btn-secondary:hover { border-color:#9ca3af; }
+  .btn-setup     { padding:8px 16px; background:#5a67d8; color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:500; cursor:pointer; transition:background .15s,transform .1s; white-space:nowrap; flex-shrink:0; }
+  .btn-setup:hover { background:#4c51bf; transform:translateY(-1px); }
+  .btn-outline   { padding:8px 16px; background:#fff; color:#5a67d8; border:1.5px solid #5a67d8; border-radius:8px; font-size:13px; font-weight:500; cursor:pointer; white-space:nowrap; flex-shrink:0; transition:all .15s; }
+  .btn-outline:hover { background:#eef2ff; }
+
+  .toggle { width:44px; height:26px; border-radius:13px; background:#10b981; position:relative; border:none; flex-shrink:0; cursor:default; }
+  .toggle::after { content:''; position:absolute; top:3px; left:23px; width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.2); }
+
+  /* ── Modal ── */
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; z-index:100; animation:fadeIn .2s ease-out; }
+  .modal { background:#fff; border-radius:16px; width:460px; box-shadow:0 20px 60px rgba(0,0,0,.2); overflow:hidden; animation:slideUp .25s ease-out; }
+  .modal-header { padding:24px 28px 0; display:flex; align-items:flex-start; justify-content:space-between; }
+  .modal-title  { font-size:18px; font-weight:700; color:#1a1a2e; margin-bottom:6px; }
+  .modal-body   { padding:16px 28px 0; }
+  .modal-footer { padding:20px 28px 24px; display:flex; align-items:center; justify-content:space-between; }
+  .modal-close  { width:30px; height:30px; border-radius:8px; background:#f3f4f6; border:none; cursor:pointer; font-size:15px; color:#6b7280; }
+  .modal-close:hover { background:#e5e7eb; }
+  .what-happens { list-style:none; display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
+  .what-happens li { display:flex; align-items:flex-start; gap:10px; font-size:13px; color:#374151; line-height:1.5; }
+  .what-happens li span.ico { font-size:15px; flex-shrink:0; margin-top:1px; }
+  .notice-box { background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:12px 14px; font-size:12px; color:#1d4ed8; line-height:1.6; }
+
+  /* ── Navigator queued page ── */
+  .nav-page { flex:1; overflow-y:auto; padding:40px 48px; display:flex; flex-direction:column; align-items:center; }
+  .nav-page-inner { width:100%; max-width:640px; }
+  .breadcrumb { display:flex; align-items:center; gap:6px; font-size:12px; color:#9ca3af; margin-bottom:20px; }
+  .breadcrumb a { color:#6b7280; cursor:pointer; }
+  .breadcrumb a:hover { color:#5a67d8; }
+  .status-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+  .page-title    { font-size:22px; font-weight:700; color:#1a1a2e; }
+  .pill          { display:inline-flex; align-items:center; gap:5px; padding:5px 12px; border-radius:20px; font-size:12px; font-weight:600; }
+  .pill.pending  { background:#fef3c7; color:#b45309; }
+  .page-sub      { font-size:13px; color:#6b7280; margin-bottom:32px; }
+
+  /* ── Progress card ── */
+  .progress-card { background:#fff; border:1.5px solid #e5e7eb; border-radius:16px; overflow:hidden; margin-bottom:20px; }
+  .progress-card-top { background:linear-gradient(135deg,#fffbeb,#fff9f0); border-bottom:1px solid #fde68a; padding:24px; display:flex; align-items:flex-start; gap:16px; }
+  .progress-card-icon { width:48px; height:48px; border-radius:12px; background:#fef3c7; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+  .progress-card-title { font-size:16px; font-weight:700; color:#92400e; margin-bottom:5px; }
+  .progress-card-desc  { font-size:13px; color:#b45309; line-height:1.6; }
+  .progress-card-email { display:inline-flex; align-items:center; gap:5px; font-size:12px; background:rgba(255,255,255,.7); padding:4px 10px; border-radius:6px; color:#78350f; margin-top:8px; font-weight:500; }
+
+  /* ── Checklist ── */
+  .checklist { }
+  .cl-item   { display:flex; align-items:flex-start; gap:14px; padding:16px 24px; transition:background .2s; }
+  .cl-item:not(:last-child) { border-bottom:1px solid #f3f4f6; }
+  .cl-item.is-done    { background:rgba(209,250,229,.15); }
+  .cl-item.is-running { background:rgba(219,234,254,.2); }
+  .cl-icon { width:24px; height:24px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; margin-top:1px; position:relative; }
+  .cl-icon.done    { background:#10b981; color:#fff; }
+  .cl-icon.running { background:#3b82f6; color:#fff; }
+  .cl-icon.running::after { content:''; position:absolute; inset:-4px; border-radius:50%; border:2px solid #93c5fd; animation:pulseRing 1.6s ease-out infinite; }
+  .cl-icon.queued  { background:#fef3c7; color:#b45309; font-size:13px; }
+  .cl-icon.idle    { background:#f3f4f6; color:#9ca3af; font-size:16px; font-weight:400; }
+  .cl-spinner { width:10px; height:10px; border:2px solid #bfdbfe; border-top-color:#3b82f6; border-radius:50%; animation:spin .8s linear infinite; }
+  .cl-body  { flex:1; }
+  .cl-label { font-size:14px; font-weight:600; color:#1a1a2e; margin-bottom:3px; }
+  .cl-label.muted { color:#9ca3af; font-weight:500; }
+  .cl-sub   { font-size:12px; color:#6b7280; line-height:1.5; }
+  .cl-badge { margin-left:auto; flex-shrink:0; padding-top:3px; }
+  .badge    { display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:600; }
+  .badge.done    { background:#d1fae5; color:#059669; }
+  .badge.running { background:#dbeafe; color:#2563eb; }
+  .badge.queued  { background:#fef3c7; color:#b45309; }
+  .badge.idle    { background:#f3f4f6; color:#9ca3af; }
+
+  .eta-strip { display:flex; gap:12px; flex-wrap:wrap; margin-top:16px; }
+  .eta-chip  { display:flex; align-items:center; gap:6px; padding:8px 14px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; font-size:12px; color:#6b7280; }
+  .eta-chip strong { color:#1a1a2e; }
+
+  .scenario-bar { position:fixed; top:62px; right:16px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:8px 12px; font-size:11px; z-index:50; box-shadow:0 2px 8px rgba(0,0,0,.08); display:flex; align-items:center; gap:8px; }
+  .sc-label { font-weight:600; color:#374151; white-space:nowrap; }
+  .sc-btn   { padding:4px 10px; border-radius:6px; border:1px solid #e5e7eb; background:#f9fafb; color:#6b7280; cursor:pointer; font-size:11px; transition:all .15s; white-space:nowrap; }
+  .sc-btn:hover { border-color:#9ca3af; }
+  .sc-btn.active { background:#5a67d8; color:#fff; border-color:#5a67d8; }
+</style>
+</head>
+<body>
+
+<nav class="proto-bar">
+  <div class="proto-bar-left">
+    <a class="proto-back" href="../index.html">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      All prototypes
+    </a>
+    <div class="proto-divider"></div>
+    <span class="proto-title">Navigator — Self-Service Activation</span>
+  </div>
+  <div class="proto-tags">
+    <span class="proto-tag tag-navigator">Navigator</span>
+    <span class="proto-tag tag-wip">WIP</span>
+  </div>
+</nav>
+
+<div id="root"></div>
+
+
+<script type="text/babel">
+const { useState } = React;
+
+function Toggle() {
+  return <button className="toggle" />;
+}
+
+function ExistingCards() {
+  return (
+    <>
+      <div className="feature-card">
+        <div className="card-preview">
+          <div style={{height:'100%',background:'#f9fafb',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <div style={{background:'#fff',borderRadius:10,padding:'10px 14px',width:160,border:'1px solid #e5e7eb',fontSize:11,color:'#374151'}}>
+              <div style={{marginBottom:5,color:'#9ca3af',fontSize:10}}>✦ Select what Companion Editor should do...</div>
+              <div style={{background:'#eef2ff',borderRadius:5,padding:'4px 8px',marginBottom:4,display:'flex',justifyContent:'space-between'}}>Adjust tone <span>›</span></div>
+              <div style={{padding:'3px 8px',marginBottom:3}}>Summarize</div>
+              <div style={{padding:'3px 8px',marginBottom:3}}>Make Longer</div>
+              <div style={{padding:'3px 8px'}}>Make Shorter</div>
+            </div>
+          </div>
+        </div>
+        <div className="card-body">
+          <div><div className="card-name">Companion Editor</div><div className="card-desc">Uses generative AI to help produce impactful news articles.</div></div>
+          <Toggle />
+        </div>
+      </div>
+      <div className="feature-card">
+        <div className="card-preview">
+          <div style={{height:'100%',background:'#f9fafb',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <div style={{background:'#fff',borderRadius:10,padding:'10px 14px',width:160,border:'1px solid #e5e7eb',fontSize:11}}>
+              <div style={{height:8,background:'#e5e7eb',borderRadius:3,marginBottom:6}} />
+              <div style={{height:8,background:'#e5e7eb',borderRadius:3,marginBottom:6,width:'80%'}} />
+              <div style={{height:8,background:'#e5e7eb',borderRadius:3,marginBottom:10,width:'60%'}} />
+              <div style={{color:'#3b82f6',fontSize:10}}>🌍 Translate</div>
+            </div>
+          </div>
+        </div>
+        <div className="card-body">
+          <div><div className="card-name">On-Demand Translations</div><div className="card-desc">Allow users to get instant machine translations into their preferred language.</div></div>
+          <Toggle />
+        </div>
+      </div>
+      <div className="feature-card">
+        <div className="card-preview">
+          <div style={{height:'100%',background:'#f9fafb',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <div style={{background:'#fff',borderRadius:10,padding:'10px 14px',width:160,border:'1px solid #e5e7eb',fontSize:11}}>
+              <div style={{marginBottom:6,color:'#9ca3af',fontSize:10}}>Subject Line</div>
+              <div style={{background:'#f3f4f6',borderRadius:4,height:20,marginBottom:8}} />
+              <div style={{display:'flex',gap:4,justifyContent:'flex-end'}}>
+                <div style={{background:'#eef2ff',borderRadius:4,padding:'2px 6px',fontSize:9,color:'#4338ca'}}>Insert</div>
+                <div style={{background:'#f3f4f6',borderRadius:4,padding:'2px 6px',fontSize:9,color:'#6b7280'}}>Regenerate</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="card-body">
+          <div><div className="card-name">Email AI Companion</div><div className="card-desc">Generates and refines email subjects from a draft.</div></div>
+          <Toggle />
+        </div>
+      </div>
+    </>
+  );
+}
+
+
+function ConfirmModal({ onClose, onSubmit }) {
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-header">
+          <div><div className="modal-title">Activate Navigator</div></div>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <p style={{fontSize:13,color:'#6b7280',marginBottom:16,lineHeight:1.6}}>
+            The Staffbase team will scan and index your intranet content to set up Navigator. Here's what happens next:
+          </p>
+          <ul className="what-happens">
+            <li><span className="ico">🔍</span> We scan your Staffbase content to identify what gets indexed.</li>
+            <li><span className="ico">🧩</span> Our team chunks and embeds the content into Navigator's knowledge base.</li>
+            <li><span className="ico">✅</span> We run a quality check before going live.</li>
+            <li><span className="ico">📬</span> You'll receive an email when Navigator is ready — typically within 1–3 business days.</li>
+          </ul>
+          <div className="notice-box">
+            <strong>No action needed on your end</strong> — this goes directly to our setup queue, no CSM required.
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={onSubmit}>Request activation</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const SCENARIOS = {
+  queued: [
+    { status:'done',    label:'Activation request received',   sub:'Your request is in the Staffbase setup queue.' },
+    { status:'queued',  label:'Content scan',                  sub:"We'll scan your Staffbase instance to identify content for indexing." },
+    { status:'idle',    label:'Chunking & embedding',          sub:'Content is split into semantic chunks and embedded into the knowledge base.' },
+    { status:'idle',    label:'Quality review',                sub:'Our team validates coverage and accuracy before going live.' },
+    { status:'idle',    label:'Navigator goes live',           sub:'You\'ll receive an email at zyad.abuzeid@staffbase.com.' },
+  ],
+  running: [
+    { status:'done',    label:'Activation request received',   sub:'Logged April 1, 2026.' },
+    { status:'done',    label:'Content scan complete',         sub:'1,247 pages and 143 documents identified.' },
+    { status:'running', label:'Chunking & embedding',          sub:'Generating semantic chunks — typically 2–4 hours.' },
+    { status:'idle',    label:'Quality review',                sub:'Our team validates coverage and accuracy before going live.' },
+    { status:'idle',    label:'Navigator goes live',           sub:"You'll receive an email at zyad.abuzeid@staffbase.com." },
+  ],
+  review: [
+    { status:'done',    label:'Activation request received',   sub:'Logged April 1, 2026.' },
+    { status:'done',    label:'Content scan complete',         sub:'1,247 pages and 143 documents identified.' },
+    { status:'done',    label:'Chunking & embedding complete', sub:'4,391 semantic chunks created — 98.4% coverage.' },
+    { status:'running', label:'Quality review',                sub:'Our team is reviewing index quality — usually under 1 hour.' },
+    { status:'idle',    label:'Navigator goes live',           sub:"Almost there — you'll be notified very soon." },
+  ],
+};
+
+const BADGE = {
+  done:    { cls:'done',    label:'Done' },
+  running: { cls:'running', label:'In progress' },
+  queued:  { cls:'queued',  label:'Queued' },
+  idle:    { cls:'idle',    label:'Pending' },
+};
+
+function CheckIcon({ status }) {
+  if (status === 'done')    return <div className="cl-icon done">✓</div>;
+  if (status === 'running') return <div className="cl-icon running"><div className="cl-spinner" /></div>;
+  if (status === 'queued')  return <div className="cl-icon queued">⏳</div>;
+  return <div className="cl-icon idle">·</div>;
+}
+
+
+function NavigatorQueuedPage({ onBack, scenario, setScenario }) {
+  const items = SCENARIOS[scenario];
+  return (
+    <div className="nav-page slide-up">
+      <div className="scenario-bar">
+        <span className="sc-label">Progress state:</span>
+        {[['queued','Queued'],['running','Running'],['review','Under review']].map(([val,lbl]) => (
+          <button key={val} className={`sc-btn ${scenario===val?'active':''}`} onClick={() => setScenario(val)}>{lbl}</button>
+        ))}
+      </div>
+      <div className="nav-page-inner">
+        <div className="breadcrumb"><a onClick={onBack}>AI Hub</a><span>/</span><span>Navigator</span></div>
+        <div className="status-header">
+          <div className="page-title">Navigator</div>
+          <div className="pill pending">⏳ Activation in progress</div>
+        </div>
+        <div className="page-sub">AI Assistant</div>
+        <div className="progress-card">
+          <div className="progress-card-top">
+            <div className="progress-card-icon">⏳</div>
+            <div>
+              <div className="progress-card-title">We're setting up Navigator for you</div>
+              <div className="progress-card-desc">The Staffbase team is scanning and indexing your content. This is a fully managed process — there's nothing you need to do right now.</div>
+              <div className="progress-card-email">📬 We'll notify zyad.abuzeid@staffbase.com when Navigator is live</div>
+            </div>
+          </div>
+          <div className="checklist">
+            {items.map((item, i) => (
+              <div key={i} className={`cl-item ${item.status==='done'?'is-done':item.status==='running'?'is-running':''}`}>
+                <CheckIcon status={item.status} />
+                <div className="cl-body">
+                  <div className={`cl-label ${item.status==='idle'?'muted':''}`}>{item.label}</div>
+                  <div className="cl-sub">{item.sub}</div>
+                </div>
+                <div className="cl-badge">
+                  <span className={`badge ${BADGE[item.status].cls}`}>
+                    {item.status==='running' && <div style={{width:8,height:8,borderRadius:'50%',border:'1.5px solid #93c5fd',borderTopColor:'#2563eb',animation:'spin .8s linear infinite'}} />}
+                    {BADGE[item.status].label}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="eta-strip">
+          <div className="eta-chip">⏱ <strong>Estimated time:</strong> 1–3 business days</div>
+          <div className="eta-chip">🔄 <strong>Auto-refreshes</strong> nightly once live</div>
+          <div className="eta-chip">🔒 <strong>Respects</strong> existing permissions</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function SettingsSidebar({ onHubClick }) {
+  return (
+    <div className="sidebar">
+      <div style={{padding:'8px 0'}}>
+        <div className="sidebar-label">Authentication & Security</div>
+        {['Security','SSO Configuration','Legal Documents','API Access'].map(n => <div key={n} className="sidebar-item">{n}</div>)}
+      </div>
+      <div style={{padding:'8px 0'}}>
+        <div className="sidebar-label">Setup</div>
+        {['New UX Rollout','Content Languages','Profile Fields'].map(n => <div key={n} className="sidebar-item">{n}</div>)}
+      </div>
+      <div style={{padding:'8px 0'}}>
+        <div className="sidebar-label">Customization</div>
+        <div className="sidebar-item active" onClick={onHubClick}>AI Hub</div>
+        {['Spaces Overview','Page Templates','Public Area','Welcome Page'].map(n => <div key={n} className="sidebar-item">{n}</div>)}
+      </div>
+    </div>
+  );
+}
+
+function ContentSidebar({ navState, onNavClick }) {
+  return (
+    <div className="sidebar">
+      <div style={{padding:'8px 0'}}>
+        {['Links','Chat','Journeys','Directory','Forms','Meal Plans','Event Registration'].map(n => <div key={n} className="sidebar-item">{n}</div>)}
+      </div>
+      <div style={{padding:'8px 0'}}>
+        <div className="sidebar-label">AI Features</div>
+        <div className={`sidebar-item ${navState==='queued'?'active':''}`} onClick={() => navState==='queued' && onNavClick()} style={{cursor:navState==='queued'?'pointer':'default'}}>
+          {navState==='queued' && <div className="sb-dot" />}
+          AI Assistant
+          {navState==='queued' && <span style={{marginLeft:'auto',fontSize:10,color:'#b45309',fontWeight:600}}>Setup</span>}
+        </div>
+        <div className="sidebar-item">AI Podcasts</div>
+      </div>
+      <div style={{padding:'8px 0'}}>
+        {['Quiz Calendar','Events Center','Quiz','Poll','Internal Job Board'].map(n => <div key={n} className="sidebar-item">{n}</div>)}
+      </div>
+    </div>
+  );
+}
+
+
+function App() {
+  const [page,      setPage]      = useState('hub');
+  const [section,   setSection]   = useState('settings');
+  const [navState,  setNavState]  = useState('none');
+  const [showModal, setShowModal] = useState(false);
+  const [scenario,  setScenario]  = useState('queued');
+
+  const handleSubmit = () => { setNavState('queued'); setShowModal(false); setPage('nav'); setSection('content'); };
+  const goToNav = () => { setPage('nav'); setSection('content'); };
+  const goToHub = () => { setPage('hub'); setSection('settings'); };
+
+  return (
+    <div className="app">
+      <div className="topbar">
+        <div className="topbar-logo"><div className="topbar-logo-icon" />Staffbase Studio</div>
+        <div className="topbar-nav">
+          <a className={section==='dashboard'?'active':''} onClick={() => setSection('dashboard')}>Dashboard</a>
+          <a className={section==='planning'?'active':''} onClick={() => setSection('planning')}>Planning</a>
+          <a className={section==='content'?'active':''} onClick={() => { setSection('content'); if (navState==='queued') setPage('nav'); }}>Content</a>
+          <a className={section==='email'?'active':''} onClick={() => setSection('email')}>Email</a>
+          <a className={section==='screens'?'active':''} onClick={() => setSection('screens')}>Screens</a>
+          <a className={section==='analytics'?'active':''} onClick={() => setSection('analytics')}>Analytics</a>
+        </div>
+        <div className="topbar-right"><div className="avatar">ZA</div></div>
+      </div>
+      <div className="main">
+        {section === 'content'
+          ? <ContentSidebar navState={navState} onNavClick={goToNav} />
+          : <SettingsSidebar onHubClick={goToHub} />}
+
+        {page === 'hub' && (
+          <div className="content slide-up">
+            <div style={{fontSize:22,fontWeight:700,color:'#1a1a2e',marginBottom:4}}>Self-Service AI Settings</div>
+            <div style={{fontSize:13,color:'#6b7280',marginBottom:28}}>Learn more about and manage how AI is used across Staffbase products.</div>
+            <div className="hub-grid">
+              <ExistingCards />
+              <div className={`feature-card ${navState==='queued'?'nav-pending':''}`}>
+                <div className="card-preview">
+                  <div className="nav-thumb">
+                    <div className="nav-thumb-stars" />
+                    <div className="nav-thumb-chat">
+                      <div className="nav-thumb-q">What's our WFH policy?</div>
+                      <div className="nav-thumb-a">Up to 3 days remote per week. Full details in the Employee Handbook →</div>
+                    </div>
+                    {navState==='none' && <div className="nav-thumb-dim"><span style={{color:'rgba(255,255,255,.75)',fontSize:11,fontWeight:500}}>Not activated</span></div>}
+                    {navState==='queued' && <div className="nav-thumb-badge">⏳ Activation in progress</div>}
+                  </div>
+                </div>
+                <div className="card-body">
+                  <div>
+                    <div className="card-name">Navigator <span className="ai-tag">AI</span></div>
+                    <div className="card-desc">{navState==='none' ? 'Answer employee questions instantly using your intranet content.' : "Staffbase is setting up Navigator — you'll be notified when it's live."}</div>
+                  </div>
+                  {navState==='none'   && <button className="btn-setup" onClick={() => setShowModal(true)}>Set up →</button>}
+                  {navState==='queued' && <button className="btn-outline" onClick={goToNav}>View status →</button>}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {page==='nav' && navState==='queued' && (
+          <NavigatorQueuedPage onBack={goToHub} scenario={scenario} setScenario={setScenario} />
+        )}
+      </div>
+      {showModal && <ConfirmModal onClose={() => setShowModal(false)} onSubmit={handleSubmit} />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
