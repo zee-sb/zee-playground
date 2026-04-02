@@ -1,0 +1,1557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Navigator Studio — Integrations Setup Prototype</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter', -apple-system, sans-serif; background: #F4F4F8; color: #111; font-size: 14px; overflow: hidden; height: 100vh; display: flex; flex-direction: column; padding-top: 48px; }
+
+/* ── Prototype chrome bar ── */
+.proto-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 9999; background: #1C1C1E; color: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 48px; font-size: 13px; }
+.proto-bar-left { display: flex; align-items: center; gap: 12px; }
+.proto-back { display: inline-flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.6); text-decoration: none; font-size: 13px; transition: color 0.15s; }
+.proto-back:hover { color: #fff; }
+.proto-divider { width: 1px; height: 16px; background: rgba(255,255,255,0.15); }
+.proto-title { font-weight: 500; }
+.proto-tags { display: flex; gap: 6px; }
+.proto-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+.tag-navigator { background: #1D4ED8; color: #BFDBFE; }
+.tag-ready { background: #14532D; color: #86EFAC; }
+.tag-wip { background: #422006; color: #FCD34D; }
+
+/* ── Top bar ── */
+.topbar {
+  height: 52px;
+  background: #fff;
+  border-bottom: 1px solid #E8E8F0;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 20px;
+  flex-shrink: 0;
+  z-index: 100;
+}
+.topbar-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #111;
+}
+.topbar-logo-icon {
+  width: 28px; height: 28px;
+  background: linear-gradient(135deg, #6B3DE7, #C64FE0);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.topbar-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #888;
+  font-size: 13px;
+}
+.topbar-breadcrumb span { color: #888; }
+.topbar-breadcrumb strong { color: #111; font-weight: 600; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.topbar-avatar {
+  width: 32px; height: 32px;
+  background: linear-gradient(135deg, #6B3DE7, #C64FE0);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.topbar-company { font-size: 13px; color: #555; font-weight: 500; }
+
+/* ── Main layout ── */
+.main-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  width: 220px;
+  background: #fff;
+  border-right: 1px solid #E8E8F0;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  padding: 16px 0;
+  overflow-y: auto;
+}
+.sidebar-section { margin-bottom: 6px; }
+.sidebar-section-label {
+  padding: 6px 16px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #bbb;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #555;
+  cursor: pointer;
+  border-radius: 0;
+  transition: all 0.15s;
+  text-decoration: none;
+}
+.nav-item:hover { background: #F4F4F8; color: #111; }
+.nav-item.active { background: #F0EEFF; color: #6B3DE7; font-weight: 600; }
+.nav-item.active .nav-icon { background: #6B3DE7; color: #fff; }
+.nav-icon {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background: #F4F4F8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.nav-badge {
+  margin-left: auto;
+  background: #6B3DE7;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 100px;
+}
+
+/* ── Content area ── */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 32px;
+  position: relative;
+}
+.content::-webkit-scrollbar { width: 6px; }
+.content::-webkit-scrollbar-track { background: transparent; }
+.content::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
+
+/* ── Page header ── */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 28px;
+}
+.page-title { font-size: 22px; font-weight: 800; color: #111; margin-bottom: 4px; }
+.page-sub { font-size: 13px; color: #888; }
+.btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: linear-gradient(135deg, #6B3DE7, #8B5CF6);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(107,61,231,0.35); }
+.btn-secondary {
+  padding: 9px 16px;
+  background: #fff;
+  color: #555;
+  border: 1.5px solid #E5E7EB;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.btn-secondary:hover { border-color: #6B3DE7; color: #6B3DE7; }
+
+/* ── Tabs ── */
+.filter-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 5px;
+  border: 1px solid #E8E8F0;
+  width: fit-content;
+}
+.filter-tab {
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #888;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: none;
+  background: none;
+  font-family: inherit;
+}
+.filter-tab.active { background: #6B3DE7; color: #fff; }
+.filter-tab:hover:not(.active) { background: #F4F4F8; color: #333; }
+
+/* ── Section ── */
+.section { margin-bottom: 32px; }
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-count {
+  background: #F4F4F8;
+  color: #888;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 100px;
+}
+
+/* ── Connected cards ── */
+.connected-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.connected-card {
+  background: #fff;
+  border: 1.5px solid #E8E8F0;
+  border-radius: 16px;
+  padding: 18px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+.connected-card:hover { border-color: #C4B5FD; box-shadow: 0 4px 20px rgba(107,61,231,0.1); transform: translateY(-1px); }
+.connected-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.integration-logo {
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+.status-dot-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; }
+.status-dot.connected { background: #10B981; }
+.status-dot.error { background: #EF4444; }
+.status-dot.warning { background: #F59E0B; }
+.connected-card-name { font-size: 15px; font-weight: 700; color: #111; margin-bottom: 3px; }
+.connected-card-cat {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6B3DE7;
+  background: #F0EEFF;
+  padding: 2px 8px;
+  border-radius: 100px;
+  display: inline-block;
+  margin-bottom: 10px;
+}
+.connected-card-meta { font-size: 12px; color: #aaa; }
+.connected-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #F4F4F8;
+}
+.cap-count {
+  font-size: 12px;
+  color: #555;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.settings-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6B3DE7;
+  cursor: pointer;
+}
+.settings-link:hover { text-decoration: underline; }
+
+/* ── Catalog grid ── */
+.catalog-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.catalog-card {
+  background: #fff;
+  border: 1.5px solid #E8E8F0;
+  border-radius: 14px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.catalog-card:hover { border-color: #C4B5FD; box-shadow: 0 3px 14px rgba(107,61,231,0.1); }
+.catalog-card-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; }
+.catalog-card-name { font-size: 14px; font-weight: 700; color: #111; margin-bottom: 3px; }
+.catalog-card-desc { font-size: 12px; color: #888; line-height: 1.5; margin-bottom: 12px; }
+.catalog-card-footer { display: flex; align-items: center; justify-content: space-between; }
+.cat-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 100px;
+}
+.cat-hris { background: #D1FAE5; color: #059669; }
+.cat-itsm { background: #DBEAFE; color: #2563EB; }
+.cat-crm { background: #FEF3C7; color: #D97706; }
+.cat-ats { background: #FCE7F3; color: #DB2777; }
+.cat-accounting { background: #EDE9FE; color: #7C3AED; }
+.cat-project { background: #FFF7ED; color: #EA580C; }
+.cat-identity { background: #F0FDF4; color: #16A34A; }
+.connect-btn-sm {
+  padding: 6px 14px;
+  background: #fff;
+  border: 1.5px solid #6B3DE7;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6B3DE7;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.connect-btn-sm:hover { background: #6B3DE7; color: #fff; }
+
+/* ── Health banner ── */
+.health-banner {
+  background: #FFF7ED;
+  border: 1.5px solid #FDE68A;
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  font-size: 13px;
+  color: #92400E;
+}
+.health-banner strong { font-weight: 700; }
+
+/* ── Drawer overlay ── */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 200;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+.drawer-overlay.open { opacity: 1; pointer-events: all; }
+.drawer {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: 520px;
+  background: #fff;
+  z-index: 201;
+  transform: translateX(100%);
+  transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+  display: flex;
+  flex-direction: column;
+  box-shadow: -20px 0 60px rgba(0,0,0,0.12);
+}
+.drawer.open { transform: translateX(0); }
+.drawer-header {
+  padding: 24px 28px 20px;
+  border-bottom: 1px solid #F0F0F8;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.drawer-title { font-size: 18px; font-weight: 800; color: #111; margin-bottom: 4px; }
+.drawer-sub { font-size: 13px; color: #888; }
+.drawer-close {
+  width: 32px; height: 32px;
+  background: #F4F4F8;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #666;
+  font-family: inherit;
+}
+.drawer-body { flex: 1; overflow-y: auto; padding: 24px 28px; }
+.drawer-footer {
+  padding: 16px 28px;
+  border-top: 1px solid #F0F0F8;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ── Stepper ── */
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 28px;
+}
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  position: relative;
+}
+.step-item::after {
+  content: '';
+  position: absolute;
+  left: 26px;
+  right: -10px;
+  top: 13px;
+  height: 2px;
+  background: #E8E8F0;
+  z-index: 0;
+}
+.step-item.done::after { background: #6B3DE7; }
+.step-item:last-child::after { display: none; }
+.step-num {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: #E8E8F0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #aaa;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+  transition: all 0.2s;
+}
+.step-item.active .step-num { background: #6B3DE7; color: #fff; }
+.step-item.done .step-num { background: #6B3DE7; color: #fff; }
+.step-label { font-size: 11px; font-weight: 600; color: #bbb; white-space: nowrap; }
+.step-item.active .step-label { color: #6B3DE7; }
+.step-item.done .step-label { color: #888; }
+
+/* ── Capability toggles ── */
+.cap-section { margin-bottom: 20px; }
+.cap-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #F8F8FC;
+  border-radius: 10px 10px 0 0;
+  border: 1px solid #E8E8F0;
+  cursor: pointer;
+}
+.cap-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #111;
+}
+.cap-section-meta { font-size: 11px; color: #aaa; }
+.cap-list { border: 1px solid #E8E8F0; border-top: none; border-radius: 0 0 10px 10px; overflow: hidden; }
+.cap-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 16px;
+  border-bottom: 1px solid #F4F4F8;
+  background: #fff;
+  transition: background 0.15s;
+}
+.cap-row:last-child { border-bottom: none; }
+.cap-row:hover { background: #FAFAFA; }
+.cap-row-left { display: flex; align-items: center; gap: 10px; }
+.cap-method {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'SF Mono', monospace;
+  min-width: 40px;
+  text-align: center;
+}
+.cap-method.get { background: #D1FAE5; color: #059669; }
+.cap-method.post { background: #DBEAFE; color: #2563EB; }
+.cap-method.patch { background: #FEF3C7; color: #D97706; }
+.cap-method.delete { background: #FEE2E2; color: #DC2626; }
+.cap-name { font-size: 13px; font-weight: 500; color: #111; font-family: 'SF Mono', 'Courier New', monospace; }
+.cap-desc { font-size: 11px; color: #aaa; margin-top: 1px; }
+.cap-risk {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-weight: 600;
+  margin-right: 10px;
+}
+.cap-risk.low { background: #D1FAE5; color: #059669; }
+.cap-risk.medium { background: #FEF3C7; color: #D97706; }
+.cap-risk.high { background: #FEE2E2; color: #DC2626; }
+
+/* ── Toggle switch ── */
+.toggle-wrap { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+.toggle-wrap input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: #E5E7EB;
+  border-radius: 100px;
+  transition: all 0.2s;
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 16px; height: 16px;
+  left: 3px; top: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: all 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.toggle-wrap input:checked + .toggle-slider { background: #6B3DE7; }
+.toggle-wrap input:checked + .toggle-slider::before { transform: translateX(18px); }
+
+/* ── Agent assignment ── */
+.agent-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 2px solid #E8E8F0;
+  border-radius: 12px;
+  cursor: pointer;
+  margin-bottom: 10px;
+  transition: all 0.15s;
+}
+.agent-option.selected { border-color: #6B3DE7; background: #F8F6FF; }
+.agent-option:hover:not(.selected) { border-color: #C4B5FD; }
+.agent-option-icon {
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.agent-option-name { font-size: 14px; font-weight: 700; color: #111; margin-bottom: 2px; }
+.agent-option-desc { font-size: 12px; color: #888; }
+.agent-option-check {
+  margin-left: auto;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 2px solid #E5E7EB;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: transparent;
+  transition: all 0.15s;
+}
+.agent-option.selected .agent-option-check {
+  background: #6B3DE7;
+  border-color: #6B3DE7;
+  color: #fff;
+}
+
+/* ── Settings detail view ── */
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 28px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #E8E8F0;
+}
+.detail-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #6B3DE7;
+  cursor: pointer;
+  font-weight: 600;
+  padding: 6px 12px;
+  background: #F0EEFF;
+  border-radius: 8px;
+  transition: all 0.15s;
+}
+.detail-back:hover { background: #E8E0FF; }
+.detail-logo {
+  width: 52px; height: 52px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+}
+.detail-title { font-size: 20px; font-weight: 800; color: #111; margin-bottom: 4px; }
+.detail-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Detail tabs ── */
+.detail-tabs { display: flex; gap: 0; border-bottom: 2px solid #E8E8F0; margin-bottom: 28px; }
+.detail-tab {
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #888;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.15s;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  background: none;
+  font-family: inherit;
+}
+.detail-tab.active { color: #6B3DE7; border-bottom-color: #6B3DE7; }
+.detail-tab:hover:not(.active) { color: #333; }
+
+/* Info row */
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #F4F4F8;
+}
+.info-row:last-child { border-bottom: none; }
+.info-label { font-size: 13px; color: #888; }
+.info-value { font-size: 13px; font-weight: 600; color: #111; }
+.info-value.green { color: #059669; }
+.info-value.red { color: #DC2626; }
+
+/* Connection test */
+.test-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: #F4F4F8;
+  border: 1.5px solid #E5E7EB;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #555;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+.test-btn:hover { border-color: #6B3DE7; color: #6B3DE7; background: #F0EEFF; }
+
+/* Permissions table */
+.perm-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  background: #F8F8FC;
+}
+.perm-icon {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.perm-name { font-size: 13px; font-weight: 600; color: #111; }
+.perm-desc { font-size: 11px; color: #888; }
+.perm-level {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 100px;
+}
+.perm-all { background: #D1FAE5; color: #059669; }
+.perm-read { background: #DBEAFE; color: #2563EB; }
+
+/* Success toast */
+.toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: #111;
+  color: #fff;
+  padding: 12px 22px;
+  border-radius: 100px;
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 500;
+  transition: transform 0.4s cubic-bezier(0.4,0,0.2,1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+
+/* module tab */
+.module-tab-bar { display: flex; gap: 8px; margin-bottom: 16px; }
+.module-tab {
+  padding: 6px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1.5px solid #E5E7EB;
+  background: #fff;
+  color: #888;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.module-tab.active { background: #6B3DE7; border-color: #6B3DE7; color: #fff; }
+
+</style>
+</head>
+<body>
+
+<nav class="proto-bar">
+  <div class="proto-bar-left">
+    <a class="proto-back" href="../index.html">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Gallery
+    </a>
+    <div class="proto-divider"></div>
+    <span class="proto-title">Navigator — Studio Integrations Setup</span>
+  </div>
+  <div class="proto-tags">
+    <span class="proto-tag tag-navigator">Navigator</span>
+    <span class="proto-tag tag-ready">Ready</span>
+  </div>
+</nav>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="topbar-logo">
+    <div class="topbar-logo-icon">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2L14 8L20 10L14 12L12 18L10 12L4 10L10 8L12 2Z" fill="#fff"/></svg>
+    </div>
+    Studio
+  </div>
+  <div class="topbar-breadcrumb">
+    <span>Navigator</span>
+    <span>›</span>
+    <strong id="breadcrumb">Integrations</strong>
+  </div>
+  <div class="topbar-right">
+    <div class="topbar-company">Acme Corp</div>
+    <div class="topbar-avatar">AC</div>
+  </div>
+</div>
+
+<div class="main-layout">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Navigator</div>
+      <div class="nav-item" onclick=""><div class="nav-icon">🤖</div>Agents</div>
+      <div class="nav-item" onclick=""><div class="nav-icon">📚</div>Collections</div>
+      <div class="nav-item active" onclick="showView('overview')"><div class="nav-icon">🔌</div>Integrations <span class="nav-badge">2</span></div>
+      <div class="nav-item" onclick=""><div class="nav-icon">💬</div>Conversations</div>
+      <div class="nav-item" onclick=""><div class="nav-icon">📊</div>Analytics</div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Settings</div>
+      <div class="nav-item" onclick=""><div class="nav-icon">👁️</div>Visibility</div>
+      <div class="nav-item" onclick=""><div class="nav-icon">🎨</div>Appearance</div>
+      <div class="nav-item" onclick=""><div class="nav-icon">⚙️</div>General</div>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div class="content" id="mainContent">
+    <!-- Views injected by JS -->
+  </div>
+</div>
+
+<!-- Drawer overlay -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-header">
+    <div>
+      <div class="drawer-title" id="drawerTitle">Connect Integration</div>
+      <div class="drawer-sub" id="drawerSub">Set up a new integration for Navigator</div>
+    </div>
+    <button class="drawer-close" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+  <div class="drawer-footer" id="drawerFooter"></div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast">✅ Integration connected successfully</div>
+
+<script>
+// ── Data ──────────────────────────────────────────────────
+const integrationData = {
+  servicenow: {
+    name: 'ServiceNow',
+    emoji: '⚙️',
+    color: 'linear-gradient(135deg, #4CAF50, #2E7D32)',
+    category: 'ITSM',
+    catClass: 'cat-itsm',
+    desc: 'Full ITSM and HRSD access — incidents, problems, HR cases, employee profiles.',
+    connected: true,
+    status: 'connected',
+    lastSync: '3 minutes ago',
+    modules: ['ITSM', 'HRSD'],
+    capabilities: {
+      ITSM: [
+        { name: 'list_incidents', method: 'GET', desc: 'List all incidents', risk: 'low', default: true },
+        { name: 'get_incident', method: 'GET', desc: 'Get incident by sys_id', risk: 'low', default: true },
+        { name: 'create_incident', method: 'POST', desc: 'Create a new incident', risk: 'medium', default: false },
+        { name: 'update_incident', method: 'PATCH', desc: 'Update incident fields', risk: 'medium', default: false },
+        { name: 'close_incident', method: 'PATCH', desc: 'Close/resolve an incident', risk: 'high', default: false },
+        { name: 'list_catalog_items', method: 'GET', desc: 'Browse service catalog', risk: 'low', default: true },
+        { name: 'submit_catalog_request', method: 'POST', desc: 'Submit a catalog request', risk: 'medium', default: false },
+        { name: 'get_request_status', method: 'GET', desc: 'Check request status', risk: 'low', default: true },
+        { name: 'list_users', method: 'GET', desc: 'List sys_user records', risk: 'low', default: false },
+      ],
+      HRSD: [
+        { name: 'list_hr_cases', method: 'GET', desc: 'List HR service cases', risk: 'low', default: true },
+        { name: 'get_hr_case', method: 'GET', desc: 'Get HR case details', risk: 'low', default: true },
+        { name: 'create_hr_case', method: 'POST', desc: 'Open a new HR case', risk: 'medium', default: false },
+        { name: 'update_hr_case', method: 'PATCH', desc: 'Update an HR case', risk: 'medium', default: false },
+        { name: 'close_hr_case', method: 'PATCH', desc: 'Close an HR case', risk: 'high', default: false },
+        { name: 'get_employee_profile', method: 'GET', desc: 'Get sn_hr_core_profile record', risk: 'low', default: true },
+        { name: 'update_employee_profile', method: 'PATCH', desc: 'Update HR profile fields', risk: 'high', default: false },
+        { name: 'list_hr_catalog_items', method: 'GET', desc: 'Browse HR service catalog', risk: 'low', default: true },
+        { name: 'submit_hr_catalog_request', method: 'POST', desc: 'Submit HR catalog request', risk: 'medium', default: false },
+        { name: 'get_leave_balance', method: 'GET', desc: 'Get employee leave balance', risk: 'low', default: true },
+        { name: 'create_leave_request', method: 'POST', desc: 'Submit an absence request', risk: 'medium', default: false },
+      ],
+    },
+    agents: ['IT Assistant', 'HR Assistant'],
+    authType: 'OAuth 2.0 (Bridge User)',
+    scope: 'Org-level service account',
+    permissions: ['snc_platform_rest_api_access', 'sn_hr_core.admin'],
+  },
+  bamboohr: {
+    name: 'BambooHR',
+    emoji: '🌿',
+    color: 'linear-gradient(135deg, #4CAF50, #66BB6A)',
+    category: 'HRIS',
+    catClass: 'cat-hris',
+    desc: 'Employee records, leave requests, attendance, org chart.',
+    connected: true,
+    status: 'warning',
+    lastSync: '2 hours ago',
+    modules: ['Employees', 'Leave'],
+    capabilities: {
+      Employees: [
+        { name: 'list_employees', method: 'GET', desc: 'List all active employees', risk: 'low', default: true },
+        { name: 'get_employee', method: 'GET', desc: 'Get employee by ID', risk: 'low', default: true },
+        { name: 'update_employee', method: 'PATCH', desc: 'Update employee record', risk: 'high', default: false },
+      ],
+      Leave: [
+        { name: 'get_leave_balance', method: 'GET', desc: 'Get employee leave balance', risk: 'low', default: true },
+        { name: 'list_time_off_requests', method: 'GET', desc: 'List leave requests', risk: 'low', default: true },
+        { name: 'create_time_off_request', method: 'POST', desc: 'Submit a leave request', risk: 'medium', default: false },
+        { name: 'cancel_time_off_request', method: 'DELETE', desc: 'Cancel a leave request', risk: 'high', default: false },
+      ],
+    },
+    agents: ['HR Assistant'],
+    authType: 'API Key',
+    scope: 'Org-level',
+    permissions: ['Full API access'],
+  },
+  personio: {
+    name: 'Personio',
+    emoji: '👥',
+    color: 'linear-gradient(135deg, #3B82F6, #1D4ED8)',
+    category: 'HRIS',
+    catClass: 'cat-hris',
+    desc: 'DACH-dominant HRIS — leave, attendance, payroll, org chart.',
+    connected: false,
+    modules: ['Employees', 'Attendances', 'Leave'],
+    capabilities: {
+      Employees: [
+        { name: 'list_employees', method: 'GET', desc: 'List all employees', risk: 'low', default: true },
+        { name: 'get_employee', method: 'GET', desc: 'Get employee details', risk: 'low', default: true },
+        { name: 'update_employee', method: 'PATCH', desc: 'Update employee data', risk: 'high', default: false },
+      ],
+      Leave: [
+        { name: 'list_absences', method: 'GET', desc: 'List all absence records', risk: 'low', default: true },
+        { name: 'create_absence', method: 'POST', desc: 'Submit leave request', risk: 'medium', default: false },
+        { name: 'delete_absence', method: 'DELETE', desc: 'Cancel an absence', risk: 'high', default: false },
+      ],
+      Attendances: [
+        { name: 'list_attendances', method: 'GET', desc: 'Get attendance records', risk: 'low', default: true },
+        { name: 'create_attendance', method: 'POST', desc: 'Add attendance entry', risk: 'medium', default: false },
+      ],
+    },
+    agents: ['HR Assistant'],
+    authType: 'OAuth 2.0',
+    scope: 'Org-level',
+  },
+  jira: {
+    name: 'Jira Service Mgmt',
+    emoji: '🔵',
+    color: 'linear-gradient(135deg, #0052CC, #2684FF)',
+    category: 'ITSM',
+    catClass: 'cat-itsm',
+    desc: 'IT ticketing for cloud-native teams — issues, queues, service requests.',
+    connected: false,
+    modules: ['Issues', 'Service Requests'],
+    capabilities: {
+      Issues: [
+        { name: 'list_issues', method: 'GET', desc: 'Search issues by JQL', risk: 'low', default: true },
+        { name: 'get_issue', method: 'GET', desc: 'Get issue by key', risk: 'low', default: true },
+        { name: 'create_issue', method: 'POST', desc: 'Create a new issue', risk: 'medium', default: false },
+        { name: 'update_issue', method: 'PATCH', desc: 'Update issue fields', risk: 'medium', default: false },
+        { name: 'transition_issue', method: 'POST', desc: 'Move issue through workflow', risk: 'high', default: false },
+      ],
+      'Service Requests': [
+        { name: 'list_request_types', method: 'GET', desc: 'List service request types', risk: 'low', default: true },
+        { name: 'create_request', method: 'POST', desc: 'Submit a service request', risk: 'medium', default: false },
+        { name: 'get_request', method: 'GET', desc: 'Get request details', risk: 'low', default: true },
+      ],
+    },
+    agents: ['IT Assistant'],
+    authType: 'OAuth 2.0',
+    scope: 'Org-level',
+  },
+};
+
+const catalogExtra = [
+  { key: 'workday', name: 'Workday', emoji: '🟡', color: 'linear-gradient(135deg, #F59E0B, #D97706)', category: 'HRIS', catClass: 'cat-hris', desc: 'Enterprise HCM — leave, payroll, performance, org chart.' },
+  { key: 'sapsuccessfactors', name: 'SAP SuccessFactors', emoji: '🔷', color: 'linear-gradient(135deg, #2563EB, #1E40AF)', category: 'HRIS', catClass: 'cat-hris', desc: 'Enterprise HR platform for large organisations.' },
+  { key: 'hibob', name: 'HiBob', emoji: '🟣', color: 'linear-gradient(135deg, #7C3AED, #5B21B6)', category: 'HRIS', catClass: 'cat-hris', desc: 'Modern HRIS popular in tech companies.' },
+  { key: 'zendesk', name: 'Zendesk', emoji: '💚', color: 'linear-gradient(135deg, #10B981, #059669)', category: 'ITSM', catClass: 'cat-itsm', desc: 'Customer support and IT ticketing platform.' },
+  { key: 'greenhouse', name: 'Greenhouse', emoji: '🌱', color: 'linear-gradient(135deg, #16A34A, #15803D)', category: 'ATS', catClass: 'cat-ats', desc: 'ATS — job listings, referrals, application tracking.' },
+  { key: 'hubspot', name: 'HubSpot', emoji: '🟠', color: 'linear-gradient(135deg, #EA580C, #C2410C)', category: 'CRM', catClass: 'cat-crm', desc: 'CRM platform for sales and customer data.' },
+  { key: 'rippling', name: 'Rippling', emoji: '⚡', color: 'linear-gradient(135deg, #FACC15, #CA8A04)', category: 'HRIS', catClass: 'cat-hris', desc: 'Combined HR + IT — leave, provisioning, payroll.' },
+  { key: 'gcal', name: 'Google Calendar', emoji: '📅', color: 'linear-gradient(135deg, #4285F4, #1565C0)', category: 'Calendar', catClass: 'cat-project', desc: 'Meeting booking and schedule management.' },
+];
+
+// ── State ─────────────────────────────────────────────────
+let currentView = 'overview';
+let drawerIntegration = null;
+let drawerStep = 0;
+let connectingStatus = 'idle';
+let selectedAgents = { personio: ['HR Assistant'], jira: ['IT Assistant'] };
+let capStates = {};
+let activeDetailTab = 'capabilities';
+let activeModule = 'ITSM';
+let activeDrawerModule = null;
+
+// ── Toggle state helpers ───────────────────────────────────
+function getCapState(key, module, capName) {
+  const k = `${key}|${module}|${capName}`;
+  if (!(k in capStates)) {
+    const cap = integrationData[key]?.capabilities[module]?.find(c => c.name === capName);
+    capStates[k] = cap ? cap.default : false;
+  }
+  return capStates[k];
+}
+
+function toggleCap(key, module, capName) {
+  const k = `${key}|${module}|${capName}`;
+  capStates[k] = !getCapState(key, module, capName);
+}
+
+// ── Views ─────────────────────────────────────────────────
+function showView(v) {
+  currentView = v;
+  const el = document.getElementById('mainContent');
+  if (v === 'overview') {
+    document.getElementById('breadcrumb').textContent = 'Integrations';
+    el.innerHTML = renderOverview();
+  } else if (v === 'detail-sn') {
+    document.getElementById('breadcrumb').textContent = 'ServiceNow';
+    el.innerHTML = renderDetail('servicenow');
+  } else if (v === 'detail-bamboo') {
+    document.getElementById('breadcrumb').textContent = 'BambooHR';
+    el.innerHTML = renderDetail('bamboohr');
+  }
+}
+
+function renderOverview() {
+  return `
+    <div class="health-banner">
+      ⚠️ <div><strong>BambooHR:</strong> Token expires in 2 days. <span style="cursor:pointer; color:#6B3DE7; font-weight:600;" onclick="openDrawer('bamboohr-reconnect')">Re-authenticate →</span></div>
+    </div>
+    <div class="page-header">
+      <div>
+        <div class="page-title">Integrations</div>
+        <div class="page-sub">Connect third-party systems to unlock actions in Navigator</div>
+      </div>
+      <button class="btn-primary" onclick="openDrawer('catalog')">+ Browse catalog</button>
+    </div>
+
+    <div class="filter-tabs">
+      <button class="filter-tab active">All</button>
+      <button class="filter-tab">Connected</button>
+      <button class="filter-tab">HRIS</button>
+      <button class="filter-tab">ITSM</button>
+      <button class="filter-tab">CRM</button>
+      <button class="filter-tab">ATS</button>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title">Connected <span class="section-count">2</span></div>
+      </div>
+      <div class="connected-grid">
+        ${renderConnectedCard('servicenow')}
+        ${renderConnectedCard('bamboohr')}
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title">Available Integrations <span class="section-count">${Object.values(integrationData).filter(i=>!i.connected).length + catalogExtra.length}</span></div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-secondary" style="padding:7px 14px; font-size:12px;">🔍 Search</button>
+        </div>
+      </div>
+      <div class="catalog-grid">
+        ${Object.entries(integrationData).filter(([,v]) => !v.connected).map(([k,v]) => renderCatalogCard(k,v)).join('')}
+        ${catalogExtra.map(i => renderCatalogCardExtra(i)).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderConnectedCard(key) {
+  const d = integrationData[key];
+  const enabledCount = d.modules.reduce((acc, m) => {
+    const caps = d.capabilities[m] || [];
+    return acc + caps.filter(c => getCapState(key, m, c.name)).length;
+  }, 0);
+  const totalCount = d.modules.reduce((acc, m) => acc + (d.capabilities[m]||[]).length, 0);
+  const statusLabel = d.status === 'connected' ? 'Connected' : d.status === 'warning' ? 'Token expiring' : 'Error';
+  const statusColor = d.status === 'connected' ? '#10B981' : d.status === 'warning' ? '#F59E0B' : '#EF4444';
+  return `
+    <div class="connected-card" onclick="showView('detail-${key === 'servicenow' ? 'sn' : 'bamboo'}')">
+      <div class="connected-card-top">
+        <div class="integration-logo" style="background:${d.color}">${d.emoji}</div>
+        <div class="status-dot-row">
+          <div class="status-dot ${d.status}" style="background:${statusColor}"></div>
+          <span style="color:${statusColor}">${statusLabel}</span>
+        </div>
+      </div>
+      <div class="connected-card-name">${d.name}</div>
+      <div class="connected-card-cat">${d.category}</div>
+      <div class="connected-card-meta">Last synced ${d.lastSync} · ${d.modules.join(', ')}</div>
+      <div class="connected-card-footer">
+        <div class="cap-count">⚡ ${enabledCount}/${totalCount} capabilities active</div>
+        <div class="settings-link">Settings →</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCatalogCard(key, d) {
+  return `
+    <div class="catalog-card">
+      <div class="catalog-card-top">
+        <div class="integration-logo" style="background:${d.color}; width:38px; height:38px; border-radius:10px; font-size:18px;">${d.emoji}</div>
+      </div>
+      <div class="catalog-card-name">${d.name}</div>
+      <div class="catalog-card-desc">${d.desc}</div>
+      <div class="catalog-card-footer">
+        <span class="cat-badge ${d.catClass}">${d.category}</span>
+        <button class="connect-btn-sm" onclick="event.stopPropagation(); openDrawer('${key}')">Connect</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderCatalogCardExtra(d) {
+  return `
+    <div class="catalog-card">
+      <div class="catalog-card-top">
+        <div class="integration-logo" style="background:${d.color}; width:38px; height:38px; border-radius:10px; font-size:18px;">${d.emoji}</div>
+      </div>
+      <div class="catalog-card-name">${d.name}</div>
+      <div class="catalog-card-desc">${d.desc}</div>
+      <div class="catalog-card-footer">
+        <span class="cat-badge ${d.catClass}">${d.category}</span>
+        <button class="connect-btn-sm" onclick="event.stopPropagation(); showToast('${d.name} — not yet configured in this prototype')">Connect</button>
+      </div>
+    </div>
+  `;
+}
+
+// ── Detail View ───────────────────────────────────────────
+function renderDetail(key) {
+  const d = integrationData[key];
+  const tabs = ['capabilities', 'agents', 'connection'];
+  return `
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:24px;">
+      <div class="detail-back" onclick="showView('overview')">← Back</div>
+    </div>
+    <div class="detail-header">
+      <div class="detail-logo" style="background:${d.color}">${d.emoji}</div>
+      <div style="flex:1">
+        <div class="detail-title">${d.name}</div>
+        <div class="detail-status">
+          <div class="status-dot ${d.status}" style="background:${d.status==='connected'?'#10B981':d.status==='warning'?'#F59E0B':'#EF4444'}; width:8px; height:8px; border-radius:50%;"></div>
+          <span style="font-size:13px; color:#555; font-weight:500;">${d.status==='connected'?'Connected & active':d.status==='warning'?'Connected — token expiring soon':'Connection error'}</span>
+          <span class="cat-badge ${d.catClass}" style="margin-left:8px;">${d.category}</span>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button class="test-btn" onclick="runTest()">🔌 Test connection</button>
+        <button class="btn-primary" onclick="">Re-authenticate</button>
+      </div>
+    </div>
+
+    <div class="detail-tabs">
+      ${tabs.map(t => `<button class="detail-tab ${activeDetailTab===t?'active':''}" onclick="switchDetailTab('${key}','${t}')">${t.charAt(0).toUpperCase()+t.slice(1)}</button>`).join('')}
+    </div>
+
+    <div id="detailTabContent">
+      ${renderDetailTabContent(key)}
+    </div>
+  `;
+}
+
+function renderDetailTabContent(key) {
+  const d = integrationData[key];
+  if (activeDetailTab === 'capabilities') {
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <div style="font-size:13px; color:#888;">Toggle which actions Navigator agents can perform. <strong style="color:#DC2626;">Write/delete capabilities default to OFF.</strong></div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-secondary" style="font-size:12px; padding:7px 14px;" onclick="saveCapabilities()">Save changes</button>
+        </div>
+      </div>
+      <div class="module-tab-bar">
+        ${d.modules.map(m => `<button class="module-tab ${activeModule===m?'active':''}" onclick="switchModule('${key}','${m}')">${m}</button>`).join('')}
+      </div>
+      ${renderCapabilities(key, activeModule)}
+    `;
+  } else if (activeDetailTab === 'agents') {
+    return `
+      <div style="margin-bottom:16px; font-size:13px; color:#888;">Control which Dedicated Agents have access to this integration's capabilities.</div>
+      ${['Global Agent', 'IT Assistant', 'HR Assistant'].map(agent => {
+        const isAssigned = (d.agents || []).includes(agent);
+        const isGlobal = agent === 'Global Agent';
+        return `
+          <div class="agent-option ${isAssigned?'selected':''}" onclick="toggleAgent('${key}','${agent}',this)">
+            <div class="agent-option-icon" style="background:${isGlobal?'#F0EEFF':agent.includes('IT')?'#DBEAFE':'#D1FAE5'}; font-size:18px;">${isGlobal?'🌐':agent.includes('IT')?'💻':'💼'}</div>
+            <div>
+              <div class="agent-option-name">${agent}</div>
+              <div class="agent-option-desc">${isGlobal?'Fallback agent — all employees':agent.includes('IT')?'IT department · All employees':'All employees'}</div>
+            </div>
+            <div class="agent-option-check">${isAssigned?'✓':''}</div>
+          </div>
+        `;
+      }).join('')}
+      <div style="margin-top:20px;">
+        <button class="btn-primary" onclick="saveCapabilities()">Save agent assignment</button>
+      </div>
+    `;
+  } else if (activeDetailTab === 'connection') {
+    return `
+      <div style="background:#fff; border:1px solid #E8E8F0; border-radius:14px; padding:20px; margin-bottom:20px;">
+        <div style="font-size:14px; font-weight:700; color:#111; margin-bottom:14px;">Connection Details</div>
+        <div class="info-row"><span class="info-label">Auth method</span><span class="info-value">${d.authType}</span></div>
+        <div class="info-row"><span class="info-label">Account scope</span><span class="info-value">${d.scope}</span></div>
+        <div class="info-row"><span class="info-label">Status</span><span class="info-value green">${d.status==='connected'?'Active':'Warning'}</span></div>
+        <div class="info-row"><span class="info-label">Last successful call</span><span class="info-value">${d.lastSync}</span></div>
+        <div class="info-row"><span class="info-label">Tenant ID</span><span class="info-value" style="font-family:monospace;">org_acme_corp_001</span></div>
+        <div class="info-row"><span class="info-label">Integrated Account ID</span><span class="info-value" style="font-family:monospace; font-size:12px;">ia_${key}_3f8a2c</span></div>
+      </div>
+      ${d.permissions ? `
+      <div style="background:#fff; border:1px solid #E8E8F0; border-radius:14px; padding:20px; margin-bottom:20px;">
+        <div style="font-size:14px; font-weight:700; color:#111; margin-bottom:14px;">Required Permissions</div>
+        ${d.permissions.map(p => `
+          <div class="perm-row">
+            <div class="perm-icon" style="background:#F0EEFF; font-size:14px;">🔑</div>
+            <div><div class="perm-name">${p}</div><div class="perm-desc">Required for API access</div></div>
+            <div class="perm-level perm-all">Granted</div>
+          </div>
+        `).join('')}
+      </div>` : ''}
+      <div style="display:flex; gap:10px;">
+        <button class="test-btn" onclick="runTest()">🔌 Test connection</button>
+        <button class="btn-secondary" style="color:#DC2626; border-color:#FCA5A5;" onclick="showToast('Disconnected — integration removed')">Disconnect</button>
+      </div>
+    `;
+  }
+}
+
+function renderCapabilities(key, module) {
+  const d = integrationData[key];
+  const caps = d.capabilities[module] || [];
+  return `
+    <div class="cap-section">
+      <div class="cap-section-header">
+        <div class="cap-section-title">📦 ${module} <span style="font-size:11px; font-weight:400; color:#aaa; margin-left:4px;">${caps.length} capabilities</span></div>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <span class="cap-section-meta">${caps.filter(c=>getCapState(key,module,c.name)).length} enabled</span>
+          <button style="font-size:11px; padding:3px 10px; border-radius:6px; border:1px solid #E5E7EB; background:#fff; cursor:pointer; font-family:inherit; color:#555;" onclick="toggleAllRead('${key}','${module}')">Enable read</button>
+        </div>
+      </div>
+      <div class="cap-list">
+        ${caps.map(cap => `
+          <div class="cap-row" id="cap-row-${key}-${module}-${cap.name}">
+            <div class="cap-row-left">
+              <span class="cap-method ${cap.method.toLowerCase()}">${cap.method}</span>
+              <div>
+                <div class="cap-name">${cap.name}</div>
+                <div class="cap-desc">${cap.desc}</div>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span class="cap-risk ${cap.risk}">${cap.risk}</span>
+              <label class="toggle-wrap">
+                <input type="checkbox" ${getCapState(key,module,cap.name)?'checked':''} onchange="capToggle('${key}','${module}','${cap.name}',this)">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function capToggle(key, module, name, el) {
+  const k = `${key}|${module}|${name}`;
+  capStates[k] = el.checked;
+}
+
+function toggleAllRead(key, module) {
+  const d = integrationData[key];
+  const caps = d.capabilities[module] || [];
+  caps.filter(c => c.method === 'GET').forEach(c => {
+    capStates[`${key}|${module}|${c.name}`] = true;
+  });
+  switchModule(key, module);
+}
+
+function switchModule(key, m) {
+  activeModule = m;
+  document.getElementById('detailTabContent').innerHTML = renderDetailTabContent(key);
+}
+
+function switchDetailTab(key, tab) {
+  activeDetailTab = tab;
+  showView('detail-' + (key === 'servicenow' ? 'sn' : 'bamboo'));
+}
+
+function toggleAgent(key, agent, el) {
+  el.classList.toggle('selected');
+  const check = el.querySelector('.agent-option-check');
+  check.textContent = el.classList.contains('selected') ? '✓' : '';
+}
+
+function saveCapabilities() {
+  showToast('Changes saved ✓');
+}
+
+function runTest() {
+  showToast('🔌 Connection test passed — 124ms response time ✓');
+}
+
+// ── Drawer ────────────────────────────────────────────────
+function openDrawer(key) {
+  drawerIntegration = key;
+  drawerStep = 0;
+  connectingStatus = 'idle';
+  activeDrawerModule = null;
+
+  const overlay = document.getElementById('drawerOverlay');
+  const drawer = document.getElementById('drawer');
+
+  if (key === 'catalog') {
+    document.getElementById('drawerTitle').textContent = 'Integration Catalog';
+    document.getElementById('drawerSub').textContent = 'Browse and connect available integrations';
+    document.getElementById('drawerBody').innerHTML = renderCatalogDrawer();
+    document.getElementById('drawerFooter').innerHTML = '';
+  } else if (key === 'bamboohr-reconnect') {
+    document.getElementById('drawerTitle').textContent = 'Re-authenticate BambooHR';
+    document.getElementById('drawerSub').textContent = 'Your API token is expiring — reconnect to stay active';
+    document.getElementById('drawerBody').innerHTML = `<div style="text-align:center; padding:40px 0;">
+      <div style="font-size:48px; margin-bottom:16px;">🌿</div>
+      <div style="font-size:16px; font-weight:700; margin-bottom:8px;">BambooHR · Re-authenticate</div>
+      <div style="font-size:13px; color:#888; margin-bottom:28px;">Your current token expires in 2 days.<br>Re-connect to avoid service interruption.</div>
+      <button class="btn-primary" style="margin: 0 auto;" onclick="simulateOAuth()">🔑 Re-authenticate with BambooHR</button>
+    </div>`;
+    document.getElementById('drawerFooter').innerHTML = '';
+  } else {
+    renderDrawerStep(key, 0);
+  }
+
+  overlay.classList.add('open');
+  drawer.classList.add('open');
+}
+
+function closeDrawer() {
+  document.getElementById('drawerOverlay').classList.remove('open');
+  document.getElementById('drawer').classList.remove('open');
+}
+
+function renderCatalogDrawer() {
+  return `
+    <div style="margin-bottom:16px; position:relative;">
+      <input style="width:100%; padding:10px 14px 10px 36px; border:1.5px solid #E5E7EB; border-radius:10px; font-size:13px; font-family:inherit; outline:none; background:#F8F8FC;" placeholder="Search integrations..." />
+      <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:14px;">🔍</span>
+    </div>
+    <div style="display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap;">
+      ${['All','HRIS','ITSM','CRM','ATS','Calendar'].map(c => `<button class="module-tab ${c==='All'?'active':''}" style="font-size:11px; padding:4px 12px;" onclick="filterCatalog(this)">${c}</button>`).join('')}
+    </div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+      ${[...Object.entries(integrationData).filter(([,v])=>!v.connected).map(([k,v])=>`<div style="background:#F8F8FC; border:1.5px solid #E8E8F0; border-radius:12px; padding:14px; cursor:pointer;" onclick="closeDrawer(); openDrawer('${k}')"><div style="font-size:22px; margin-bottom:8px;">${v.emoji}</div><div style="font-size:13px; font-weight:700; color:#111; margin-bottom:4px;">${v.name}</div><span class="cat-badge ${v.catClass}">${v.category}</span></div>`),
+        ...catalogExtra.map(i=>`<div style="background:#F8F8FC; border:1.5px solid #E8E8F0; border-radius:12px; padding:14px; cursor:pointer;"><div style="font-size:22px; margin-bottom:8px;">${i.emoji}</div><div style="font-size:13px; font-weight:700; color:#111; margin-bottom:4px;">${i.name}</div><span class="cat-badge ${i.catClass}">${i.category}</span></div>`)
+      ].join('')}
+    </div>
+  `;
+}
+
+function filterCatalog(el) {
+  document.querySelectorAll('.module-tab').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+function renderDrawerStep(key, step) {
+  const d = integrationData[key];
+  if (!d) return;
+
+  document.getElementById('drawerTitle').textContent = `Connect ${d.name}`;
+  document.getElementById('drawerSub').textContent = d.desc;
+
+  const steps = ['Choose', 'Connect', 'Capabilities', 'Assign'];
+  const stepperHTML = `
+    <div class="stepper">
+      ${steps.map((s, i) => `
+        <div class="step-item ${i < step ? 'done' : i === step ? 'active' : ''}">
+          <div class="step-num">${i < step ? '✓' : i + 1}</div>
+          <span class="step-label">${s}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  let bodyHTML = '', footerHTML = '';
+
+  if (step === 0) {
+    bodyHTML = `${stepperHTML}
+      <div style="background:#F8F8FC; border-radius:14px; padding:20px; text-align:center; margin-bottom:20px;">
+        <div style="font-size:48px; margin-bottom:12px;">${d.emoji}</div>
+        <div style="font-size:18px; font-weight:800; color:#111; margin-bottom:6px;">${d.name}</div>
+        <span class="cat-badge ${d.catClass}" style="font-size:12px;">${d.category}</span>
+        <div style="font-size:13px; color:#888; margin-top:12px; line-height:1.6;">${d.desc}</div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div class="info-row"><span class="info-label">Auth method</span><span class="info-value">${d.authType}</span></div>
+        <div class="info-row"><span class="info-label">Account scope</span><span class="info-value">${d.scope}</span></div>
+        <div class="info-row"><span class="info-label">Modules</span><span class="info-value">${(d.modules||[]).join(', ')}</span></div>
+        <div class="info-row"><span class="info-label">Total capabilities</span><span class="info-value">${Object.values(d.capabilities||{}).flat().length}</span></div>
+      </div>
+    `;
+    footerHTML = `<button class="btn-secondary" onclick="closeDrawer()">Cancel</button><button class="btn-primary" onclick="renderDrawerStep('${key}',1)">Continue →</button>`;
+  } else if (step === 1) {
+    const isOAuth = (d.authType||'').includes('OAuth');
+    bodyHTML = `${stepperHTML}
+      <div style="font-size:15px; font-weight:700; color:#111; margin-bottom:16px;">Authenticate with ${d.name}</div>
+      ${isOAuth ? `
+        <div style="background:#F0EEFF; border-radius:12px; padding:16px; margin-bottom:20px; font-size:13px; color:#555; line-height:1.6;">
+          <strong style="color:#6B3DE7;">OAuth 2.0 flow:</strong> Clicking the button below will open ${d.name}'s authentication page in a modal. Truto handles the OAuth handshake — Navigator never stores your credentials.
+        </div>
+        <button class="btn-primary" style="width:100%; justify-content:center; padding:14px;" id="oauthBtn" onclick="simulateOAuth('${key}')">
+          🔑 Connect with ${d.name} (OAuth)
+        </button>
+        <div style="text-align:center; margin-top:12px; font-size:12px; color:#aaa;">🔒 Credentials secured by Truto · Never stored by Staffbase</div>
+      ` : `
+        <div style="background:#FFF7ED; border-radius:12px; padding:16px; margin-bottom:20px; font-size:13px; color:#92400E;">
+          <strong>API Key:</strong> Generate an API key in your ${d.name} admin panel and paste it below.
+        </div>
+        <div class="form-field" style="margin-bottom:14px;">
+          <div class="form-label" style="font-size:12px; font-weight:600; color:#666; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.05em;">API Key</div>
+          <input type="password" id="apiKeyInput" placeholder="Paste your ${d.name} API key..." style="width:100%; padding:11px 14px; border:1.5px solid #E5E7EB; border-radius:12px; font-size:14px; font-family:inherit; outline:none;" />
+        </div>
+        <button class="btn-primary" style="width:100%; justify-content:center; padding:14px;" onclick="simulateOAuth('${key}')">Validate & Connect</button>
+        <div style="text-align:center; margin-top:12px; font-size:12px; color:#aaa;">🔒 Key stored securely in Truto · Never logged or shared</div>
+      `}
+      <div id="connectStatus" style="display:none; text-align:center; margin-top:20px; padding:16px; background:#D1FAE5; border-radius:12px; color:#059669; font-weight:700; font-size:14px;">
+        ✓ Connected successfully!
+      </div>
+    `;
+    footerHTML = `<button class="btn-secondary" onclick="renderDrawerStep('${key}',0)">← Back</button><button class="btn-primary" id="nextBtn2" style="opacity:0.4;" disabled>Continue →</button>`;
+  } else if (step === 2) {
+    const modules = d.modules || [];
+    const firstModule = activeDrawerModule || modules[0];
+    if (!activeDrawerModule) activeDrawerModule = firstModule;
+
+    bodyHTML = `${stepperHTML}
+      <div style="font-size:15px; font-weight:700; color:#111; margin-bottom:6px;">Configure capabilities</div>
+      <div style="font-size:13px; color:#888; margin-bottom:16px;">Choose which actions Navigator agents can perform. Write actions default to OFF — enable them explicitly.</div>
+      <div class="module-tab-bar">
+        ${modules.map(m => `<button class="module-tab ${m===firstModule?'active':''}" onclick="switchDrawerModule('${key}','${m}',this)">${m}</button>`).join('')}
+      </div>
+      <div id="drawerCapList">
+        ${renderDrawerCaps(key, firstModule)}
+      </div>
+    `;
+    footerHTML = `<button class="btn-secondary" onclick="renderDrawerStep('${key}',1)">← Back</button><button class="btn-primary" onclick="renderDrawerStep('${key}',3)">Continue →</button>`;
+  } else if (step === 3) {
+    const agentOptions = ['Global Agent', 'IT Assistant', 'HR Assistant'];
+    const recommended = d.agents || [];
+    bodyHTML = `${stepperHTML}
+      <div style="font-size:15px; font-weight:700; color:#111; margin-bottom:6px;">Assign to agents</div>
+      <div style="font-size:13px; color:#888; margin-bottom:20px;">Choose which Navigator agents can use this integration's enabled capabilities.</div>
+      ${agentOptions.map(agent => {
+        const isRec = recommended.includes(agent);
+        const isGlobal = agent === 'Global Agent';
+        return `
+          <div class="agent-option ${isRec?'selected':''}" onclick="this.classList.toggle('selected'); this.querySelector('.agent-option-check').textContent = this.classList.contains('selected') ? '✓' : '';">
+            <div class="agent-option-icon" style="background:${isGlobal?'#F0EEFF':agent.includes('IT')?'#DBEAFE':'#D1FAE5'}; font-size:18px;">${isGlobal?'🌐':agent.includes('IT')?'💻':'💼'}</div>
+            <div>
+              <div class="agent-option-name">${agent} ${isRec?'<span style="font-size:10px; color:#059669; font-weight:600; background:#D1FAE5; padding:1px 6px; border-radius:100px; margin-left:4px;">Recommended</span>':''}</div>
+              <div class="agent-option-desc">${isGlobal?'Fallback — all employees':agent.includes('IT')?'IT department · All employees':'All employees'}</div>
+            </div>
+            <div class="agent-option-check">${isRec?'✓':''}</div>
+          </div>
+        `;
+      }).join('')}
+    `;
+    footerHTML = `<button class="btn-secondary" onclick="renderDrawerStep('${key}',2)">← Back</button><button class="btn-primary" onclick="finishSetup('${key}')">✓ Finish setup</button>`;
+  }
+
+  document.getElementById('drawerBody').innerHTML = bodyHTML;
+  document.getElementById('drawerFooter').innerHTML = footerHTML;
+  drawerStep = step;
+}
+
+function renderDrawerCaps(key, module) {
+  const d = integrationData[key];
+  const caps = (d.capabilities||{})[module] || [];
+  return caps.map(cap => `
+    <div class="cap-row">
+      <div class="cap-row-left">
+        <span class="cap-method ${cap.method.toLowerCase()}">${cap.method}</span>
+        <div>
+          <div class="cap-name">${cap.name}</div>
+          <div class="cap-desc">${cap.desc}</div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span class="cap-risk ${cap.risk}">${cap.risk}</span>
+        <label class="toggle-wrap">
+          <input type="checkbox" ${cap.default?'checked':''} onchange="capToggle('${key}','${module}','${cap.name}',this)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+  `).join('');
+}
+
+function switchDrawerModule(key, module, el) {
+  activeDrawerModule = module;
+  document.querySelectorAll('.module-tab').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('drawerCapList').innerHTML = renderDrawerCaps(key, module);
+}
+
+function simulateOAuth(key) {
+  const btn = document.getElementById('oauthBtn');
+  if (btn) {
+    btn.textContent = '⏳ Connecting...';
+    btn.style.background = 'linear-gradient(135deg, #6B7280, #9CA3AF)';
+  }
+  setTimeout(() => {
+    const status = document.getElementById('connectStatus');
+    if (status) status.style.display = 'block';
+    const nextBtn = document.getElementById('nextBtn2');
+    if (nextBtn) { nextBtn.removeAttribute('disabled'); nextBtn.style.opacity = '1'; nextBtn.onclick = () => renderDrawerStep(drawerIntegration, 2); }
+    if (btn) btn.style.display = 'none';
+    // For reconnect
+    if (!key) { showToast('BambooHR re-authenticated ✓'); closeDrawer(); showView('overview'); }
+  }, 1800);
+}
+
+function finishSetup(key) {
+  const d = integrationData[key];
+  if (d) {
+    d.connected = true;
+    d.status = 'connected';
+    d.lastSync = 'Just now';
+    integrationData[key] = d;
+  }
+  closeDrawer();
+  showToast(`✅ ${integrationData[key]?.name || key} connected and active`);
+  setTimeout(() => showView('overview'), 400);
+}
+
+// ── Toast ─────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3200);
+}
+
+// ── Init ──────────────────────────────────────────────────
+showView('overview');
+</script>
+</body>
+</html>

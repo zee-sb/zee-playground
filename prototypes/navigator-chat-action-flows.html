@@ -1,0 +1,1413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Navigator · Chat Action Flows Prototype</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0f0f14;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 100vh;
+  padding: 80px 16px 48px;
+  font-family: 'Inter', -apple-system, sans-serif;
+}
+
+/* ── Prototype chrome bar ── */
+.proto-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 9999; background: #1C1C1E; color: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 48px; font-size: 13px; }
+.proto-bar-left { display: flex; align-items: center; gap: 12px; }
+.proto-back { display: inline-flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.6); text-decoration: none; font-size: 13px; transition: color 0.15s; }
+.proto-back:hover { color: #fff; }
+.proto-divider { width: 1px; height: 16px; background: rgba(255,255,255,0.15); }
+.proto-title { font-weight: 500; }
+.proto-tags { display: flex; gap: 6px; }
+.proto-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+.tag-navigator { background: #1D4ED8; color: #BFDBFE; }
+.tag-ready { background: #14532D; color: #86EFAC; }
+.tag-wip { background: #422006; color: #FCD34D; }
+
+/* ── Scenario Tabs ── */
+.scenario-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.scenario-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-right: 6px;
+  align-self: center;
+}
+.tab-btn {
+  padding: 8px 18px;
+  border-radius: 100px;
+  border: 1.5px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.5);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+.tab-btn:hover { border-color: rgba(255,255,255,0.3); color: rgba(255,255,255,0.8); }
+.tab-btn.active { background: #7B5CE3; border-color: #7B5CE3; color: #fff; }
+.tab-group { display: flex; gap: 8px; align-items: center; }
+.tab-group-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.25);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* ── Phone Frame ── */
+.phone-wrap {
+  position: relative;
+  width: 393px;
+}
+.phone-frame {
+  width: 393px;
+  height: 852px;
+  background: #1a1a2e;
+  border-radius: 55px;
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 2px #2a2a3e,
+    0 0 0 4px #111,
+    0 40px 120px rgba(0,0,0,0.8),
+    0 0 60px rgba(123,92,227,0.15);
+}
+.phone-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: 53px;
+  overflow: hidden;
+  position: relative;
+  background: #fafafa;
+}
+/* Dynamic island */
+.dynamic-island {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 120px;
+  height: 34px;
+  background: #000;
+  border-radius: 20px;
+  z-index: 100;
+}
+
+/* ── Screen Base ── */
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  background: #fafafa;
+  border-radius: 53px;
+  overflow: hidden;
+}
+.screen.active { opacity: 1; pointer-events: all; }
+
+/* ── Gradient BG ── */
+.grad-bg {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 65%;
+  background:
+    radial-gradient(ellipse at 50% 110%, #5B2DC7 0%, #7B5CE3 20%, #A78BF5 40%, #D4C0FF 60%, transparent 80%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Status Bar ── */
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 28px 0;
+  position: relative;
+  z-index: 10;
+  height: 54px;
+}
+.status-time { font-size: 16px; font-weight: 600; color: #111; }
+.status-icons { display: flex; gap: 6px; align-items: center; }
+.status-icons svg { opacity: 0.8; }
+
+/* ── Header ── */
+.nav-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 24px 12px;
+  position: relative;
+  z-index: 10;
+}
+.nav-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 17px;
+  font-weight: 600;
+  color: #111;
+}
+.nav-close {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.06);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  color: #666;
+}
+
+/* ── HOME SCREEN ── */
+.home-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 28px;
+  position: relative;
+  z-index: 5;
+  padding-bottom: 140px;
+}
+.home-icon {
+  width: 72px;
+  height: 72px;
+  margin-bottom: 20px;
+}
+.home-greeting {
+  font-size: 26px;
+  font-weight: 700;
+  color: #111;
+  text-align: left;
+  width: 100%;
+  line-height: 1.3;
+  margin-bottom: 24px;
+}
+.starters-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+}
+.starter-pill {
+  padding: 9px 16px;
+  border: 1.5px solid rgba(0,0,0,0.12);
+  border-radius: 100px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #222;
+  background: rgba(255,255,255,0.85);
+  cursor: pointer;
+  transition: all 0.15s;
+  backdrop-filter: blur(8px);
+}
+.starter-pill:hover { background: #fff; border-color: #7B5CE3; color: #7B5CE3; transform: translateY(-1px); }
+.starter-pill.action-pill {
+  background: rgba(123,92,227,0.1);
+  border-color: rgba(123,92,227,0.3);
+  color: #6B3DE7;
+}
+.starter-pill.action-pill:hover { background: rgba(123,92,227,0.18); }
+
+/* ── INPUT BAR ── */
+.input-bar {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 12px 16px 36px;
+  background: linear-gradient(to top, rgba(250,250,250,0.98) 60%, transparent);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.input-field {
+  flex: 1;
+  height: 48px;
+  background: rgba(0,0,0,0.06);
+  border-radius: 100px;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  font-size: 15px;
+  color: #888;
+}
+.voice-btn {
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, #7B5CE3, #9B3ECC);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* ── AGENT BADGE ── */
+.agent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 100px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+.agent-badge.hr { background: rgba(16,185,129,0.12); color: #059669; }
+.agent-badge.it { background: rgba(59,130,246,0.12); color: #2563EB; }
+.agent-badge.global { background: rgba(123,92,227,0.12); color: #6B3DE7; }
+.agent-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+/* ── CHAT SCREEN ── */
+.chat-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 20px 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+  z-index: 5;
+  scrollbar-width: none;
+}
+.chat-scroll::-webkit-scrollbar { display: none; }
+
+/* Messages */
+.msg-user {
+  align-self: flex-end;
+  max-width: 75%;
+  background: #fff;
+  border-radius: 20px 20px 5px 20px;
+  padding: 10px 14px;
+  font-size: 15px;
+  color: #111;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+.msg-ai {
+  align-self: flex-start;
+  max-width: 90%;
+  font-size: 15px;
+  color: #1c1c1e;
+  line-height: 1.55;
+}
+.msg-ai-wrap { display: flex; flex-direction: column; gap: 10px; }
+
+/* Source chips */
+.source-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.source-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(0,0,0,0.06);
+  border-radius: 100px;
+  font-size: 12px;
+  color: #333;
+  cursor: pointer;
+}
+.source-chip-icon {
+  width: 18px; height: 18px;
+  background: #4285F4;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Typing indicator */
+.typing-indicator {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(0,0,0,0.05);
+  border-radius: 100px;
+  width: fit-content;
+}
+.typing-dot {
+  width: 7px; height: 7px;
+  background: #999;
+  border-radius: 50%;
+  animation: typingBounce 1.2s infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typingBounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-5px); }
+}
+
+/* ── ACTION CARDS ── */
+.action-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 18px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.09), 0 0 0 1px rgba(0,0,0,0.05);
+  width: 100%;
+}
+.action-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.action-card-icon {
+  width: 40px; height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.action-card-title { font-size: 15px; font-weight: 700; color: #111; }
+.action-card-sub { font-size: 12px; color: #888; margin-top: 2px; }
+
+/* Form fields */
+.form-field {
+  margin-bottom: 14px;
+}
+.form-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.form-input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  font-size: 14px;
+  color: #111;
+  background: #f9f9f9;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.form-input:focus { border-color: #7B5CE3; background: #fff; }
+.form-input.prefilled { color: #7B5CE3; }
+.form-select {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  font-size: 14px;
+  color: #111;
+  background: #f9f9f9;
+  font-family: inherit;
+  appearance: none;
+  outline: none;
+}
+.form-row { display: flex; gap: 10px; }
+.form-row .form-field { flex: 1; }
+
+.submit-btn {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, #7B5CE3, #6B3DE7);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  margin-top: 4px;
+}
+.submit-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(107,61,231,0.4); }
+.submit-btn:active { transform: translateY(0); }
+.submit-btn.green { background: linear-gradient(135deg, #10B981, #059669); }
+.submit-btn.cancel {
+  background: none;
+  color: #888;
+  box-shadow: none;
+  padding-top: 10px;
+  padding-bottom: 2px;
+  font-size: 14px;
+}
+
+/* Confirmation card */
+.confirm-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 18px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.09), 0 0 0 1px rgba(0,0,0,0.05);
+  width: 100%;
+  border-top: 3px solid #10B981;
+}
+.confirm-success-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.confirm-check {
+  width: 32px; height: 32px;
+  background: #10B981;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.confirm-title { font-size: 15px; font-weight: 700; color: #111; }
+.confirm-sub { font-size: 12px; color: #888; }
+.confirm-rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.confirm-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.confirm-row-label { font-size: 13px; color: #888; }
+.confirm-row-value { font-size: 13px; font-weight: 600; color: #111; text-align: right; max-width: 60%; }
+.confirm-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #555;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s;
+}
+.confirm-link:hover { border-color: #7B5CE3; color: #7B5CE3; }
+.status-badge {
+  padding: 3px 10px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.status-badge.pending { background: #FEF3C7; color: #D97706; }
+.status-badge.open { background: #DBEAFE; color: #2563EB; }
+.status-badge.submitted { background: #D1FAE5; color: #059669; }
+
+/* Data card */
+.data-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 18px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.09), 0 0 0 1px rgba(0,0,0,0.05);
+  width: 100%;
+}
+.data-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.data-card-title { font-size: 14px; font-weight: 700; color: #111; }
+.data-card-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #7B5CE3;
+  background: rgba(123,92,227,0.1);
+  padding: 3px 10px;
+  border-radius: 100px;
+}
+.balance-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+.balance-row:last-child { border-bottom: none; }
+.balance-label { font-size: 14px; color: #333; font-weight: 500; }
+.balance-val { font-size: 14px; font-weight: 700; color: #111; }
+.balance-sub { font-size: 11px; color: #aaa; margin-top: 2px; }
+.balance-bar-wrap { width: 80px; height: 6px; background: #f0f0f0; border-radius: 100px; overflow: hidden; margin: 0 12px; }
+.balance-bar { height: 100%; border-radius: 100px; background: linear-gradient(90deg, #7B5CE3, #9B6FF7); }
+
+/* Ticket list */
+.ticket-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+}
+.ticket-row:last-child { border-bottom: none; }
+.ticket-icon {
+  width: 34px; height: 34px;
+  background: #DBEAFE;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 16px;
+}
+.ticket-id { font-size: 12px; color: #888; }
+.ticket-title { font-size: 13px; font-weight: 600; color: #111; margin: 2px 0; }
+.ticket-meta { display: flex; gap: 8px; align-items: center; }
+.ticket-status { font-size: 11px; padding: 2px 8px; border-radius: 100px; font-weight: 600; }
+.ticket-status.open { background: #DBEAFE; color: #2563EB; }
+.ticket-status.in-progress { background: #FEF3C7; color: #D97706; }
+.ticket-status.resolved { background: #D1FAE5; color: #059669; }
+.ticket-date { font-size: 11px; color: #bbb; }
+
+/* Connect prompt */
+.connect-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 18px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.09), 0 0 0 1px rgba(0,0,0,0.05);
+  width: 100%;
+  border-top: 3px solid #F59E0B;
+}
+.connect-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.connect-app-icon {
+  width: 38px; height: 38px;
+  background: linear-gradient(135deg, #4F7942, #6BA156);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: #fff;
+  flex-shrink: 0;
+}
+.connect-title { font-size: 15px; font-weight: 700; color: #111; }
+.connect-desc { font-size: 13px; color: #666; margin-bottom: 14px; line-height: 1.5; }
+.connect-btn {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, #F59E0B, #D97706);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+.connect-btn:hover { transform: translateY(-1px); }
+
+/* Nav progress hint */
+.progress-hint {
+  position: absolute;
+  bottom: 100px;
+  right: 20px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  font-size: 11px;
+  padding: 6px 12px;
+  border-radius: 100px;
+  backdrop-filter: blur(8px);
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.progress-hint.show { opacity: 1; }
+
+/* Next step tap area */
+.tap-next {
+  position: absolute;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(123,92,227,0.85);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 20px;
+  border-radius: 100px;
+  z-index: 50;
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.tap-next:hover { background: rgba(123,92,227,1); transform: translateX(-50%) translateY(-2px); }
+
+/* ── Sparkle SVG icon ── */
+.sparkle-sm {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── Prototype label ── */
+.proto-label {
+  font-size: 11px;
+  color: rgba(255,255,255,0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+.proto-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 6px;
+}
+.proto-desc {
+  font-size: 13px;
+  color: rgba(255,255,255,0.4);
+  margin-bottom: 28px;
+  text-align: center;
+  max-width: 360px;
+}
+
+/* Agent switcher above phone */
+.agent-switcher-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
+  text-align: center;
+}
+.step-counter {
+  font-size: 12px;
+  color: rgba(255,255,255,0.3);
+  text-align: center;
+  margin-top: 16px;
+  font-weight: 500;
+}
+.step-dots { display: flex; gap: 6px; justify-content: center; margin-top: 10px; }
+.step-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.15); transition: all 0.3s; }
+.step-dot.done { background: rgba(255,255,255,0.4); }
+.step-dot.current { background: #7B5CE3; width: 20px; border-radius: 3px; }
+</style>
+</head>
+<nav class="proto-bar">
+  <div class="proto-bar-left">
+    <a class="proto-back" href="../index.html">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Gallery
+    </a>
+    <div class="proto-divider"></div>
+    <span class="proto-title">Navigator — Chat Action Flows</span>
+  </div>
+  <div class="proto-tags">
+    <span class="proto-tag tag-navigator">Navigator</span>
+    <span class="proto-tag tag-ready">Ready</span>
+  </div>
+</nav>
+
+<div style="text-align:center; margin-bottom: 24px;">
+  <div class="proto-desc" style="margin-bottom:0">Interactive mobile-app prototype exploring intent-based routing. Tap the purple button to advance each step.</div>
+</div>
+
+<!-- Scenario Selector -->
+<div class="scenario-bar">
+  <div class="tab-group">
+    <span class="tab-group-label">Global</span>
+    <button class="tab-btn active" onclick="loadScenario('global-home')">🌐 Navigator Home</button>
+  </div>
+  <div class="tab-group">
+    <span class="tab-group-label">IT Assistant</span>
+    <button class="tab-btn" onclick="loadScenario('it-home')">💻 IT Home</button>
+    <button class="tab-btn" onclick="loadScenario('it-ticket')">🎫 Create Ticket</button>
+    <button class="tab-btn" onclick="loadScenario('it-tickets-list')">📋 My Tickets</button>
+  </div>
+  <div class="tab-group">
+    <span class="tab-group-label">HR Assistant</span>
+    <button class="tab-btn" onclick="loadScenario('hr-home')">💼 HR Home</button>
+    <button class="tab-btn" onclick="loadScenario('hr-leave')">🌴 Request Leave</button>
+    <button class="tab-btn" onclick="loadScenario('hr-balance')">📊 Leave Balance</button>
+    <button class="tab-btn" onclick="loadScenario('hr-connect')">🔗 Connect Account</button>
+  </div>
+</div>
+
+<!-- Phone -->
+<div class="phone-wrap">
+  <div class="phone-frame">
+    <div class="dynamic-island"></div>
+    <div class="phone-inner" id="phoneInner">
+
+      <!-- ═══════════════════════════════ -->
+      <!-- SCREEN: Global Home -->
+      <!-- ═══════════════════════════════ -->
+      <div class="screen active" id="screen-global-home">
+        <div class="grad-bg"></div>
+        <div class="status-bar">
+          <span class="status-time">9:41</span>
+          <div class="status-icons">
+            <svg width="17" height="12" viewBox="0 0 17 12" fill="none"><rect x="0" y="3" width="3" height="9" rx="1" fill="#111"/><rect x="4.5" y="2" width="3" height="10" rx="1" fill="#111"/><rect x="9" y="0.5" width="3" height="11.5" rx="1" fill="#111"/><rect x="13.5" y="0" width="3" height="12" rx="1" fill="#111" opacity=".3"/></svg>
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M8 2.5C10.5 2.5 12.7 3.6 14.2 5.4L15.5 4C13.6 1.8 11 0.5 8 0.5C5 0.5 2.4 1.8 0.5 4L1.8 5.4C3.3 3.6 5.5 2.5 8 2.5Z" fill="#111"/><path d="M8 5.5C9.7 5.5 11.2 6.3 12.2 7.5L13.5 6.1C12.1 4.6 10.2 3.5 8 3.5C5.8 3.5 3.9 4.6 2.5 6.1L3.8 7.5C4.8 6.3 6.3 5.5 8 5.5Z" fill="#111"/><circle cx="8" cy="11" r="1.5" fill="#111"/></svg>
+            <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0" y="1" width="21" height="10" rx="2.5" stroke="#111" stroke-width="1.2"/><rect x="1.5" y="2.5" width="15" height="7" rx="1.5" fill="#111"/><path d="M22 4.5C23.1 4.9 23.1 7.1 22 7.5V4.5Z" fill="#111" opacity=".4"/></svg>
+          </div>
+        </div>
+        <div class="nav-header">
+          <div style="width:30px"></div>
+          <div class="nav-title">
+            <svg class="sparkle-sm" viewBox="0 0 24 24" fill="none"><path d="M12 2L13.8 8.2L20 10L13.8 11.8L12 18L10.2 11.8L4 10L10.2 8.2L12 2Z" fill="url(#sg1)"/><defs><linearGradient id="sg1" x1="4" y1="2" x2="20" y2="18" gradientUnits="userSpaceOnUse"><stop stop-color="#6B3DE7"/><stop offset="1" stop-color="#C64FE0"/></linearGradient></defs></svg>
+            AI Assistant
+          </div>
+          <div class="nav-close">✕</div>
+        </div>
+        <div class="home-content">
+          <svg class="home-icon" viewBox="0 0 72 72" fill="none">
+            <path d="M36 6L41 22L57 27L41 32L36 48L31 32L15 27L31 22L36 6Z" fill="url(#hg1)" opacity="0.95"/>
+            <defs><linearGradient id="hg1" x1="15" y1="6" x2="57" y2="48" gradientUnits="userSpaceOnUse"><stop stop-color="#6B3DE7"/><stop offset="0.5" stop-color="#9B5CF6"/><stop offset="1" stop-color="#C64FE0"/></linearGradient></defs>
+          </svg>
+          <div class="home-greeting">Hi Friedrich,<br>How can I help you today?</div>
+          <div class="starters-grid">
+            <div class="starter-pill">Latest News</div>
+            <div class="starter-pill">Vacation Policy</div>
+            <div class="starter-pill">2026 OKRs</div>
+            <div class="starter-pill">Company Values</div>
+            <div class="starter-pill">Employee Training</div>
+            <div class="starter-pill action-pill">⚡ Report an IT issue</div>
+            <div class="starter-pill action-pill">⚡ Request time off</div>
+          </div>
+        </div>
+        <div class="input-bar">
+          <div class="input-field">Ask me anything ...</div>
+          <div class="voice-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M9 3H15C15 3 16 3 16 5V13C16 13 16 14 15 14H9C9 14 8 14 8 13V5C8 5 8 3 9 3Z" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M5 11C5 11 5 18 12 18C19 18 19 11 19 11" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="18" x2="12" y2="22" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════ -->
+      <!-- SCREEN: IT Home -->
+      <!-- ═══════════════════════════════ -->
+      <div class="screen" id="screen-it-home">
+        <div class="grad-bg" style="background: radial-gradient(ellipse at 50% 110%, #1D4ED8 0%, #3B82F6 25%, #93C5FD 50%, #DBEAFE 70%, transparent 85%);"></div>
+        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"><svg width="17" height="12" viewBox="0 0 17 12" fill="none"><rect x="0" y="3" width="3" height="9" rx="1" fill="#111"/><rect x="4.5" y="2" width="3" height="10" rx="1" fill="#111"/><rect x="9" y="0.5" width="3" height="11.5" rx="1" fill="#111"/></svg><svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0" y="1" width="21" height="10" rx="2.5" stroke="#111" stroke-width="1.2"/><rect x="1.5" y="2.5" width="15" height="7" rx="1.5" fill="#111"/></svg></div></div>
+        <div class="nav-header">
+          <div style="width:30px"></div>
+          <div class="nav-title">
+            <svg class="sparkle-sm" viewBox="0 0 24 24" fill="none"><path d="M12 2L13.8 8.2L20 10L13.8 11.8L12 18L10.2 11.8L4 10L10.2 8.2L12 2Z" fill="url(#sg2)"/><defs><linearGradient id="sg2" x1="4" y1="2" x2="20" y2="18"><stop stop-color="#2563EB"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs></svg>
+            IT Assistant
+          </div>
+          <div class="nav-close">✕</div>
+        </div>
+        <div class="home-content">
+          <svg class="home-icon" viewBox="0 0 72 72" fill="none">
+            <path d="M36 6L41 22L57 27L41 32L36 48L31 32L15 27L31 22L36 6Z" fill="url(#hg2)" opacity="0.95"/>
+            <defs><linearGradient id="hg2" x1="15" y1="6" x2="57" y2="48"><stop stop-color="#1D4ED8"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs>
+          </svg>
+          <div class="agent-badge it"><span class="agent-dot"></span>IT Support Expert</div>
+          <div class="home-greeting">Hi Friedrich,<br>How can I help with IT today?</div>
+          <div class="starters-grid">
+            <div class="starter-pill action-pill">⚡ Report an issue</div>
+            <div class="starter-pill action-pill">⚡ Check my tickets</div>
+            <div class="starter-pill action-pill">⚡ Request software</div>
+            <div class="starter-pill action-pill">⚡ VPN access help</div>
+            <div class="starter-pill">Password reset guide</div>
+            <div class="starter-pill">IT security policies</div>
+            <div class="starter-pill">Set up new device</div>
+          </div>
+        </div>
+        <div class="input-bar">
+          <div class="input-field">Ask me anything ...</div>
+          <div class="voice-btn" style="background: linear-gradient(135deg, #2563EB, #4F46E5);">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M9 3H15C15 3 16 3 16 5V13C16 13 16 14 15 14H9C9 14 8 14 8 13V5C8 5 8 3 9 3Z" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M5 11C5 11 5 18 12 18C19 18 19 11 19 11" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="18" x2="12" y2="22" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════ -->
+      <!-- SCREEN: IT Ticket Creation Flow -->
+      <!-- ═══════════════════════════════ -->
+      <div class="screen" id="screen-it-ticket">
+        <div class="grad-bg" style="height:30%; background: radial-gradient(ellipse at 50% 120%, #DBEAFE 0%, transparent 70%);"></div>
+        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"><svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0" y="1" width="21" height="10" rx="2.5" stroke="#111" stroke-width="1.2"/><rect x="1.5" y="2.5" width="15" height="7" rx="1.5" fill="#111"/></svg></div></div>
+        <div class="nav-header">
+          <div style="width:30px; cursor:pointer; font-size:20px; color:#666">‹</div>
+          <div class="nav-title">
+            <svg class="sparkle-sm" viewBox="0 0 24 24" fill="none"><path d="M12 2L13.8 8.2L20 10L13.8 11.8L12 18L10.2 11.8L4 10L10.2 8.2L12 2Z" fill="url(#sg3)"/><defs><linearGradient id="sg3" x1="4" y1="2" x2="20" y2="18"><stop stop-color="#2563EB"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs></svg>
+            IT Assistant
+          </div>
+          <div class="nav-close">✕</div>
+        </div>
+        <div class="chat-scroll" id="chat-it-ticket">
+          <!-- Steps rendered by JS -->
+        </div>
+        <div class="input-bar">
+          <div class="input-field">Ask me anything ...</div>
+          <div class="voice-btn" style="background: linear-gradient(135deg, #2563EB, #4F46E5);"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M9 3H15C15 3 16 3 16 5V13C16 13 16 14 15 14H9C9 14 8 14 8 13V5C8 5 8 3 9 3Z" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M5 11C5 11 5 18 12 18C19 18 19 11 19 11" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="18" x2="12" y2="22" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════ -->
+      <!-- SCREEN: IT Tickets List -->
+      <!-- ═══════════════════════════════ -->
+      <div class="screen" id="screen-it-tickets-list">
+        <div class="grad-bg" style="height:25%; background: radial-gradient(ellipse at 50% 120%, #DBEAFE 0%, transparent 70%);"></div>
+        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"><svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0" y="1" width="21" height="10" rx="2.5" stroke="#111" stroke-width="1.2"/><rect x="1.5" y="2.5" width="15" height="7" rx="1.5" fill="#111"/></svg></div></div>
+        <div class="nav-header">
+          <div style="width:30px; cursor:pointer; font-size:20px; color:#666">‹</div>
+          <div class="nav-title"><svg class="sparkle-sm" viewBox="0 0 24 24" fill="none"><path d="M12 2L13.8 8.2L20 10L13.8 11.8L12 18L10.2 11.8L4 10L10.2 8.2L12 2Z" fill="url(#sg4)"/><defs><linearGradient id="sg4" x1="4" y1="2" x2="20" y2="18"><stop stop-color="#2563EB"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs></svg>IT Assistant</div>
+          <div class="nav-close">✕</div>
+        </div>
+        <div class="chat-scroll" id="chat-it-list">
+          <div class="msg-user">Show me my open IT tickets</div>
+          <div class="msg-ai-wrap">
+            <div class="msg-ai">Here are your active ServiceNow tickets, Friedrich:</div>
+            <div class="data-card">
+              <div class="data-card-header">
+                <div class="data-card-title">🎫 My IT Tickets</div>
+                <div class="data-card-badge">3 Open</div>
+              </div>
+              <div class="ticket-row">
+                <div class="ticket-icon">🖥️</div>
+                <div style="flex:1">
+                  <div class="ticket-id">INC0048291</div>
+                  <div class="ticket-title">VPN connectivity issue on MacBook</div>
+                  <div class="ticket-meta"><span class="ticket-status in-progress">In Progress</span><span class="ticket-date">2 days ago</span></div>
+                </div>
+              </div>
+              <div class="ticket-row">
+                <div class="ticket-icon">🖨️</div>
+                <div style="flex:1">
+                  <div class="ticket-id">INC0047853</div>
+                  <div class="ticket-title">Office printer not found on network</div>
+                  <div class="ticket-meta"><span class="ticket-status open">Open</span><span class="ticket-date">5 days ago</span></div>
+                </div>
+              </div>
+              <div class="ticket-row">
+                <div class="ticket-icon">🔑</div>
+                <div style="flex:1">
+                  <div class="ticket-id">INC0046902</div>
+                  <div class="ticket-title">Need access to Adobe Creative Cloud</div>
+                  <div class="ticket-meta"><span class="ticket-status in-progress">Pending Approval</span><span class="ticket-date">1 week ago</span></div>
+                </div>
+              </div>
+              <div style="margin-top:12px">
+                <a class="confirm-link" href="#">Open in ServiceNow ↗</a>
+              </div>
+            </div>
+            <div class="msg-ai" style="font-size:14px; color:#888;">Tap any ticket above for details, or ask me to update or close one.</div>
+          </div>
+        </div>
+        <div class="input-bar">
+          <div class="input-field">Ask me anything ...</div>
+          <div class="voice-btn" style="background: linear-gradient(135deg, #2563EB, #4F46E5);"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M9 3H15C15 3 16 3 16 5V13C16 13 16 14 15 14H9C9 14 8 14 8 13V5C8 5 8 3 9 3Z" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M5 11C5 11 5 18 12 18C19 18 19 11 19 11" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="18" x2="12" y2="22" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════ -->
+      <!-- SCREEN: HR Home -->
+      <!-- ═══════════════════════════════ -->
+      <div class="screen" id="screen-hr-home">
+        <div class="grad-bg" style="background: radial-gradient(ellipse at 50% 110%, #065F46 0%, #10B981 20%, #6EE7B7 45%, #D1FAE5 65%, transparent 82%);"></div>
+        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"><svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0" y="1" width="21" height="10" rx="2.5" stroke="#111" stroke-width="1.2"/><rect x="1.5" y="2.5" width="15" height="7" rx="1.5" fill="#111"/></svg></div></div>
+        <div class="nav-header">
+          <div style="width:30px"></div>
+          <div class="nav-title">
+            <svg class="sparkle-sm" viewBox="0 0 24 24" fill="none"><path d="M12 2L13.8 8.2L20 10L13.8 11.8L12 18L10.2 11.8L4 10L10.2 8.2L12 2Z" fill="url(#sg5)"/><defs><linearGradient id="sg5" x1="4" y1="2" x2="20" y2="18"><stop stop-color="#059669"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs></svg>
+            HR Assistant
+          </div>
+          <div class="nav-close">✕</div>
+        </div>
+        <div class="home-content">
+          <svg class="home-icon" viewBox="0 0 72 72" fill="none">
+            <path d="M36 6L41 22L57 27L41 32L36 48L31 32L15 27L31 22L36 6Z" fill="url(#hg3)" opacity="0.95"/>
+            <defs><linearGradient id="hg3" x1="15" y1="6" x2="57" y2="48"><stop stop-color="#059669"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs>
+          </svg>
+          <div class="agent-badge hr"><span class="agent-dot"></span>HR Expert</div>
+          <div class="home-greeting">Hi Friedrich,<br>Your HR Assistant is here.</div>
+          <div class="starters-grid">
+            <div class="starter-pill action-pill">⚡ Request vacation</div>
+            <div class="starter-pill action-pill">⚡ Check leave balance</div>
+            <div class="starter-pill action-pill">⚡ View my payslips</div>
+            <div class="starter-pill action-pill">⚡ Submit HR request</div>
+            <div class="starter-pill">Parental leave policy</div>
+            <div class="starter-pill">Benefits overview</div>
+            <div class="starter-pill">Update personal info</div>
+            <div class="starter-pill">Performance review dates</div>
+          </div>
+        </div>
+        <div class="input-bar">
+          <div class="input-field">Ask me anything ...</div>
+          <div class="voice-btn" style="background: linear-gradient(135deg, #059669, #7C3AED);"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M9 3H15C15 3 16 3 16 5V13C16 13 16 14 15 14H9C9 14 8 14 8 13V5C8 5 8 3 9 3Z" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M5 11C5 11 5 18 12 18C19 18 19 11 19 11" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="18" x2="12" y2="22" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════ -->
+      <!-- SCREEN: HR Leave Request Flow -->
+      <!-- ═══════════════════════════════ -->
+      <div class="screen" id="screen-hr-leave">
+        <div class="grad-bg" style="height:25%; background: radial-gradient(ellipse at 50% 120%, #D1FAE5 0%, transparent 70%);"></div>
+        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"><svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0" y="1" width="21" height="10" rx="2.5" stroke="#111" stroke-width="1.2"/><rect x="1.5" y="2.5" width="15" height="7" rx="1.5" fill="#111"/></svg></div></div>
+        <div class="nav-header">
+          <div style="width:30px; cursor:pointer; font-size:20px; color:#666">‹</div>
+          <div class="nav-title"><svg class="sparkle-sm" viewBox="0 0 24 24" fill="none"><path d="M12 2L13.8 8.2L20 10L13.8 11.8L12 18L10.2 11.8L4 10L10.2 8.2L12 2Z" fill="url(#sg6)"/><defs><linearGradient id="sg6" x1="4" y1="2" x2="20" y2="18"><stop stop-color="#059669"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs></svg>HR Assistant</div>
+          <div class="nav-close">✕</div>
+        </div>
+        <div class="chat-scroll" id="chat-hr-leave"></div>
+        <div class="input-bar">
+          <div class="input-field">Ask me anything ...</div>
+          <div class="voice-btn" style="background: linear-gradient(135deg, #059669, #7C3AED);"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M9 3H15C15 3 16 3 16 5V13C16 13 16 14 15 14H9C9 14 8 14 8 13V5C8 5 8 3 9 3Z" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M5 11C5 11 5 18 12 18C19 18 19 11 19 11" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="18" x2="12" y2="22" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════ -->
+      <!-- SCREEN: HR Leave Balance -->
+      <!-- ═══════════════════════════════ -->
+      <div class="screen" id="screen-hr-balance">
+        <div class="grad-bg" style="height:25%; background: radial-gradient(ellipse at 50% 120%, #D1FAE5 0%, transparent 70%);"></div>
+        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"><svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0" y="1" width="21" height="10" rx="2.5" stroke="#111" stroke-width="1.2"/><rect x="1.5" y="2.5" width="15" height="7" rx="1.5" fill="#111"/></svg></div></div>
+        <div class="nav-header">
+          <div style="width:30px; cursor:pointer; font-size:20px; color:#666">‹</div>
+          <div class="nav-title"><svg class="sparkle-sm" viewBox="0 0 24 24" fill="none"><path d="M12 2L13.8 8.2L20 10L13.8 11.8L12 18L10.2 11.8L4 10L10.2 8.2L12 2Z" fill="url(#sg7)"/><defs><linearGradient id="sg7" x1="4" y1="2" x2="20" y2="18"><stop stop-color="#059669"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs></svg>HR Assistant</div>
+          <div class="nav-close">✕</div>
+        </div>
+        <div class="chat-scroll">
+          <div class="msg-user">How many vacation days do I have left?</div>
+          <div class="msg-ai-wrap">
+            <div class="msg-ai">Here's your current leave balance for 2026, Friedrich:</div>
+            <div class="data-card">
+              <div class="data-card-header">
+                <div class="data-card-title">📊 Leave Balance 2026</div>
+                <div class="data-card-badge">via BambooHR</div>
+              </div>
+              <div class="balance-row">
+                <div><div class="balance-label">🌴 Annual Leave</div><div class="balance-sub">4 days used of 22</div></div>
+                <div class="balance-bar-wrap"><div class="balance-bar" style="width:82%"></div></div>
+                <div class="balance-val">18 days</div>
+              </div>
+              <div class="balance-row">
+                <div><div class="balance-label">🤒 Sick Leave</div><div class="balance-sub">0 days used of 10</div></div>
+                <div class="balance-bar-wrap"><div class="balance-bar" style="width:100%; background: linear-gradient(90deg, #10B981, #6EE7B7);"></div></div>
+                <div class="balance-val">10 days</div>
+              </div>
+              <div class="balance-row">
+                <div><div class="balance-label">🙋 Personal Days</div><div class="balance-sub">1 day used of 3</div></div>
+                <div class="balance-bar-wrap"><div class="balance-bar" style="width:67%; background: linear-gradient(90deg, #F59E0B, #FCD34D);"></div></div>
+                <div class="balance-val">2 days</div>
+              </div>
+              <div class="balance-row">
+                <div><div class="balance-label">👶 Parental Leave</div><div class="balance-sub">Not yet taken</div></div>
+                <div class="balance-bar-wrap"><div class="balance-bar" style="width:100%; background: linear-gradient(90deg, #6366F1, #A5B4FC);"></div></div>
+                <div class="balance-val">90 days</div>
+              </div>
+              <div style="margin-top:14px; display:flex; gap:8px;">
+                <button class="submit-btn" style="font-size:13px; padding:10px;">⚡ Request leave</button>
+                <a class="confirm-link" style="flex:0.8; font-size:13px; padding:10px;" href="#">Open in BambooHR ↗</a>
+              </div>
+            </div>
+            <div class="msg-ai" style="font-size:14px; color:#888;">You have 18 annual leave days remaining. Would you like to request some time off?</div>
+          </div>
+        </div>
+        <div class="input-bar">
+          <div class="input-field">Ask me anything ...</div>
+          <div class="voice-btn" style="background: linear-gradient(135deg, #059669, #7C3AED);"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M9 3H15C15 3 16 3 16 5V13C16 13 16 14 15 14H9C9 14 8 14 8 13V5C8 5 8 3 9 3Z" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M5 11C5 11 5 18 12 18C19 18 19 11 19 11" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="18" x2="12" y2="22" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════ -->
+      <!-- SCREEN: Connect Account Prompt -->
+      <!-- ═══════════════════════════════ -->
+      <div class="screen" id="screen-hr-connect">
+        <div class="grad-bg" style="height:25%; background: radial-gradient(ellipse at 50% 120%, #FEF3C7 0%, transparent 70%);"></div>
+        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"><svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0" y="1" width="21" height="10" rx="2.5" stroke="#111" stroke-width="1.2"/><rect x="1.5" y="2.5" width="15" height="7" rx="1.5" fill="#111"/></svg></div></div>
+        <div class="nav-header">
+          <div style="width:30px; cursor:pointer; font-size:20px; color:#666">‹</div>
+          <div class="nav-title"><svg class="sparkle-sm" viewBox="0 0 24 24" fill="none"><path d="M12 2L13.8 8.2L20 10L13.8 11.8L12 18L10.2 11.8L4 10L10.2 8.2L12 2Z" fill="url(#sg8)"/><defs><linearGradient id="sg8" x1="4" y1="2" x2="20" y2="18"><stop stop-color="#059669"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs></svg>HR Assistant</div>
+          <div class="nav-close">✕</div>
+        </div>
+        <div class="chat-scroll">
+          <div class="msg-user">Show me my performance review in Workday</div>
+          <div class="msg-ai-wrap">
+            <div class="msg-ai">To access your Workday performance review, I need you to connect your Workday account first.</div>
+            <div class="connect-card">
+              <div class="connect-header">
+                <div class="connect-app-icon" style="background: linear-gradient(135deg, #CC0000, #FF4444);">W</div>
+                <div>
+                  <div class="connect-title">Connect Workday</div>
+                  <div style="font-size:12px; color:#888; margin-top:2px;">Single sign-on via your company account</div>
+                </div>
+              </div>
+              <div class="connect-desc">Your organisation uses Workday for performance reviews, payroll, and HR data. Connect your account to access these directly from Navigator.</div>
+              <button class="connect-btn" onclick="simulateConnect(this)">🔗 Connect Workday Account</button>
+              <div style="text-align:center; margin-top:10px; font-size:12px; color:#aaa;">Your credentials are secured by Truto — Navigator never stores them.</div>
+            </div>
+            <div class="msg-ai" style="font-size:14px; color:#888;">Or ask me about performance review policies and timelines — I can answer those without Workday access.</div>
+          </div>
+        </div>
+        <div class="input-bar">
+          <div class="input-field">Ask me anything ...</div>
+          <div class="voice-btn" style="background: linear-gradient(135deg, #059669, #7C3AED);"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M9 3H15C15 3 16 3 16 5V13C16 13 16 14 15 14H9C9 14 8 14 8 13V5C8 5 8 3 9 3Z" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M5 11C5 11 5 18 12 18C19 18 19 11 19 11" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="18" x2="12" y2="22" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div>
+        </div>
+      </div>
+
+    </div><!-- /phone-inner -->
+  </div><!-- /phone-frame -->
+</div><!-- /phone-wrap -->
+
+<div class="step-dots" id="stepDots"></div>
+<div class="step-counter" id="stepCounter"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────
+let currentScenario = 'global-home';
+let currentStep = 0;
+let totalSteps = 0;
+
+// ── Scenario definitions ───────────────────────────────
+const scenarios = {
+  'global-home': { screen: 'global-home', steps: 1 },
+  'it-home': { screen: 'it-home', steps: 1 },
+  'it-ticket': { screen: 'it-ticket', steps: 8, render: renderITTicket },
+  'it-tickets-list': { screen: 'it-tickets-list', steps: 1 },
+  'hr-home': { screen: 'hr-home', steps: 1 },
+  'hr-leave': { screen: 'hr-leave', steps: 8, render: renderHRLeave },
+  'hr-balance': { screen: 'hr-balance', steps: 1 },
+  'hr-connect': { screen: 'hr-connect', steps: 1 },
+};
+
+// ── IT Ticket Steps ────────────────────────────────────
+const itTicketSteps = [
+  // step 0: user taps starter
+  () => html`<div class="msg-user">Report an IT issue</div>`,
+
+  // step 1: AI responds
+  () => html`<div class="msg-ai-wrap">
+    <div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
+  </div>`,
+
+  // step 2: AI asks
+  () => html`<div class="msg-ai-wrap">
+    <div class="msg-ai">I'll help you create a ServiceNow ticket. What's the issue you're experiencing?</div>
+  </div>`,
+
+  // step 3: user describes
+  () => html`<div class="msg-user">My laptop won't connect to the VPN since this morning</div>`,
+
+  // step 4: AI thinking
+  () => html`<div class="msg-ai-wrap">
+    <div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
+  </div>`,
+
+  // step 5: AI shows form
+  () => html`<div class="msg-ai-wrap">
+    <div class="msg-ai">Got it — I've pre-filled the ticket form based on your description. Review and submit when ready:</div>
+    <div class="action-card">
+      <div class="action-card-header">
+        <div class="action-card-icon" style="background:#DBEAFE; font-size:20px;">🎫</div>
+        <div>
+          <div class="action-card-title">New IT Ticket</div>
+          <div class="action-card-sub">ServiceNow · IT Support</div>
+        </div>
+      </div>
+      <div class="form-field">
+        <div class="form-label">Category</div>
+        <select class="form-select"><option>Network / VPN</option><option>Hardware</option><option>Software</option><option>Access & Permissions</option></select>
+      </div>
+      <div class="form-field">
+        <div class="form-label">Short Description</div>
+        <input class="form-input prefilled" value="VPN connectivity issue on MacBook Pro" readonly />
+      </div>
+      <div class="form-field">
+        <div class="form-label">Details</div>
+        <textarea class="form-input" rows="3" style="resize:none; height:auto; line-height:1.5;">Unable to connect to corporate VPN since this morning. Error: "Connection timed out." Worked fine yesterday.</textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <div class="form-label">Priority</div>
+          <select class="form-select"><option>Normal</option><option>High</option><option>Low</option></select>
+        </div>
+        <div class="form-field">
+          <div class="form-label">Device</div>
+          <input class="form-input prefilled" value="MacBook Pro (M3)" readonly />
+        </div>
+      </div>
+      <button class="submit-btn" onclick="advanceScenario()">Submit Ticket →</button>
+      <button class="submit-btn cancel" onclick="">Cancel</button>
+    </div>
+  </div>`,
+
+  // step 6: submitting
+  () => html`<div class="msg-ai-wrap">
+    <div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
+  </div>`,
+
+  // step 7: success
+  () => html`<div class="msg-ai-wrap">
+    <div class="msg-ai">Your ticket has been submitted to the IT Support team. 🎉</div>
+    <div class="confirm-card">
+      <div class="confirm-success-row">
+        <div class="confirm-check">✓</div>
+        <div>
+          <div class="confirm-title">INC0048291 Created</div>
+          <div class="confirm-sub">Submitted to IT Support · Just now</div>
+        </div>
+      </div>
+      <div class="confirm-rows">
+        <div class="confirm-row">
+          <span class="confirm-row-label">Category</span>
+          <span class="confirm-row-value">Network / VPN</span>
+        </div>
+        <div class="confirm-row">
+          <span class="confirm-row-label">Priority</span>
+          <span class="confirm-row-value">Normal</span>
+        </div>
+        <div class="confirm-row">
+          <span class="confirm-row-label">Status</span>
+          <span class="status-badge open">Open</span>
+        </div>
+        <div class="confirm-row">
+          <span class="confirm-row-label">Assigned to</span>
+          <span class="confirm-row-value">IT Support Team</span>
+        </div>
+        <div class="confirm-row">
+          <span class="confirm-row-label">Est. response</span>
+          <span class="confirm-row-value">Within 4 hours</span>
+        </div>
+      </div>
+      <a class="confirm-link" href="#">Open in ServiceNow ↗</a>
+    </div>
+    <div class="msg-ai" style="font-size:14px; color:#888;">You'll get an email notification when the team picks it up. Anything else I can help with?</div>
+  </div>`,
+];
+
+// ── HR Leave Steps ─────────────────────────────────────
+const hrLeaveSteps = [
+  () => html`<div class="msg-user">I want to request 5 days of vacation</div>`,
+
+  () => html`<div class="msg-ai-wrap">
+    <div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
+  </div>`,
+
+  () => html`<div class="msg-ai-wrap">
+    <div class="msg-ai">Happy to help. When would you like to start, and do you have specific dates in mind?</div>
+  </div>`,
+
+  () => html`<div class="msg-user">Starting April 14th</div>`,
+
+  () => html`<div class="msg-ai-wrap">
+    <div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
+  </div>`,
+
+  () => html`<div class="msg-ai-wrap">
+    <div class="msg-ai">Perfect — April 14–18 (5 working days). I've pre-filled the form with your details and checked your balance (18 days remaining ✓).</div>
+    <div class="action-card">
+      <div class="action-card-header">
+        <div class="action-card-icon" style="background:#D1FAE5; font-size:20px;">🌴</div>
+        <div>
+          <div class="action-card-title">Leave Request</div>
+          <div class="action-card-sub">BambooHR · Annual Leave</div>
+        </div>
+      </div>
+      <div class="form-field">
+        <div class="form-label">Leave Type</div>
+        <select class="form-select"><option>Annual Leave</option><option>Sick Leave</option><option>Personal Day</option><option>Parental Leave</option></select>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <div class="form-label">Start Date</div>
+          <input class="form-input prefilled" value="Apr 14, 2026" readonly />
+        </div>
+        <div class="form-field">
+          <div class="form-label">End Date</div>
+          <input class="form-input prefilled" value="Apr 18, 2026" readonly />
+        </div>
+      </div>
+      <div class="form-field" style="display:flex; justify-content:space-between; align-items:center; background:#F0FDF4; border-radius:10px; padding:10px 14px; margin-bottom:14px;">
+        <span style="font-size:13px; color:#059669; font-weight:500;">✓ 5 working days · 18 remaining after</span>
+      </div>
+      <div class="form-field">
+        <div class="form-label">Note (optional)</div>
+        <input class="form-input" placeholder="Add a note for your manager..." />
+      </div>
+      <button class="submit-btn green" onclick="advanceScenario()">Submit Leave Request →</button>
+      <button class="submit-btn cancel">Cancel</button>
+    </div>
+  </div>`,
+
+  () => html`<div class="msg-ai-wrap">
+    <div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
+  </div>`,
+
+  () => html`<div class="msg-ai-wrap">
+    <div class="msg-ai">Leave request submitted! Your manager will be notified. 🌴</div>
+    <div class="confirm-card" style="border-top-color: #10B981;">
+      <div class="confirm-success-row">
+        <div class="confirm-check" style="background:#10B981;">✓</div>
+        <div>
+          <div class="confirm-title">Leave Request Submitted</div>
+          <div class="confirm-sub">April 14–18, 2026 · 5 working days</div>
+        </div>
+      </div>
+      <div class="confirm-rows">
+        <div class="confirm-row">
+          <span class="confirm-row-label">Leave type</span>
+          <span class="confirm-row-value">Annual Leave</span>
+        </div>
+        <div class="confirm-row">
+          <span class="confirm-row-label">Status</span>
+          <span class="status-badge pending">Pending Approval</span>
+        </div>
+        <div class="confirm-row">
+          <span class="confirm-row-label">Approver</span>
+          <span class="confirm-row-value">Sarah Mueller</span>
+        </div>
+        <div class="confirm-row">
+          <span class="confirm-row-label">Balance after</span>
+          <span class="confirm-row-value">13 days remaining</span>
+        </div>
+      </div>
+      <a class="confirm-link" href="#">Open in BambooHR ↗</a>
+    </div>
+    <div class="msg-ai" style="font-size:14px; color:#888;">You'll get a notification once Sarah approves it. Anything else?</div>
+  </div>`,
+];
+
+// ── Helpers ────────────────────────────────────────────
+function html(strings, ...vals) {
+  return strings.reduce((acc, s, i) => acc + s + (vals[i] ?? ''), '');
+}
+
+function renderITTicket(step) {
+  const container = document.getElementById('chat-it-ticket');
+  container.innerHTML = '';
+  for (let i = 0; i <= step && i < itTicketSteps.length; i++) {
+    // Remove previous typing indicator
+    const prev = container.querySelector('.typing-indicator');
+    if (prev) prev.closest('.msg-ai-wrap').remove();
+    container.insertAdjacentHTML('beforeend', itTicketSteps[i]());
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+function renderHRLeave(step) {
+  const container = document.getElementById('chat-hr-leave');
+  container.innerHTML = '';
+  for (let i = 0; i <= step && i < hrLeaveSteps.length; i++) {
+    const prev = container.querySelector('.typing-indicator');
+    if (prev) prev.closest('.msg-ai-wrap').remove();
+    container.insertAdjacentHTML('beforeend', hrLeaveSteps[i]());
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+// ── Load scenario ──────────────────────────────────────
+function loadScenario(name) {
+  currentScenario = name;
+  currentStep = 0;
+  const sc = scenarios[name];
+  totalSteps = sc.steps;
+
+  // Switch screen
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + sc.screen).classList.add('active');
+
+  // Run initial render
+  if (sc.render) sc.render(0);
+
+  // Update tabs
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+
+  updateStepUI();
+}
+
+function advanceScenario() {
+  const sc = scenarios[currentScenario];
+  if (!sc.render) return;
+  const maxSteps = currentScenario === 'it-ticket' ? itTicketSteps.length - 1
+                 : currentScenario === 'hr-leave' ? hrLeaveSteps.length - 1
+                 : 0;
+  if (currentStep < maxSteps) {
+    currentStep++;
+    sc.render(currentStep);
+    updateStepUI();
+  }
+}
+
+function updateStepUI() {
+  const sc = scenarios[currentScenario];
+  const maxSteps = currentScenario === 'it-ticket' ? itTicketSteps.length - 1
+                 : currentScenario === 'hr-leave' ? hrLeaveSteps.length - 1
+                 : 0;
+
+  const counter = document.getElementById('stepCounter');
+  const dots = document.getElementById('stepDots');
+
+  if (maxSteps > 0) {
+    counter.textContent = `Step ${currentStep + 1} of ${maxSteps + 1} — click "→" button or tap below to advance`;
+    dots.innerHTML = '';
+    for (let i = 0; i <= maxSteps; i++) {
+      const d = document.createElement('div');
+      d.className = 'step-dot' + (i === currentStep ? ' current' : i < currentStep ? ' done' : '');
+      dots.appendChild(d);
+    }
+  } else {
+    counter.textContent = '';
+    dots.innerHTML = '';
+  }
+}
+
+// ── Tap-to-advance on phone ────────────────────────────
+document.getElementById('phoneInner').addEventListener('click', function(e) {
+  if (e.target.closest('button') || e.target.closest('a') || e.target.closest('select') || e.target.closest('input') || e.target.closest('textarea')) return;
+  advanceScenario();
+});
+
+// ── Connect simulation ─────────────────────────────────
+function simulateConnect(btn) {
+  btn.textContent = '⏳ Connecting to Workday...';
+  btn.style.background = 'linear-gradient(135deg, #6B7280, #9CA3AF)';
+  setTimeout(() => {
+    btn.textContent = '✓ Connected!';
+    btn.style.background = 'linear-gradient(135deg, #10B981, #059669)';
+    btn.closest('.connect-card').insertAdjacentHTML('afterend',
+      '<div class="msg-ai-wrap" style="margin-top:12px;"><div class="msg-ai">Great, Workday is connected! Here\'s your 2026 Performance Review...</div><div class="data-card"><div class="data-card-header"><div class="data-card-title">📋 Performance Review 2026</div><div class="data-card-badge">Q1 · In Progress</div></div><div class="balance-row"><div><div class="balance-label">Overall Rating</div><div class="balance-sub">Submitted by manager</div></div><div class="balance-val">Exceeds Expectations</div></div><div class="balance-row"><div><div class="balance-label">Self-Assessment</div><div class="balance-sub">Due April 30, 2026</div></div><div class="balance-val" style="color:#D97706;">Pending</div></div><div style="margin-top:14px;"><a class="confirm-link" href="#">Open full review in Workday ↗</a></div></div></div>'
+    );
+  }, 1800);
+}
+
+// ── Init ───────────────────────────────────────────────
+updateStepUI();
+</script>
+</body>
+</html>
