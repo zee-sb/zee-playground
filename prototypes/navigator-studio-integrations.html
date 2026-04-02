@@ -1,9 +1,11 @@
+Process started with PID 51175 (shell: /bin/zsh)
+Initial output:
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Navigator Studio — Integrations Setup Prototype</title>
+<title>Navigator Studio — Integrations &amp; Agents Prototype</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -763,6 +765,97 @@ body { font-family: 'Inter', -apple-system, sans-serif; background: #F4F4F8; col
 }
 .module-tab.active { background: #6B3DE7; border-color: #6B3DE7; color: #fff; }
 
+
+/* ── Form section cards (Agent edit style) ── */
+.form-card { background: #fff; border: 1.5px solid #E8E8F0; border-radius: 16px; padding: 24px; margin-bottom: 16px; }
+.form-card-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 6px; }
+.form-card-icon { width: 40px; height: 40px; border-radius: 10px; background: #F4F4F8; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.form-card-title { font-size: 15px; font-weight: 700; color: #111; margin-bottom: 2px; }
+.form-card-desc { font-size: 13px; color: #888; line-height: 1.5; }
+.form-label { font-size: 12px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 7px; }
+.form-input { width: 100%; padding: 12px 14px; border: 1.5px solid #E5E7EB; border-radius: 12px; font-size: 14px; font-family: inherit; outline: none; transition: border-color 0.15s; resize: none; }
+.form-input:focus { border-color: #6B3DE7; }
+.form-required { font-size: 10px; color: #DC2626; font-weight: 700; margin-left: 4px; }
+
+/* ── Page form layout ── */
+.page-form { max-width: 720px; }
+.page-form-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
+.page-form-title { font-size: 22px; font-weight: 800; color: #111; }
+.page-form-actions { display: flex; gap: 10px; align-items: center; }
+.btn-danger { padding: 9px 16px; background: #fff; color: #DC2626; border: 1.5px solid #FCA5A5; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+.btn-danger:hover { background: #FEE2E2; }
+
+/* ── Agent list cards ── */
+.agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.agent-card { background: #fff; border: 1.5px solid #E8E8F0; border-radius: 16px; padding: 20px; cursor: pointer; transition: all 0.2s; }
+.agent-card:hover { border-color: #C4B5FD; box-shadow: 0 4px 20px rgba(107,61,231,0.1); transform: translateY(-1px); }
+.agent-card-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
+.agent-card-icon { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+.agent-status-badge { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 100px; }
+.agent-status-active { background: #D1FAE5; color: #059669; }
+.agent-status-draft { background: #F4F4F8; color: #888; }
+.agent-card-name { font-size: 16px; font-weight: 700; color: #111; margin-bottom: 6px; }
+.agent-card-desc { font-size: 13px; color: #888; line-height: 1.5; margin-bottom: 14px; }
+.agent-card-footer { display: flex; gap: 16px; padding-top: 12px; border-top: 1px solid #F4F4F8; }
+.agent-card-stat { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #555; font-weight: 500; }
+
+/* ── Integration row in agent detail ── */
+.integration-row { background: #fff; border: 1.5px solid #E8E8F0; border-radius: 14px; margin-bottom: 10px; overflow: hidden; transition: border-color 0.2s; }
+.integration-row.enabled { border-color: #C4B5FD; }
+.integration-row-header { display: flex; align-items: center; gap: 14px; padding: 16px 18px; cursor: pointer; }
+.integration-row-logo { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.integration-row-info { flex: 1; }
+.integration-row-name { font-size: 14px; font-weight: 700; color: #111; margin-bottom: 2px; }
+.integration-row-meta { font-size: 12px; color: #888; }
+.integration-row-body { border-top: 1px solid #F0F0F8; padding: 16px 18px; background: #FAFAFA; display: none; }
+.integration-row.open .integration-row-body { display: block; }
+
+/* ── Navigator config page ── */
+.config-tabs { display: flex; gap: 0; border-bottom: 2px solid #E8E8F0; margin-bottom: 28px; }
+.config-tab { padding: 10px 20px; font-size: 14px; font-weight: 600; color: #888; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; border-top: none; border-left: none; border-right: none; background: none; font-family: inherit; }
+.config-tab.active { color: #6B3DE7; border-bottom-color: #6B3DE7; }
+.config-section-card { background: #fff; border: 1.5px solid #E8E8F0; border-radius: 16px; padding: 24px; margin-bottom: 16px; }
+.config-section-title { font-size: 16px; font-weight: 700; color: #111; margin-bottom: 4px; }
+.config-section-desc { font-size: 13px; color: #888; margin-bottom: 20px; line-height: 1.5; }
+.radio-option { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px; cursor: pointer; transition: background 0.15s; }
+.radio-option:hover { background: #F4F4F8; }
+.radio-option input[type=radio] { accent-color: #6B3DE7; width: 16px; height: 16px; }
+.radio-option-label { font-size: 13px; font-weight: 500; color: #111; }
+.space-tag { display: flex; align-items: center; gap: 8px; padding: 9px 14px; background: #F8F8FC; border: 1px solid #E8E8F0; border-radius: 10px; margin-bottom: 8px; font-size: 13px; font-weight: 500; }
+.space-tag-icon { width: 28px; height: 28px; background: #6B3DE7; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #fff; }
+.space-remove { margin-left: auto; width: 20px; height: 20px; background: none; border: none; cursor: pointer; color: #aaa; font-size: 14px; }
+.space-remove:hover { color: #DC2626; }
+.checkbox-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid #F4F4F8; }
+.checkbox-row:last-child { border-bottom: none; }
+.checkbox-row input[type=checkbox] { accent-color: #6B3DE7; width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0; }
+.checkbox-row-label { font-size: 13px; font-weight: 600; color: #111; margin-bottom: 3px; }
+.checkbox-row-desc { font-size: 12px; color: #888; line-height: 1.5; }
+.assistant-list-item { display: flex; align-items: center; gap: 14px; padding: 12px 16px; background: #F8F8FC; border: 1px solid #E8E8F0; border-radius: 12px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s; }
+.assistant-list-item:hover { border-color: #C4B5FD; background: #F0EEFF; }
+.assistant-item-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; background: #E8E0FF; }
+.assistant-item-name { font-size: 14px; font-weight: 600; color: #111; }
+.assistant-item-meta { font-size: 12px; color: #888; }
+.starter-chip { display: flex; align-items: center; gap: 8px; padding: 9px 14px; background: #F0EEFF; border: 1px solid #C4B5FD; border-radius: 10px; margin-bottom: 8px; font-size: 13px; color: #6B3DE7; font-weight: 500; cursor: pointer; }
+.starter-chip:hover { background: #E8E0FF; }
+.add-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #6B3DE7; cursor: pointer; margin-top: 4px; }
+.add-link:hover { text-decoration: underline; }
+
+/* ── Compact cap list in agent actions ── */
+.mini-cap-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-bottom: 1px solid #F4F4F8; background: #fff; border-radius: 0; }
+.mini-cap-row:last-child { border-bottom: none; }
+.mini-cap-name { font-size: 12px; font-family: monospace; color: #333; font-weight: 500; }
+.mini-cap-desc { font-size: 11px; color: #aaa; }
+.files-upload-area { border: 2px dashed #E5E7EB; border-radius: 12px; padding: 28px; text-align: center; background: #FAFAFA; cursor: pointer; transition: all 0.2s; }
+.files-upload-area:hover { border-color: #6B3DE7; background: #F8F6FF; }
+.file-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #F8F8FC; border: 1px solid #E8E8F0; border-radius: 10px; margin-bottom: 8px; }
+.file-icon { width: 32px; height: 32px; background: #FEE2E2; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+.file-name { font-size: 13px; font-weight: 600; color: #111; }
+.file-type { font-size: 11px; color: #888; }
+.file-remove { margin-left: auto; background: none; border: none; cursor: pointer; color: #aaa; font-size: 16px; }
+.file-remove:hover { color: #DC2626; }
+.page-tag { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; background: #E8F4FF; border: 1px solid #BAD9FF; border-radius: 100px; font-size: 12px; font-weight: 600; color: #2563EB; margin: 3px; }
+.page-tag .remove-tag { background: none; border: none; cursor: pointer; color: #93C5FD; font-size: 12px; padding: 0; margin-left: 2px; }
+
 </style>
 </head>
 <body>
@@ -808,9 +901,9 @@ body { font-family: 'Inter', -apple-system, sans-serif; background: #F4F4F8; col
   <div class="sidebar">
     <div class="sidebar-section">
       <div class="sidebar-section-label">Navigator</div>
-      <div class="nav-item" onclick=""><div class="nav-icon">🤖</div>Agents</div>
+      <div class="nav-item" id="nav-agents" onclick="showView("agents")"><div class="nav-icon">🤖</div>Agents <span class="nav-badge">2</span></div>
       <div class="nav-item" onclick=""><div class="nav-icon">📚</div>Collections</div>
-      <div class="nav-item active" onclick="showView('overview')"><div class="nav-icon">🔌</div>Integrations <span class="nav-badge">2</span></div>
+      <div class="nav-item active" id="nav-integrations" onclick="showView('overview')"><div class="nav-icon">🔌</div>Integrations <span class="nav-badge">2</span></div>
       <div class="nav-item" onclick=""><div class="nav-icon">💬</div>Conversations</div>
       <div class="nav-item" onclick=""><div class="nav-icon">📊</div>Analytics</div>
     </div>
@@ -818,7 +911,7 @@ body { font-family: 'Inter', -apple-system, sans-serif; background: #F4F4F8; col
       <div class="sidebar-section-label">Settings</div>
       <div class="nav-item" onclick=""><div class="nav-icon">👁️</div>Visibility</div>
       <div class="nav-item" onclick=""><div class="nav-icon">🎨</div>Appearance</div>
-      <div class="nav-item" onclick=""><div class="nav-icon">⚙️</div>General</div>
+      <div class="nav-item" id="nav-navigator-config" onclick="showView("navigator-config")"><div class="nav-icon">⚙️</div>Navigator</div>
     </div>
   </div>
 
@@ -1550,8 +1643,770 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 3200);
 }
 
+
+// ── Agent Data ────────────────────────────────────────────
+const agentData = {
+  hr: {
+    key: 'hr',
+    name: 'HR Assistant',
+    emoji: '💼',
+    color: 'linear-gradient(135deg, #10B981, #059669)',
+    iconBg: '#D1FAE5',
+    status: 'active',
+    desc: 'Helps employees with HR policies, leave requests, benefits, and people ops questions.',
+    instructions: 'This assistant is designed to support employees with HR-related inquiries. Use it to provide information on company policies, benefits, and procedures. It can answer questions about vacation time, sick leave, health insurance, retirement plans, and other HR-related topics.',
+    pages: ['HR Policies 2024', 'Benefits Guide', 'Employee Handbook'],
+    files: ['BambooHR Integration Guide.pdf', 'Leave Policy Overview.pdf'],
+    integrations: {
+      bamboohr: {
+        enabled: true,
+        capabilities: ['get_leave_balance', 'list_time_off_requests', 'create_time_off_request'],
+      },
+      servicenow: {
+        enabled: true,
+        capabilities: ['list_hr_cases', 'get_hr_case', 'create_hr_case', 'get_leave_balance', 'create_leave_request'],
+      },
+    },
+  },
+  it: {
+    key: 'it',
+    name: 'IT Assistant',
+    emoji: '💻',
+    color: 'linear-gradient(135deg, #3B82F6, #1D4ED8)',
+    iconBg: '#DBEAFE',
+    status: 'active',
+    desc: 'Handles IT support requests, incident reporting, access requests, and software provisioning.',
+    instructions: 'This assistant supports employees with IT issues. It can help raise and track support tickets, check the status of incidents, guide users through common IT issues, and help submit service catalog requests.',
+    pages: ['IT Support Wiki', 'Software Request Process', 'VPN Setup Guide'],
+    files: [],
+    integrations: {
+      servicenow: {
+        enabled: true,
+        capabilities: ['list_incidents', 'get_incident', 'create_incident', 'list_catalog_items', 'submit_catalog_request', 'get_request_status'],
+      },
+    },
+  },
+};
+
+// ── Navigator Config State ─────────────────────────────────
+let navConfigTab = 'knowledge';
+let navSpaces = ['Dresden', 'Germany', 'Global News'];
+let navStarters = ['What is our parental leave policy?', 'How do I submit a support ticket?', 'Who is my HR contact?'];
+let navIntegrations = {
+  servicenow: { enabled: true, scope: 'all', capabilities: ['list_incidents', 'get_incident', 'list_catalog_items', 'get_request_status', 'list_hr_cases', 'get_leave_balance'] },
+  bamboohr: { enabled: true, scope: 'all', capabilities: ['get_leave_balance', 'list_time_off_requests'] },
+};
+
+// ── Agent Cap States ───────────────────────────────────────
+let agentCapStates = {};
+let agentIntegrationOpen = {};
+
+function getAgentCapState(agentKey, intKey, capName) {
+  const k = agentKey + '|' + intKey + '|' + capName;
+  if (!(k in agentCapStates)) {
+    const agent = agentData[agentKey];
+    const intConfig = agent?.integrations[intKey];
+    agentCapStates[k] = intConfig ? intConfig.capabilities.includes(capName) : false;
+  }
+  return agentCapStates[k];
+}
+
+// ── Active agent for detail view ───────────────────────────
+let currentAgent = 'hr';
+let agentDetailTab = 'knowledge';
+
+// ── Sidebar active state ───────────────────────────────────
+function setNavActive(id) {
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+}
+
+// ── Extended showView ──────────────────────────────────────
+const _origShowView = showView;
+showView = function(v) {
+  const el = document.getElementById('mainContent');
+  currentView = v;
+  if (v === 'overview') {
+    setNavActive('nav-integrations');
+    document.getElementById('breadcrumb').textContent = 'Integrations';
+    el.innerHTML = renderOverview();
+  } else if (v === 'detail-sn') {
+    setNavActive('nav-integrations');
+    document.getElementById('breadcrumb').textContent = 'ServiceNow';
+    el.innerHTML = renderDetail('servicenow');
+  } else if (v === 'detail-bamboo') {
+    setNavActive('nav-integrations');
+    document.getElementById('breadcrumb').textContent = 'BambooHR';
+    el.innerHTML = renderDetail('bamboohr');
+  } else if (v === 'agents') {
+    setNavActive('nav-agents');
+    document.getElementById('breadcrumb').textContent = 'Agents';
+    el.innerHTML = renderAgentsView();
+  } else if (v === 'agent-detail-hr') {
+    setNavActive('nav-agents');
+    currentAgent = 'hr';
+    document.getElementById('breadcrumb').textContent = 'HR Assistant';
+    el.innerHTML = renderAgentDetail('hr');
+  } else if (v === 'agent-detail-it') {
+    setNavActive('nav-agents');
+    currentAgent = 'it';
+    document.getElementById('breadcrumb').textContent = 'IT Assistant';
+    el.innerHTML = renderAgentDetail('it');
+  } else if (v === 'navigator-config') {
+    setNavActive('nav-navigator-config');
+    document.getElementById('breadcrumb').textContent = 'Navigator';
+    el.innerHTML = renderNavigatorConfig();
+  }
+};
+
+// ── Agents List View ───────────────────────────────────────
+function renderAgentsView() {
+  return `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Agents</div>
+        <div class="page-sub">Dedicated assistants scoped to a domain — combine knowledge + actions</div>
+      </div>
+      <button class="btn-primary" onclick="showView('agent-new')">+ Create Agent</button>
+    </div>
+
+    <div style="background:#F0EEFF; border:1.5px solid #C4B5FD; border-radius:12px; padding:14px 18px; margin-bottom:24px; font-size:13px; color:#5B21B6; display:flex; align-items:flex-start; gap:10px;">
+      <span style="font-size:18px;">✨</span>
+      <div><strong>Agents = Knowledge + Actions.</strong> Each agent can have dedicated knowledge sources (pages + files) <em>and</em> specific integration capabilities — making them true domain experts that can both answer questions and take action.</div>
+    </div>
+
+    <div class="agents-grid">
+      ${Object.entries(agentData).map(([k,a]) => `
+        <div class="agent-card" onclick="showView('agent-detail-${k}')">
+          <div class="agent-card-top">
+            <div class="agent-card-icon" style="background:${a.iconBg}">${a.emoji}</div>
+            <span class="agent-status-badge ${a.status === 'active' ? 'agent-status-active' : 'agent-status-draft'}">${a.status === 'active' ? '● Active' : '○ Draft'}</span>
+          </div>
+          <div class="agent-card-name">${a.name}</div>
+          <div class="agent-card-desc">${a.desc}</div>
+          <div class="agent-card-footer">
+            <div class="agent-card-stat">📄 ${a.pages.length} pages</div>
+            <div class="agent-card-stat">📎 ${a.files.length} files</div>
+            <div class="agent-card-stat">⚡ ${Object.values(a.integrations).filter(i=>i.enabled).reduce((acc,i)=>acc+i.capabilities.length,0)} actions</div>
+          </div>
+        </div>
+      `).join('')}
+
+      <div class="agent-card" style="border-style:dashed; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:160px; gap:10px;" onclick="showToast('Create Agent — coming soon in prototype')">
+        <div style="width:48px; height:48px; border-radius:14px; background:#F4F4F8; display:flex; align-items:center; justify-content:center; font-size:24px;">+</div>
+        <div style="font-size:14px; font-weight:600; color:#888;">Create new Agent</div>
+        <div style="font-size:12px; color:#bbb; text-align:center; max-width:180px;">Combine knowledge sources with integration capabilities</div>
+      </div>
+    </div>
+
+    <div style="margin-top:32px;">
+      <div class="section-header">
+        <div class="section-title">Global Navigator <span style="font-size:11px; font-weight:400; color:#888; margin-left:6px;">— the default fallback for all employees</span></div>
+        <button class="btn-secondary" style="font-size:12px; padding:7px 14px;" onclick="showView('navigator-config')">Configure →</button>
+      </div>
+      <div style="background:#fff; border:1.5px solid #E8E8F0; border-radius:16px; padding:20px; display:flex; align-items:center; gap:16px;">
+        <div style="width:48px; height:48px; border-radius:14px; background:linear-gradient(135deg,#6B3DE7,#C64FE0); display:flex; align-items:center; justify-content:center; font-size:22px; color:#fff;">🌐</div>
+        <div style="flex:1;">
+          <div style="font-size:15px; font-weight:700; color:#111; margin-bottom:4px;">Global Navigator</div>
+          <div style="font-size:13px; color:#888;">All employees · 3 spaces · 2 integrations enabled · 8 active capabilities</div>
+        </div>
+        <span class="agent-status-badge agent-status-active">● Active</span>
+      </div>
+    </div>
+  `;
+}
+
+// ── Agent Detail View ──────────────────────────────────────
+function renderAgentDetail(agentKey) {
+  const a = agentData[agentKey];
+  const tabs = ['knowledge','actions','settings'];
+  return `
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
+      <div class="detail-back" onclick="showView('agents')">← Agents</div>
+    </div>
+
+    <div class="page-form">
+      <div class="page-form-header">
+        <div style="display:flex; align-items:center; gap:14px;">
+          <div style="width:44px; height:44px; border-radius:12px; background:${a.iconBg}; display:flex; align-items:center; justify-content:center; font-size:22px;">${a.emoji}</div>
+          <div>
+            <div class="page-form-title">${a.name}</div>
+            <div style="font-size:13px; color:#888; margin-top:2px;">${a.status === 'active' ? '● Active' : '○ Draft'} · Last updated today</div>
+          </div>
+        </div>
+        <div class="page-form-actions">
+          <button class="btn-danger" onclick="showToast('Agent deleted')">Delete</button>
+          <button class="btn-primary" onclick="showToast('Changes saved ✓')">Save</button>
+        </div>
+      </div>
+
+      <div class="detail-tabs" style="margin-bottom:24px;">
+        ${tabs.map(t => `<button class="detail-tab ${agentDetailTab===t?'active':''}" onclick="switchAgentTab('${agentKey}','${t}')">${t.charAt(0).toUpperCase()+t.slice(1)}</button>`).join('')}
+      </div>
+
+      ${renderAgentTabContent(agentKey)}
+    </div>
+  `;
+}
+
+function switchAgentTab(agentKey, tab) {
+  agentDetailTab = tab;
+  showView('agent-detail-' + agentKey);
+}
+
+function renderAgentTabContent(agentKey) {
+  const a = agentData[agentKey];
+  if (agentDetailTab === 'knowledge') {
+    return `
+      <!-- Name -->
+      <div class="form-card">
+        <div class="form-card-header">
+          <div class="form-card-icon">🏷️</div>
+          <div>
+            <div class="form-card-title">Name <span class="form-required">Required</span></div>
+            <div class="form-card-desc">Give this assistant a name.</div>
+          </div>
+        </div>
+        <div style="margin-top:14px;">
+          <input class="form-input" value="${a.name}" style="font-size:15px; font-weight:600;" />
+        </div>
+      </div>
+
+      <!-- Instructions -->
+      <div class="form-card">
+        <div class="form-card-header">
+          <div class="form-card-icon">📋</div>
+          <div>
+            <div class="form-card-title">Instructions <span class="form-required">Required</span></div>
+            <div class="form-card-desc">Explain the purpose of this Assistant and the questions it should handle. Navigator will automatically use this Assistant to answer questions that relate to the instructions.</div>
+          </div>
+        </div>
+        <div style="margin-top:14px;">
+          <textarea class="form-input" rows="5" style="line-height:1.6;">${a.instructions}</textarea>
+        </div>
+      </div>
+
+      <!-- Pages -->
+      <div class="form-card">
+        <div class="form-card-header">
+          <div class="form-card-icon" style="background:#EFF6FF;">📄</div>
+          <div>
+            <div class="form-card-title">Pages</div>
+            <div class="form-card-desc">Choose pages that the assistant uses to answer questions. You can select pages from all spaces here.</div>
+          </div>
+        </div>
+        <div style="margin-top:14px;">
+          <div style="display:flex; flex-wrap:wrap; gap:4px; padding:10px 12px; border:1.5px solid #E5E7EB; border-radius:12px; min-height:44px; align-items:center; cursor:text;">
+            ${a.pages.map(p => `<span class="page-tag">${p} <button class="remove-tag" onclick="event.stopPropagation()">✕</button></span>`).join('')}
+            <input style="border:none; outline:none; font-size:13px; color:#888; min-width:120px; font-family:inherit; padding:2px 4px;" placeholder="Select Pages ..." />
+          </div>
+        </div>
+      </div>
+
+      <!-- Files -->
+      <div class="form-card">
+        <div class="form-card-header">
+          <div class="form-card-icon" style="background:#FEF3F2;">📎</div>
+          <div>
+            <div class="form-card-title">Files</div>
+            <div class="form-card-desc">Upload PDF files to this Assistant. The assistant will use them to answer questions.</div>
+          </div>
+        </div>
+        <div style="margin-top:14px;">
+          ${a.files.map(f => `
+            <div class="file-item">
+              <div class="file-icon">📄</div>
+              <div><div class="file-name">${f}</div><div class="file-type">PDF-file</div></div>
+              <button class="file-remove" onclick="showToast('File removed')">🗑</button>
+            </div>
+          `).join('')}
+          <div class="files-upload-area" onclick="showToast('File picker — not wired in prototype')">
+            <div style="font-size:14px; color:#888; margin-bottom:8px;">Drag and drop files here or</div>
+            <button class="btn-secondary" style="font-size:13px;">Choose from ▾</button>
+          </div>
+        </div>
+      </div>
+    `;
+  } else if (agentDetailTab === 'actions') {
+    return renderAgentActionsTab(agentKey);
+  } else if (agentDetailTab === 'settings') {
+    return `
+      <div class="form-card">
+        <div class="form-card-title" style="margin-bottom:16px;">Agent Settings</div>
+        <div class="checkbox-row">
+          <input type="checkbox" checked id="setting-autoroute">
+          <div><div class="checkbox-row-label">Auto-routing</div><div class="checkbox-row-desc">Navigator automatically routes questions to this agent when they match its instructions. If disabled, users must explicitly select this agent.</div></div>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" checked id="setting-fallback">
+          <div><div class="checkbox-row-label">Fall back to Global Navigator</div><div class="checkbox-row-desc">If this agent cannot answer a question, escalate to the Global Navigator instead of responding with an error.</div></div>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="setting-confirmation">
+          <div><div class="checkbox-row-label">Require action confirmation</div><div class="checkbox-row-desc">Always show a confirmation step before executing write actions (POST, PATCH, DELETE), even for low-risk capabilities.</div></div>
+        </div>
+      </div>
+      <div class="form-card">
+        <div class="form-card-title" style="margin-bottom:6px;">Visibility</div>
+        <div class="form-card-desc" style="margin-bottom:16px;">Control which employee groups can see and interact with this agent.</div>
+        <div class="radio-option" style="padding:10px 0;">
+          <input type="radio" name="visibility" checked> <span class="radio-option-label">All employees</span>
+        </div>
+        <div class="radio-option" style="padding:10px 0;">
+          <input type="radio" name="visibility"> <span class="radio-option-label">Specific groups only</span>
+        </div>
+        <div style="margin-top:12px;">
+          <button class="btn-primary" onclick="showToast('Settings saved ✓')">Save settings</button>
+        </div>
+      </div>
+    `;
+  }
+}
+
+function renderAgentActionsTab(agentKey) {
+  const a = agentData[agentKey];
+  const connectedIntegrations = Object.entries(integrationData).filter(([,v]) => v.connected);
+
+  return `
+    <div style="background:#FFF7ED; border:1.5px solid #FDE68A; border-radius:12px; padding:14px 18px; margin-bottom:20px; font-size:13px; color:#92400E;">
+      <strong>Actions</strong> let this agent perform real tasks — not just answer questions. Enable integrations below and choose exactly which capabilities this agent can use.
+    </div>
+
+    <div style="margin-bottom:20px;">
+      <div style="font-size:14px; font-weight:700; color:#111; margin-bottom:4px;">Connected integrations</div>
+      <div style="font-size:13px; color:#888; margin-bottom:16px;">Toggle integrations on/off for this agent. Capabilities are inherited from the org-level integration config — you can further restrict them here.</div>
+
+      ${connectedIntegrations.map(([intKey, intData]) => {
+        const agentIntConfig = a.integrations[intKey];
+        const isEnabled = agentIntConfig?.enabled || false;
+        const isOpen = agentIntegrationOpen[agentKey + '|' + intKey] || false;
+        const allCaps = Object.values(intData.capabilities || {}).flat();
+        const enabledCaps = agentIntConfig?.capabilities || [];
+        return `
+          <div class="integration-row ${isEnabled ? 'enabled' : ''} ${isOpen ? 'open' : ''}" id="int-row-${agentKey}-${intKey}">
+            <div class="integration-row-header">
+              <div class="integration-row-logo" style="background:${intData.color}">${intData.emoji}</div>
+              <div class="integration-row-info">
+                <div class="integration-row-name">${intData.name}</div>
+                <div class="integration-row-meta">${intData.category} · ${isEnabled ? enabledCaps.length + ' capabilities enabled' : 'Disabled for this agent'}</div>
+              </div>
+              <div style="display:flex; align-items:center; gap:12px;">
+                <label class="toggle-wrap" onclick="event.stopPropagation()">
+                  <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="toggleAgentIntegration('${agentKey}','${intKey}',this)">
+                  <span class="toggle-slider"></span>
+                </label>
+                ${isEnabled ? `<button style="background:none;border:none;cursor:pointer;font-size:13px;color:#888;padding:4px 8px;border-radius:6px;font-family:inherit;" onclick="toggleIntRow('${agentKey}','${intKey}')">${isOpen ? '▲ Hide' : '▼ Capabilities'}</button>` : ''}
+              </div>
+            </div>
+            ${isEnabled ? `
+              <div class="integration-row-body">
+                <div style="font-size:12px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:12px;">Select capabilities for ${a.name}</div>
+                ${intData.modules.map(module => {
+                  const moduleCaps = intData.capabilities[module] || [];
+                  return `
+                    <div style="margin-bottom:14px;">
+                      <div style="font-size:12px; font-weight:700; color:#555; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                        <span>${module}</span>
+                        <span style="font-size:11px; font-weight:400; color:#aaa;">${moduleCaps.filter(c => enabledCaps.includes(c.name)).length}/${moduleCaps.length} enabled</span>
+                      </div>
+                      <div style="border:1px solid #E8E8F0; border-radius:10px; overflow:hidden;">
+                        ${moduleCaps.map(cap => `
+                          <div class="mini-cap-row">
+                            <div class="cap-row-left" style="gap:8px;">
+                              <span class="cap-method ${cap.method.toLowerCase()}" style="font-size:9px; min-width:34px;">${cap.method}</span>
+                              <div>
+                                <div class="mini-cap-name">${cap.name}</div>
+                                <div class="mini-cap-desc">${cap.desc}</div>
+                              </div>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                              <span class="cap-risk ${cap.risk}" style="font-size:9px;">${cap.risk}</span>
+                              <label class="toggle-wrap" style="width:34px; height:18px;">
+                                <input type="checkbox" ${enabledCaps.includes(cap.name) ? 'checked' : ''} onchange="toggleAgentCap('${agentKey}','${intKey}','${cap.name}',this)">
+                                <span class="toggle-slider" style="border-radius:100px;"></span>
+                              </label>
+                            </div>
+                          </div>
+                        `).join('')}
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+                <div style="margin-top:10px;">
+                  <button class="btn-secondary" style="font-size:12px; padding:7px 14px;" onclick="showToast('Capability selection saved ✓')">Save capability selection</button>
+                </div>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('')}
+
+      <div style="margin-top:16px; padding:16px 18px; border:1.5px dashed #E5E7EB; border-radius:14px; display:flex; align-items:center; gap:12px; cursor:pointer;" onclick="showView('overview')">
+        <div style="width:38px; height:38px; border-radius:10px; background:#F4F4F8; display:flex; align-items:center; justify-content:center; font-size:18px;">+</div>
+        <div>
+          <div style="font-size:14px; font-weight:600; color:#555;">Add more integrations</div>
+          <div style="font-size:12px; color:#aaa;">Connect new integrations from the Integrations catalog</div>
+        </div>
+        <div style="margin-left:auto; color:#6B3DE7; font-size:13px; font-weight:600;">Browse →</div>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:10px; padding-top:4px;">
+      <button class="btn-primary" onclick="showToast('Action settings saved ✓')">Save changes</button>
+      <button class="btn-secondary" onclick="showView('agents')">Cancel</button>
+    </div>
+  `;
+}
+
+function toggleAgentIntegration(agentKey, intKey, checkbox) {
+  const a = agentData[agentKey];
+  if (!a.integrations[intKey]) a.integrations[intKey] = { enabled: false, capabilities: [] };
+  a.integrations[intKey].enabled = checkbox.checked;
+  if (!checkbox.checked) agentIntegrationOpen[agentKey + '|' + intKey] = false;
+  showView('agent-detail-' + agentKey);
+  setTimeout(() => { agentDetailTab = 'actions'; }, 0);
+}
+
+function toggleIntRow(agentKey, intKey) {
+  const k = agentKey + '|' + intKey;
+  agentIntegrationOpen[k] = !agentIntegrationOpen[k];
+  showView('agent-detail-' + agentKey);
+  setTimeout(() => { agentDetailTab = 'actions'; }, 0);
+}
+
+function toggleAgentCap(agentKey, intKey, capName, checkbox) {
+  const a = agentData[agentKey];
+  if (!a.integrations[intKey]) return;
+  const caps = a.integrations[intKey].capabilities;
+  if (checkbox.checked) { if (!caps.includes(capName)) caps.push(capName); }
+  else { const idx = caps.indexOf(capName); if (idx > -1) caps.splice(idx, 1); }
+}
+
+// ── Navigator Config View ──────────────────────────────────
+function renderNavigatorConfig() {
+  return `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Navigator</div>
+        <div class="page-sub">Configure knowledge, actions, and behaviour for the Global Navigator</div>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn-secondary" onclick="showToast('Analytics view — not wired in prototype')">Analytics</button>
+        <button class="btn-primary" onclick="showToast('Changes saved ✓')">Save</button>
+      </div>
+    </div>
+
+    <div class="config-tabs">
+      <button class="config-tab ${navConfigTab==='identity'?'active':''}" onclick="switchNavTab('identity')">Identity</button>
+      <button class="config-tab ${navConfigTab==='knowledge'?'active':''}" onclick="switchNavTab('knowledge')">Knowledge</button>
+      <button class="config-tab ${navConfigTab==='actions'?'active':''}" onclick="switchNavTab('actions')">Actions</button>
+      <button class="config-tab ${navConfigTab==='settings'?'active':''}" onclick="switchNavTab('settings')">Settings</button>
+    </div>
+
+    ${renderNavTabContent()}
+  `;
+}
+
+function switchNavTab(tab) {
+  navConfigTab = tab;
+  showView('navigator-config');
+}
+
+function renderNavTabContent() {
+  if (navConfigTab === 'identity') {
+    return `
+      <div class="config-section-card">
+        <div class="config-section-title">Name & Icon</div>
+        <div class="config-section-desc">Customise how Navigator appears to your employees.</div>
+        <div style="margin-bottom:14px;">
+          <div class="form-label">Display name</div>
+          <input class="form-input" value="Navigator" style="max-width:360px;" />
+        </div>
+        <div>
+          <div class="form-label">Tagline</div>
+          <input class="form-input" value="Your workplace assistant" style="max-width:360px;" />
+        </div>
+      </div>
+      <div class="config-section-card">
+        <div class="config-section-title">Branding</div>
+        <div class="config-section-desc">Choose the accent colour and icon for your Navigator.</div>
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+          ${['#6B3DE7','#2563EB','#059669','#DC2626','#D97706','#0891B2'].map((c,i) => `
+            <div style="width:36px; height:36px; border-radius:50%; background:${c}; cursor:pointer; border:${i===0?'3px solid #111':'3px solid transparent'};" onclick="showToast('Brand colour set')"></div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  } else if (navConfigTab === 'knowledge') {
+    return `
+      <!-- General Knowledge Base -->
+      <div class="config-section-card">
+        <div class="config-section-title">General Knowledge Base</div>
+        <div class="config-section-desc">Define the general knowledge base that Navigator uses to give answers.</div>
+        <div style="font-size:13px; font-weight:600; color:#555; margin-bottom:8px;">Spaces Access</div>
+        <div style="font-size:12px; color:#888; margin-bottom:12px;">Select which Spaces Navigator can use to answer questions. Navigator references News and Pages from the selected Spaces.</div>
+        <div style="display:flex; gap:10px; margin-bottom:18px; flex-wrap:wrap;">
+          <label class="radio-option" style="flex:1; min-width:140px; border:1.5px solid #E5E7EB; border-radius:10px; padding:12px;">
+            <input type="radio" name="spaceaccess"> <span class="radio-option-label">All Spaces</span>
+          </label>
+          <label class="radio-option" style="flex:1; min-width:140px; border:1.5px solid #6B3DE7; border-radius:10px; padding:12px; background:#F8F6FF;">
+            <input type="radio" name="spaceaccess" checked> <span class="radio-option-label" style="color:#6B3DE7; font-weight:600;">Selected Spaces Only</span>
+          </label>
+          <label class="radio-option" style="flex:1; min-width:140px; border:1.5px solid #E5E7EB; border-radius:10px; padding:12px;">
+            <input type="radio" name="spaceaccess"> <span class="radio-option-label">Exclude Selected</span>
+          </label>
+        </div>
+        ${navSpaces.map(s => `
+          <div class="space-tag">
+            <div class="space-tag-icon">⊞</div>
+            ${s}
+            <button class="space-remove" onclick="removeSpace('${s}')">✕</button>
+          </div>
+        `).join('')}
+        <div><span class="add-link" onclick="showToast('Space picker — not wired in prototype')">+ Add Space</span></div>
+      </div>
+
+      <!-- Advanced Settings -->
+      <div class="config-section-card">
+        <div class="config-section-title">Advanced Settings</div>
+        <div class="checkbox-row">
+          <input type="checkbox" checked>
+          <div>
+            <div class="checkbox-row-label">Employee Directory Access</div>
+            <div class="checkbox-row-desc">Allow Navigator to use information from the Employee Directory to answer questions about people.</div>
+          </div>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" checked style="accent-color:#F59E0B;">
+          <div>
+            <div class="checkbox-row-label">Search in App & Intranet</div>
+            <div class="checkbox-row-desc">Give Navigator access to search your App and Intranet content. If not selected, it answers based only on the additional context.</div>
+          </div>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox">
+          <div>
+            <div class="checkbox-row-label">News & Announcements</div>
+            <div class="checkbox-row-desc">Include published news articles in Navigator's search scope.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Assistants -->
+      <div class="config-section-card">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+          <div class="config-section-title">Assistants</div>
+          <span style="font-size:12px; font-weight:600; padding:3px 10px; border-radius:100px; background:#E0F2FE; color:#0369A1;">${Object.keys(agentData).length}/10 Added</span>
+        </div>
+        <div class="config-section-desc">Dedicated agents Navigator automatically routes questions to. Employees can also select them directly from the chat.</div>
+        ${Object.entries(agentData).map(([k,a]) => `
+          <div class="assistant-list-item" onclick="showView('agent-detail-${k}')">
+            <div class="assistant-item-icon">${a.emoji}</div>
+            <div style="flex:1;">
+              <div class="assistant-item-name">${a.name}</div>
+              <div class="assistant-item-meta">${a.pages.length} pages · ${a.files.length} files · ${Object.values(a.integrations).filter(i=>i.enabled).reduce((acc,i)=>acc+i.capabilities.length,0)} actions</div>
+            </div>
+            <span style="color:#aaa; font-size:14px;">→</span>
+          </div>
+        `).join('')}
+        <div style="margin-top:8px;"><span class="add-link" onclick="showToast('Create Assistant — go to Agents')">+ Create Assistant</span></div>
+      </div>
+
+      <!-- Conversation Starters -->
+      <div class="config-section-card">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+          <div class="config-section-title">Conversation Starters</div>
+          <span style="font-size:12px; font-weight:600; padding:3px 10px; border-radius:100px; background:#F4F4F8; color:#888;">${navStarters.length}/6 Added</span>
+        </div>
+        <div class="config-section-desc">Create up to six example prompts that help users begin a chat.</div>
+        ${navStarters.map(s => `
+          <div class="starter-chip">
+            <span style="font-size:14px;">💬</span>
+            ${s}
+            <button style="margin-left:auto; background:none; border:none; cursor:pointer; color:#C4B5FD; font-size:12px;" onclick="removeStarter('${s}')">✕</button>
+          </div>
+        `).join('')}
+        <div><span class="add-link" onclick="showToast('Add starter — not wired in prototype')">+ Add Conversation Starter</span></div>
+      </div>
+    `;
+  } else if (navConfigTab === 'actions') {
+    return renderNavActionsTab();
+  } else if (navConfigTab === 'settings') {
+    return `
+      <div class="config-section-card">
+        <div class="config-section-title">Response Behaviour</div>
+        <div class="config-section-desc" style="margin-bottom:16px;">Control how Navigator responds to employee questions.</div>
+        <div class="checkbox-row">
+          <input type="checkbox" checked>
+          <div><div class="checkbox-row-label">Cite sources</div><div class="checkbox-row-desc">Show source links below Navigator's answers so employees can read further.</div></div>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" checked>
+          <div><div class="checkbox-row-label">Show confidence indicator</div><div class="checkbox-row-desc">Display a confidence level badge when Navigator is less certain about an answer.</div></div>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox">
+          <div><div class="checkbox-row-label">Restrict to knowledge base only</div><div class="checkbox-row-desc">Navigator will only answer questions it can ground in your knowledge sources. It will not use general world knowledge.</div></div>
+        </div>
+      </div>
+      <div class="config-section-card">
+        <div class="config-section-title">Action Confirmations</div>
+        <div class="config-section-desc" style="margin-bottom:16px;">Control when users must confirm before Navigator executes an action.</div>
+        <div class="checkbox-row">
+          <input type="checkbox" checked>
+          <div><div class="checkbox-row-label">Always confirm write actions</div><div class="checkbox-row-desc">Show a confirmation card before executing POST, PATCH, or DELETE operations.</div></div>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox">
+          <div><div class="checkbox-row-label">Always confirm read actions</div><div class="checkbox-row-desc">Show a confirmation step even for read-only GET calls. Useful for sensitive data.</div></div>
+        </div>
+      </div>
+    `;
+  }
+}
+
+function renderNavActionsTab() {
+  const connectedIntegrations = Object.entries(integrationData).filter(([,v]) => v.connected);
+  return `
+    <div style="background:#F0EEFF; border:1.5px solid #C4B5FD; border-radius:12px; padding:14px 18px; margin-bottom:20px; font-size:13px; color:#5B21B6; display:flex; gap:10px; align-items:flex-start;">
+      <span style="font-size:18px; flex-shrink:0;">ℹ️</span>
+      <div>
+        <strong>Global Navigator actions</strong> are available to all employees via the main Navigator. For tighter control (e.g. IT actions only for IT staff), assign integrations to <strong>Dedicated Agents</strong> instead and restrict their visibility to the right groups.
+      </div>
+    </div>
+
+    ${connectedIntegrations.map(([intKey, intData]) => {
+      const navConfig = navIntegrations[intKey] || { enabled: false, scope: 'all', capabilities: [] };
+      const isOpen = agentIntegrationOpen['nav|' + intKey] || false;
+      const allCaps = Object.values(intData.capabilities || {}).flat();
+      const enabledCount = navConfig.capabilities.length;
+      return `
+        <div class="integration-row ${navConfig.enabled ? 'enabled' : ''} ${isOpen ? 'open' : ''}">
+          <div class="integration-row-header">
+            <div class="integration-row-logo" style="background:${intData.color}">${intData.emoji}</div>
+            <div class="integration-row-info">
+              <div class="integration-row-name">${intData.name}</div>
+              <div class="integration-row-meta">${intData.category} · ${navConfig.enabled ? enabledCount + ' / ' + allCaps.length + ' capabilities · Scope: ' + navConfig.scope : 'Disabled for Global Navigator'}</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:12px;">
+              <label class="toggle-wrap" onclick="event.stopPropagation()">
+                <input type="checkbox" ${navConfig.enabled ? 'checked' : ''} onchange="toggleNavIntegration('${intKey}',this)">
+                <span class="toggle-slider"></span>
+              </label>
+              ${navConfig.enabled ? `<button style="background:none;border:none;cursor:pointer;font-size:13px;color:#888;padding:4px 8px;border-radius:6px;font-family:inherit;" onclick="toggleIntRow('nav','${intKey}')">${isOpen ? '▲ Hide' : '▼ Configure'}</button>` : ''}
+            </div>
+          </div>
+          ${navConfig.enabled ? `
+            <div class="integration-row-body">
+              <!-- Scope -->
+              <div style="margin-bottom:18px;">
+                <div style="font-size:12px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Employee Scope</div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <label class="radio-option" style="border:1.5px solid ${navConfig.scope==='all'?'#6B3DE7':'#E5E7EB'}; border-radius:10px; padding:9px 14px; cursor:pointer; ${navConfig.scope==='all'?'background:#F8F6FF;':''}">
+                    <input type="radio" name="scope-${intKey}" ${navConfig.scope==='all'?'checked':''} onchange="setNavScope('${intKey}','all')">
+                    <span style="font-size:13px; font-weight:500; ${navConfig.scope==='all'?'color:#6B3DE7;':''}">All employees</span>
+                  </label>
+                  <label class="radio-option" style="border:1.5px solid ${navConfig.scope==='groups'?'#6B3DE7':'#E5E7EB'}; border-radius:10px; padding:9px 14px; cursor:pointer;">
+                    <input type="radio" name="scope-${intKey}" ${navConfig.scope==='groups'?'checked':''} onchange="setNavScope('${intKey}','groups')">
+                    <span style="font-size:13px; font-weight:500;">Specific groups</span>
+                  </label>
+                </div>
+              </div>
+              <!-- Capabilities -->
+              <div style="font-size:12px; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Capabilities</div>
+              ${intData.modules.map(module => {
+                const moduleCaps = intData.capabilities[module] || [];
+                const enabledInModule = moduleCaps.filter(c => navConfig.capabilities.includes(c.name)).length;
+                return `
+                  <div style="margin-bottom:14px;">
+                    <div style="font-size:12px; font-weight:700; color:#555; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                      ${module} <span style="font-size:11px; font-weight:400; color:#aaa;">${enabledInModule}/${moduleCaps.length} enabled</span>
+                    </div>
+                    <div style="border:1px solid #E8E8F0; border-radius:10px; overflow:hidden;">
+                      ${moduleCaps.map(cap => `
+                        <div class="mini-cap-row">
+                          <div class="cap-row-left" style="gap:8px;">
+                            <span class="cap-method ${cap.method.toLowerCase()}" style="font-size:9px; min-width:34px;">${cap.method}</span>
+                            <div>
+                              <div class="mini-cap-name">${cap.name}</div>
+                              <div class="mini-cap-desc">${cap.desc}</div>
+                            </div>
+                          </div>
+                          <div style="display:flex; align-items:center; gap:8px;">
+                            <span class="cap-risk ${cap.risk}" style="font-size:9px;">${cap.risk}</span>
+                            <label class="toggle-wrap" style="width:34px; height:18px;">
+                              <input type="checkbox" ${navConfig.capabilities.includes(cap.name) ? 'checked' : ''} onchange="toggleNavCap('${intKey}','${cap.name}',this)">
+                              <span class="toggle-slider"></span>
+                            </label>
+                          </div>
+                        </div>
+                      `).join('')}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+              <div style="margin-top:10px; display:flex; gap:8px; align-items:center;">
+                <button class="btn-secondary" style="font-size:12px; padding:7px 14px;" onclick="showToast('Changes saved ✓')">Save</button>
+                <span style="font-size:12px; color:#aaa;">Changes apply to Global Navigator immediately</span>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('')}
+
+    <div style="margin-top:16px; padding:16px 18px; border:1.5px dashed #E5E7EB; border-radius:14px; display:flex; align-items:center; gap:12px; cursor:pointer;" onclick="showView('overview')">
+      <div style="width:38px; height:38px; border-radius:10px; background:#F4F4F8; display:flex; align-items:center; justify-content:center; font-size:18px;">+</div>
+      <div>
+        <div style="font-size:14px; font-weight:600; color:#555;">Connect more integrations</div>
+        <div style="font-size:12px; color:#aaa;">Go to Integrations to connect new providers</div>
+      </div>
+      <div style="margin-left:auto; color:#6B3DE7; font-size:13px; font-weight:600;">Browse catalog →</div>
+    </div>
+  `;
+}
+
+function toggleNavIntegration(intKey, checkbox) {
+  if (!navIntegrations[intKey]) navIntegrations[intKey] = { enabled: false, scope: 'all', capabilities: [] };
+  navIntegrations[intKey].enabled = checkbox.checked;
+  if (!checkbox.checked) agentIntegrationOpen['nav|' + intKey] = false;
+  switchNavTab('actions');
+}
+
+function toggleIntRow(agentKey, intKey) {
+  const k = agentKey + '|' + intKey;
+  agentIntegrationOpen[k] = !agentIntegrationOpen[k];
+  if (agentKey === 'nav') { switchNavTab('actions'); }
+  else { agentDetailTab = 'actions'; showView('agent-detail-' + agentKey); }
+}
+
+function setNavScope(intKey, scope) {
+  if (navIntegrations[intKey]) navIntegrations[intKey].scope = scope;
+  switchNavTab('actions');
+}
+
+function toggleNavCap(intKey, capName, checkbox) {
+  const caps = navIntegrations[intKey]?.capabilities;
+  if (!caps) return;
+  if (checkbox.checked) { if (!caps.includes(capName)) caps.push(capName); }
+  else { const idx = caps.indexOf(capName); if (idx > -1) caps.splice(idx, 1); }
+}
+
+function removeSpace(space) {
+  navSpaces = navSpaces.filter(s => s !== space);
+  switchNavTab('knowledge');
+}
+
+function removeStarter(starter) {
+  navStarters = navStarters.filter(s => s !== starter);
+  switchNavTab('knowledge');
+}
+
 // ── Init ──────────────────────────────────────────────────
 showView('overview');
 </script>
 </body>
 </html>
+
+⏳ Process is running. Use read_process_output to get more output.
