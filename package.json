@@ -4,7 +4,9 @@
   "description": "Staffbase Prototype Playground",
   "main": "index.html",
   "scripts": {
-    "dev": "serve . -p 3456"
+    "dev": "serve . -p 3456",
+    "build": "vite build",
+    "build:watch": "vite build --watch"
   },
   "keywords": [
     "prototypes",
@@ -12,7 +14,13 @@
   ],
   "author": "",
   "license": "ISC",
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
   "devDependencies": {
-    "serve": "^14.2.6"
+    "@vitejs/plugin-react": "^4.3.4",
+    "serve": "^14.2.6",
+    "vite": "^5.4.11"
   }
 }

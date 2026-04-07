@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "zee-playground",
+      "runtimeExecutable": "/opt/homebrew/opt/node.js/bin/node",
+      "runtimeArgs": ["/Users/zsherif/projects/zee-playground/node_modules/serve/build/main.js", ".", "-p", "3456"],
+      "port": 3456
+    }
+  ]
+}

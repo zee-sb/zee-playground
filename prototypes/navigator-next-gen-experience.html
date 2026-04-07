@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Navigator · Next-Gen Employee Experience</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/chat-widget.css">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -31,22 +32,6 @@ body {
 .tag-wip { background: #422006; color: #FCD34D; }
 .tag-ready { background: #14532D; color: #86EFAC; }
 
-/* ── Scenario Bar ── */
-.scenario-bar {
-  display: flex; gap: 8px; margin-bottom: 24px;
-  flex-wrap: wrap; justify-content: center; max-width: 900px; width: 100%;
-}
-.scenario-label { font-size: 10px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 0.1em; align-self: center; margin-right: 4px; }
-.tab-btn {
-  padding: 7px 15px; border-radius: 100px;
-  border: 1.5px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.45);
-  font-size: 12px; font-weight: 500; cursor: pointer;
-  transition: all 0.2s; font-family: inherit; white-space: nowrap;
-}
-.tab-btn:hover { border-color: rgba(255,255,255,0.28); color: rgba(255,255,255,0.75); }
-.tab-btn.active { background: #7B5CE3; border-color: #7B5CE3; color: #fff; }
 
 /* ── Phone Frame ── */
 .phone-wrap { position: relative; width: 393px; }
@@ -460,6 +445,16 @@ body {
 .step-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.18); transition: background 0.2s; }
 .step-dot.active { background: #7B5CE3; }
 .step-dot.done { background: rgba(123,92,227,0.45); }
+/* Fix for ChatWidget blocking clicks */
+#cw-mount {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+#cw-mount.active {
+  pointer-events: auto;
+}
 </style>
 </head>
 <body>
@@ -480,17 +475,6 @@ body {
   </div>
 </nav>
 
-<!-- Scenario Tabs -->
-<div class="scenario-bar">
-  <span class="scenario-label">View →</span>
-  <button class="tab-btn active" onclick="showScreen('home', this)">🏠 Home</button>
-  <button class="tab-btn" onclick="showScreen('chat-history', this)">💬 Conversations</button>
-  <button class="tab-btn" onclick="showScreen('chat-policy', this)">🔍 Ask Policy</button>
-  <button class="tab-btn" onclick="showScreen('chat-leave', this); initLeave()">🌴 Request Leave</button>
-  <button class="tab-btn" onclick="showScreen('actions', this)">⚡ Actions Hub</button>
-  <button class="tab-btn" onclick="showScreen('news', this)">📰 News Digest</button>
-  <button class="tab-btn" onclick="showScreen('admin', this)">🔐 Admin Push</button>
-</div>
 
 <!-- Phone -->
 <div class="phone-wrap">
@@ -531,7 +515,7 @@ body {
               <div class="task-push-title">Complete your Q1 Performance Self-Assessment</div>
               <div class="task-push-sub">Sent to all employees in Product · Est. 10 min</div>
               <div class="task-push-actions">
-                <button class="task-push-btn primary" onclick="showScreen('chat-leave', document.querySelectorAll('.tab-btn')[3]); initLeave()">Start with Navigator →</button>
+                <button class="task-push-btn primary" onclick="openNavigator('I need to complete my Q1 self-assessment')">Start with Navigator →</button>
                 <button class="task-push-btn secondary">Dismiss</button>
               </div>
             </div>
@@ -552,19 +536,19 @@ body {
           <div class="home-section" style="margin-top:16px;">
             <div class="home-section-title">⚡ Quick Actions</div>
             <div class="quick-actions-grid">
-              <div class="quick-action-item">
+              <div class="quick-action-item" onclick="openNavigator('Request leave')">
                 <div class="quick-action-icon" style="background:#DCFCE7;">🌴</div>
                 <div class="quick-action-label">Request Leave</div>
               </div>
-              <div class="quick-action-item">
+              <div class="quick-action-item" onclick="openNavigator('IT support')">
                 <div class="quick-action-icon" style="background:#DBEAFE;">🖥️</div>
                 <div class="quick-action-label">IT Support</div>
               </div>
-              <div class="quick-action-item">
+              <div class="quick-action-item" onclick="openNavigator('Submit expense')">
                 <div class="quick-action-icon" style="background:#FEF3C7;">📊</div>
                 <div class="quick-action-label">Expenses</div>
               </div>
-              <div class="quick-action-item">
+              <div class="quick-action-item" onclick="openNavigator('HR policy')">
                 <div class="quick-action-icon" style="background:#FCE7F3;">📋</div>
                 <div class="quick-action-label">HR Policies</div>
               </div>
@@ -580,7 +564,7 @@ body {
                 <div class="news-card-meta">HR · Today</div>
                 <div class="news-card-title">New Remote Work Policy — Effective May 1</div>
                 <div class="news-card-summary">Navigator Summary: The 2-day office minimum is changing to a flexible model. IT equipment stipend increases to €400/year.</div>
-                <span class="news-card-cta">Ask Navigator about this →</span>
+                <span class="news-card-cta" onclick="openNavigator('remote work policy')" style="cursor:pointer;">Ask Navigator about this →</span>
               </div>
             </div>
           </div>
@@ -588,203 +572,31 @@ body {
 
         <!-- Bottom Nav -->
         <div class="bottom-nav">
-          <div class="nav-item active">
+          <div class="nav-item active" onclick="showScreen('home')">
             <div class="nav-icon">
               <svg width="22" height="22" fill="#7B5CE3" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22" fill="none" stroke="#7B5CE3" stroke-width="2"/></svg>
             </div>
             <span class="nav-label" style="color:#7B5CE3;">Home</span>
           </div>
-          <div class="nav-item">
+          <div class="nav-item" onclick="openNavigator()">
             <div class="nav-icon">
               <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
             <span class="nav-label">Chat</span>
           </div>
-          <div class="nav-item">
+          <div class="nav-item" onclick="showScreen('actions')">
             <div class="nav-icon">
               <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#999" stroke-width="2"/><path d="M12 8v4l3 3" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg>
               <div class="nav-badge">2</div>
             </div>
             <span class="nav-label">Tasks</span>
           </div>
-          <div class="nav-item">
+          <div class="nav-item" onclick="showScreen('news')">
             <div class="nav-icon">
               <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
             <span class="nav-label">News</span>
           </div>
-        </div>
-      </div>
-
-      <!-- ──────────────────────────────────────────
-           SCREEN: CHAT HISTORY
-      ────────────────────────────────────────── -->
-      <div class="screen" id="screen-chat-history">
-        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"><svg width="16" height="12" fill="#111" viewBox="0 0 16 12"><rect x="0" y="3" width="3" height="9" rx="1"/><rect x="4.5" y="2" width="3" height="10" rx="1"/><rect x="9" y="0" width="3" height="12" rx="1"/></svg></div></div>
-        <div class="chat-list-header">
-          <div class="chat-list-title">Conversations</div>
-          <div class="chat-list-sub">All your Navigator chats in one place</div>
-        </div>
-        <div class="chat-list-body">
-          <!-- Thread items -->
-          <div class="chat-thread-item">
-            <div class="thread-avatar" style="background:#DCFCE7;">🌴</div>
-            <div class="thread-body">
-              <div class="thread-header">
-                <span class="thread-agent">HR Agent · Leave</span>
-                <span class="thread-time">Today</span>
-              </div>
-              <div class="thread-preview">Your leave request for Apr 14–18 was approved ✓</div>
-              <div class="thread-tags">
-                <span class="thread-tag" style="background:#DCFCE7; color:#059669;">✓ Action completed</span>
-              </div>
-            </div>
-          </div>
-          <div class="chat-thread-item">
-            <div class="thread-avatar" style="background:#DBEAFE;">🖥️</div>
-            <div class="thread-body">
-              <div class="thread-header">
-                <span class="thread-agent">IT Agent · Ticket</span>
-                <span class="thread-time">Yesterday</span>
-              </div>
-              <div class="thread-preview">Your MacBook issue has been escalated to Level 2</div>
-              <div class="thread-tags">
-                <span class="thread-tag" style="background:#FEF3C7; color:#D97706;">⏳ In progress</span>
-              </div>
-            </div>
-          </div>
-          <div class="chat-thread-item">
-            <div class="thread-avatar" style="background:#EDE9FE;">🧠</div>
-            <div class="thread-body">
-              <div class="thread-header">
-                <span class="thread-agent">Navigator · Policy</span>
-                <span class="thread-time">Mon</span>
-              </div>
-              <div class="thread-preview">The new remote work policy applies to all full-time…</div>
-              <div class="thread-tags">
-                <span class="thread-tag" style="background:#F3F4F6; color:#666;">📖 Knowledge</span>
-              </div>
-            </div>
-          </div>
-          <div class="chat-thread-item">
-            <div class="thread-avatar" style="background:#FCE7F3;">💳</div>
-            <div class="thread-body">
-              <div class="thread-header">
-                <span class="thread-agent">Finance Agent · Expense</span>
-                <span class="thread-time">Mar 28</span>
-              </div>
-              <div class="thread-preview">Submitted €234 conference expense to Concur</div>
-              <div class="thread-tags">
-                <span class="thread-tag" style="background:#DCFCE7; color:#059669;">✓ Submitted</span>
-              </div>
-            </div>
-          </div>
-          <div class="chat-thread-item" style="opacity:0.6;">
-            <div class="thread-avatar" style="background:#F3F4F6;">❓</div>
-            <div class="thread-body">
-              <div class="thread-header">
-                <span class="thread-agent">Navigator · Onboarding</span>
-                <span class="thread-time">Mar 12</span>
-              </div>
-              <div class="thread-preview">Here's how to set up your benefits in Workday…</div>
-            </div>
-          </div>
-        </div>
-        <!-- FAB -->
-        <div class="new-chat-fab" onclick="showScreen('chat-policy', document.querySelectorAll('.tab-btn')[2])">
-          <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>
-        </div>
-        <div class="bottom-nav">
-          <div class="nav-item">
-            <div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg></div>
-            <span class="nav-label">Home</span>
-          </div>
-          <div class="nav-item active">
-            <div class="nav-icon"><svg width="22" height="22" fill="#7B5CE3" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#7B5CE3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-            <span class="nav-label" style="color:#7B5CE3;">Chat</span>
-          </div>
-          <div class="nav-item">
-            <div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#999" stroke-width="2"/><path d="M12 8v4l3 3" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg><div class="nav-badge">2</div></div>
-            <span class="nav-label">Tasks</span>
-          </div>
-          <div class="nav-item">
-            <div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg></div>
-            <span class="nav-label">News</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- ──────────────────────────────────────────
-           SCREEN: CHAT — POLICY QUESTION
-      ────────────────────────────────────────── -->
-      <div class="screen" id="screen-chat-policy">
-        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"><svg width="16" height="12" fill="#111" viewBox="0 0 16 12"><rect x="0" y="3" width="3" height="9" rx="1"/><rect x="4.5" y="2" width="3" height="10" rx="1"/></svg></div></div>
-        <div class="chat-screen-header">
-          <span class="chat-back">‹ Back</span>
-          <div class="chat-agent-info">
-            <div class="chat-agent-name">Navigator</div>
-            <div class="chat-agent-status"><div class="chat-agent-dot"></div>Ready to help</div>
-          </div>
-          <span class="chat-more">···</span>
-        </div>
-        <div class="chat-messages">
-          <div class="msg-ai-wrap">
-            <div class="msg-ai-bubble-row">
-              <div class="msg-ai-avatar"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2h-4M9 3v4h6V3M9 3h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div>
-              <div class="msg-ai-bubble">Hi Zyad! What can I help you with today? I can answer questions, look things up, or take action on your behalf.</div>
-            </div>
-          </div>
-          <div class="suggestion-row">
-            <div class="suggestion-chip">📋 What's the remote work policy?</div>
-            <div class="suggestion-chip">🌴 How many leave days do I have?</div>
-            <div class="suggestion-chip">💻 Report an IT issue</div>
-          </div>
-          <div class="msg-user">What's changing in the new remote work policy?</div>
-          <div class="msg-ai-wrap">
-            <div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
-          </div>
-          <div class="msg-ai-wrap">
-            <div class="msg-ai-bubble-row">
-              <div class="msg-ai-avatar"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2h-4M9 3v4h6V3M9 3h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div>
-              <div class="msg-ai-bubble">The new policy (effective <strong>May 1, 2026</strong>) changes three things:<br><br>
-                <strong>1. Office days:</strong> The previous 2-day minimum becomes fully flexible — you choose when to come in.<br><br>
-                <strong>2. Equipment stipend:</strong> Increases from €200 → <strong>€400/year</strong> for home office setup.<br><br>
-                <strong>3. Core hours:</strong> New overlap window is <strong>10am–3pm CET</strong> regardless of location.
-              </div>
-            </div>
-            <div class="source-row">
-              <div class="source-chip"><div class="source-dot" style="background:#4285F4;"></div>Remote Work Policy 2026</div>
-              <div class="source-chip"><div class="source-dot" style="background:#EA4335;"></div>HR Announcement</div>
-            </div>
-          </div>
-          <div class="suggestion-row">
-            <div class="suggestion-chip">How do I claim the stipend?</div>
-            <div class="suggestion-chip">Who approved this?</div>
-          </div>
-        </div>
-        <div class="chat-input-bar">
-          <div class="chat-input-field">Ask a follow-up…</div>
-          <div class="chat-send-btn"><svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        </div>
-      </div>
-
-      <!-- ──────────────────────────────────────────
-           SCREEN: CHAT — LEAVE REQUEST FLOW
-      ────────────────────────────────────────── -->
-      <div class="screen" id="screen-chat-leave">
-        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"></div></div>
-        <div class="chat-screen-header">
-          <span class="chat-back">‹ Back</span>
-          <div class="chat-agent-info">
-            <div class="chat-agent-name">HR Agent</div>
-            <div class="chat-agent-status"><div class="chat-agent-dot"></div>Connected to BambooHR</div>
-          </div>
-          <span class="chat-more">···</span>
-        </div>
-        <div class="chat-messages" id="leave-chat"></div>
-        <div class="chat-input-bar">
-          <div class="chat-input-field" id="leave-input-hint">Tap phone to continue →</div>
-          <div class="chat-send-btn"><svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
         </div>
       </div>
 
@@ -885,10 +697,10 @@ body {
           </div>
         </div>
         <div class="bottom-nav">
-          <div class="nav-item"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="#999" stroke-width="2"/></svg></div><span class="nav-label">Home</span></div>
-          <div class="nav-item"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="nav-label">Chat</span></div>
-          <div class="nav-item active"><div class="nav-icon"><svg width="22" height="22" fill="#7B5CE3" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#7B5CE3" stroke-width="2"/><path d="M12 8v4l3 3" stroke="#7B5CE3" stroke-width="2" stroke-linecap="round"/></svg><div class="nav-badge">2</div></div><span class="nav-label" style="color:#7B5CE3;">Tasks</span></div>
-          <div class="nav-item"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg></div><span class="nav-label">News</span></div>
+          <div class="nav-item" onclick="showScreen('home')"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="#999" stroke-width="2"/></svg></div><span class="nav-label">Home</span></div>
+          <div class="nav-item" onclick="openNavigator()"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="nav-label">Chat</span></div>
+          <div class="nav-item active" onclick="showScreen('actions')"><div class="nav-icon"><svg width="22" height="22" fill="#7B5CE3" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#7B5CE3" stroke-width="2"/><path d="M12 8v4l3 3" stroke="#7B5CE3" stroke-width="2" stroke-linecap="round"/></svg><div class="nav-badge">2</div></div><span class="nav-label" style="color:#7B5CE3;">Tasks</span></div>
+          <div class="nav-item" onclick="showScreen('news')"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg></div><span class="nav-label">News</span></div>
         </div>
       </div>
 
@@ -909,7 +721,7 @@ body {
               <div class="news-nav-label">Navigator's Daily Briefing</div>
             </div>
             <div class="news-nav-text">Today: <strong>3 updates relevant to Product</strong> — a new remote work policy takes effect May 1, Q1 review season opens this week, and Berlin office maintenance on Apr 12.</div>
-            <div class="news-ask-chip">
+            <div class="news-ask-chip" onclick="openNavigator()" style="cursor:pointer;">
               <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#fff" stroke-width="2"/></svg>
               Ask Navigator about any of these
             </div>
@@ -928,7 +740,7 @@ body {
               </div>
               <div class="news-item-footer">
                 <div class="news-item-read">4.2k views</div>
-                <div class="news-item-ask">💬 Ask Navigator →</div>
+                <div class="news-item-ask" onclick="openNavigator()" style="cursor:pointer;">💬 Ask Navigator →</div>
               </div>
             </div>
             <div class="news-item">
@@ -958,16 +770,16 @@ body {
               </div>
               <div class="news-item-footer">
                 <div class="news-item-read">891 views</div>
-                <div class="news-item-ask">💬 Ask Navigator →</div>
+                <div class="news-item-ask" onclick="openNavigator()" style="cursor:pointer;">💬 Ask Navigator →</div>
               </div>
             </div>
           </div>
         </div>
         <div class="bottom-nav">
-          <div class="nav-item"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="#999" stroke-width="2"/></svg></div><span class="nav-label">Home</span></div>
-          <div class="nav-item"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="nav-label">Chat</span></div>
-          <div class="nav-item"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#999" stroke-width="2"/><path d="M12 8v4l3 3" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg><div class="nav-badge">2</div></div><span class="nav-label">Tasks</span></div>
-          <div class="nav-item active"><div class="nav-icon"><svg width="22" height="22" fill="#7B5CE3" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" stroke="#7B5CE3" stroke-width="2" stroke-linecap="round"/></svg></div><span class="nav-label" style="color:#7B5CE3;">News</span></div>
+          <div class="nav-item" onclick="showScreen('home')"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="#999" stroke-width="2"/></svg></div><span class="nav-label">Home</span></div>
+          <div class="nav-item" onclick="openNavigator()"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="nav-label">Chat</span></div>
+          <div class="nav-item" onclick="showScreen('actions')"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#999" stroke-width="2"/><path d="M12 8v4l3 3" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg><div class="nav-badge">2</div></div><span class="nav-label">Tasks</span></div>
+          <div class="nav-item active" onclick="showScreen('news')"><div class="nav-icon"><svg width="22" height="22" fill="#7B5CE3" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" stroke="#7B5CE3" stroke-width="2" stroke-linecap="round"/></svg></div><span class="nav-label" style="color:#7B5CE3;">News</span></div>
         </div>
       </div>
 
@@ -1047,132 +859,61 @@ body {
         </div>
       </div>
 
+      <!-- ChatWidget mounts here — overlays all screens -->
+      <div id="cw-mount"></div>
+
     </div><!-- /phone-inner -->
   </div><!-- /phone-frame -->
 </div><!-- /phone-wrap -->
 
-<!-- Step hint for leave flow -->
-<div class="step-hint" id="stepHint" style="display:none;">
-  <div id="stepHintText">Tap the phone to advance the flow</div>
-  <div class="step-dots" id="stepDots"></div>
-</div>
-
+<script src="/assets/navigator-scenarios.js"></script>
+<script src="/assets/chat-widget.js"></script>
 <script>
 // ── Screen switching ──────────────────────────────────
-function showScreen(name, btn) {
+function showScreen(name) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById('screen-' + name).classList.add('active');
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  if (name === 'chat-leave') {
-    document.getElementById('stepHint').style.display = 'block';
-  } else {
-    document.getElementById('stepHint').style.display = 'none';
+  const el = document.getElementById('screen-' + name);
+  if (el) el.classList.add('active');
+}
+
+// ── ChatWidget integration ────────────────────────────
+let cwHandle = null;
+
+function openNavigator(msg) {
+  if (!cwHandle) return;
+  cwHandle.open();
+  if (msg) {
+    // Use the handle.send() API — fires message after a short open-animation delay
+    setTimeout(() => cwHandle.send(msg), 350);
   }
 }
 
-// ── Leave flow ───────────────────────────────────────
-const leaveSteps = [
-  `<div class="msg-ai-wrap"><div class="msg-ai-bubble-row"><div class="msg-ai-avatar"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2h-4M9 3v4h6V3M9 3h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div><div class="msg-ai-bubble">Hi! I'm your HR Agent. I can help you request leave, check your balance, or answer HR questions. What do you need?</div></div></div>
-   <div class="suggestion-row"><div class="suggestion-chip">🌴 Request vacation days</div><div class="suggestion-chip">📊 Check my leave balance</div></div>`,
-
-  `<div class="msg-user">I want to take 5 days off starting April 14</div>`,
-
-  `<div class="msg-ai-wrap"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>`,
-
-  `<div class="msg-ai-wrap"><div class="msg-ai-bubble-row"><div class="msg-ai-avatar"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2h-4M9 3v4h6V3M9 3h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div><div class="msg-ai-bubble">Got it — Apr 14–18 (5 working days). I checked BambooHR: you have <strong>18 days remaining</strong>. I've pre-filled the form below.</div></div>
-  <div class="action-form-card">
-    <div class="afc-header">
-      <div class="afc-icon" style="background:#DCFCE7;">🌴</div>
-      <div><div class="afc-title">Leave Request</div><div class="afc-sub">BambooHR · Annual Leave</div></div>
-    </div>
-    <div class="afc-field"><div class="afc-label">Leave Type</div><select class="afc-input"><option>Annual Leave</option><option>Sick Leave</option><option>Personal Day</option></select></div>
-    <div class="afc-row">
-      <div class="afc-field"><div class="afc-label">Start</div><input class="afc-input prefilled" value="Apr 14, 2026" readonly /></div>
-      <div class="afc-field"><div class="afc-label">End</div><input class="afc-input prefilled" value="Apr 18, 2026" readonly /></div>
-    </div>
-    <div class="afc-balance-row"><span class="afc-balance-text">✓ 5 days · 13 remaining after</span></div>
-    <div class="afc-field"><div class="afc-label">Note (optional)</div><input class="afc-input" placeholder="Add a note for your manager…" /></div>
-    <button class="afc-btn primary" onclick="advanceLeave(event)">Submit Request →</button>
-    <button class="afc-btn secondary">Cancel</button>
-  </div></div>`,
-
-  `<div class="msg-ai-wrap"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>`,
-
-  `<div class="msg-ai-wrap">
-  <div class="msg-ai-bubble-row"><div class="msg-ai-avatar"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2h-4M9 3v4h6V3M9 3h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div><div class="msg-ai-bubble">Leave request submitted! 🎉 Your manager Sarah Mueller has been notified and will approve it within 24 hours.</div></div>
-  <div class="confirm-card">
-    <div class="confirm-card-top">
-      <div class="confirm-check">✓</div>
-      <div><div class="confirm-card-title">Leave Request Submitted</div><div class="confirm-card-sub">April 14–18, 2026 · 5 working days</div></div>
-    </div>
-    <div class="confirm-rows">
-      <div class="confirm-row"><span class="confirm-row-label">Type</span><span class="confirm-row-value">Annual Leave</span></div>
-      <div class="confirm-row"><span class="confirm-row-label">Status</span><span class="confirm-row-value" style="color:#D97706;">⏳ Pending Approval</span></div>
-      <div class="confirm-row"><span class="confirm-row-label">Approver</span><span class="confirm-row-value">Sarah Mueller</span></div>
-      <div class="confirm-row"><span class="confirm-row-label">Balance after</span><span class="confirm-row-value">13 days remaining</span></div>
-    </div>
-    <a class="confirm-link" href="#">Open in BambooHR ↗</a>
-  </div>
-  <div class="msg-ai-bubble-row" style="margin-top:4px;"><div class="msg-ai-avatar"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2h-4M9 3v4h6V3M9 3h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div><div class="msg-ai-bubble" style="font-size:13px; color:#888;">I'll notify you when Sarah approves. Anything else I can help with?</div></div>
-  </div>`
-];
-
-let leaveStep = 0;
-
-function initLeave() {
-  leaveStep = 0;
-  const c = document.getElementById('leave-chat');
-  c.innerHTML = '';
-  appendLeaveStep(0);
-  updateLeaveHint();
-}
-
-function appendLeaveStep(idx) {
-  const c = document.getElementById('leave-chat');
-  // Remove typing indicator if present
-  const typing = c.querySelector('.typing-indicator');
-  if (typing) typing.closest('.msg-ai-wrap').remove();
-  c.insertAdjacentHTML('beforeend', leaveSteps[idx]);
-  c.scrollTop = c.scrollHeight;
-}
-
-function advanceLeave(e) {
-  if (e) { e.stopPropagation(); }
-  if (leaveStep < leaveSteps.length - 1) {
-    leaveStep++;
-    appendLeaveStep(leaveStep);
-    updateLeaveHint();
-  }
-}
-
-function updateLeaveHint() {
-  const total = leaveSteps.length;
-  const txt = document.getElementById('stepHintText');
-  const dots = document.getElementById('stepDots');
-  if (leaveStep >= total - 1) {
-    txt.textContent = 'Flow complete ✓';
-  } else {
-    txt.textContent = 'Tap phone to continue the flow';
-  }
-  dots.innerHTML = '';
-  for (let i = 0; i < total; i++) {
-    const d = document.createElement('div');
-    d.className = 'step-dot' + (i === leaveStep ? ' active' : i < leaveStep ? ' done' : '');
-    dots.appendChild(d);
-  }
-}
-
-// Tap phone to advance leave flow
-document.getElementById('phoneInner').addEventListener('click', function(e) {
-  const active = document.querySelector('.screen.active');
-  if (!active || active.id !== 'screen-chat-leave') return;
-  if (e.target.closest('button') || e.target.closest('a') || e.target.closest('select') || e.target.closest('input')) return;
-  advanceLeave(null);
+// Init widget after scripts load
+window.addEventListener('load', function() {
+  if (typeof ChatWidget === 'undefined') return;
+  cwHandle = ChatWidget.init('#cw-mount', {
+    agentName: 'Navigator',
+    agentSubtitle: 'Your unified AI work assistant',
+    agentAvatar: '🔮',
+    theme: { primary: '#7B5CE3' },
+    scenarios: window.NAVIGATOR_SCENARIOS || ChatWidget.scenarios.defaults,
+    suggestions: [
+      { icon: '🌴', label: 'Request leave' },
+      { icon: '💻', label: 'IT support' },
+      { icon: '💳', label: 'Submit expense' },
+      { icon: '📄', label: 'HR policies' },
+      { icon: '💰', label: 'My payslip' },
+    ],
+    onOpenChange: function(isOpen) {
+      const mount = document.getElementById('cw-mount');
+      if (mount) {
+        if (isOpen) mount.classList.add('active');
+        else mount.classList.remove('active');
+      }
+    }
+  });
 });
-
-// Init leave on load so it's ready
-initLeave();
 </script>
+
 </body>
 </html>
