@@ -7,8 +7,17 @@ This repo is a static prototyping site hosted on Netlify. The index page is a ca
 ```
 index.html                  ← Gallery page (card grid)
 netlify.toml                ← Netlify deploy config
+package.json                ← Local dev configuration
 prototypes/
   <slug>.html               ← One file per prototype
+```
+
+## Development
+
+Run the local development server:
+```bash
+npm install  # if first time
+npm run dev  # starts server on http://localhost:3456
 ```
 
 ## How to add a new prototype
@@ -67,7 +76,7 @@ Open `index.html` and add a new entry to the `PROTOTYPES` array (just above the 
 },
 ```
 
-**Do not** create any build steps, config files, or package.json. This is intentionally zero-dependency.
+**Note on dependencies:** This project is intentionally kept simple. Use `package.json` only for local development tools (like the static server). Do not add build steps or runtime dependencies that would require a compilation step for the static HTML files.
 
 ## Epic colour palette (for thumbBg)
 
