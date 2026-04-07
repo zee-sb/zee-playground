@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Navigator · Next-Gen Employee Experience</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0a0a12;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 100vh;
+  padding: 64px 16px 48px;
+  font-family: 'Inter', -apple-system, sans-serif;
+}
+
+/* ── Proto Bar ── */
+.proto-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 9999; background: #1C1C1E; color: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 48px; font-size: 13px; }
+.proto-bar-left { display: flex; align-items: center; gap: 12px; }
+.proto-back { display: inline-flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.6); text-decoration: none; font-size: 13px; transition: color 0.15s; }
+.proto-back:hover { color: #fff; }
+.proto-divider { width: 1px; height: 16px; background: rgba(255,255,255,0.15); }
+.proto-title { font-weight: 500; }
+.proto-tags { display: flex; gap: 6px; }
+.proto-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+.tag-navigator { background: #1D4ED8; color: #BFDBFE; }
+.tag-wip { background: #422006; color: #FCD34D; }
+.tag-ready { background: #14532D; color: #86EFAC; }
+
+/* ── Scenario Bar ── */
+.scenario-bar {
+  display: flex; gap: 8px; margin-bottom: 24px;
+  flex-wrap: wrap; justify-content: center; max-width: 900px; width: 100%;
+}
+.scenario-label { font-size: 10px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 0.1em; align-self: center; margin-right: 4px; }
+.tab-btn {
+  padding: 7px 15px; border-radius: 100px;
+  border: 1.5px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.45);
+  font-size: 12px; font-weight: 500; cursor: pointer;
+  transition: all 0.2s; font-family: inherit; white-space: nowrap;
+}
+.tab-btn:hover { border-color: rgba(255,255,255,0.28); color: rgba(255,255,255,0.75); }
+.tab-btn.active { background: #7B5CE3; border-color: #7B5CE3; color: #fff; }
+
+/* ── Phone Frame ── */
+.phone-wrap { position: relative; width: 393px; }
+.phone-frame {
+  width: 393px; height: 852px; background: #1a1a2e;
+  border-radius: 55px; position: relative; overflow: hidden;
+  box-shadow:
+    0 0 0 2px #2a2a3e, 0 0 0 4px #111,
+    0 40px 120px rgba(0,0,0,0.85),
+    0 0 60px rgba(123,92,227,0.18);
+}
+.phone-inner { width: 100%; height: 100%; border-radius: 53px; overflow: hidden; position: relative; background: #f5f5f7; }
+.dynamic-island { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: 120px; height: 34px; background: #000; border-radius: 20px; z-index: 100; }
+
+/* ── Status Bar ── */
+.status-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 28px 0; position: relative; z-index: 10; height: 52px;
+}
+.status-time { font-size: 15px; font-weight: 600; color: #111; }
+.status-icons { display: flex; gap: 5px; align-items: center; }
+
+/* ── Screen ── */
+.screen {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.25s ease;
+  background: #f5f5f7; border-radius: 53px; overflow: hidden;
+}
+.screen.active { opacity: 1; pointer-events: all; }
+
+/* ── Bottom Nav ── */
+.bottom-nav {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: rgba(255,255,255,0.96);
+  border-top: 1px solid rgba(0,0,0,0.08);
+  backdrop-filter: blur(20px);
+  display: flex; align-items: flex-start;
+  padding: 10px 0 28px;
+  z-index: 50;
+}
+.nav-item {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  gap: 3px; cursor: pointer;
+}
+.nav-icon {
+  width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  position: relative;
+}
+.nav-icon svg { transition: all 0.2s; }
+.nav-label { font-size: 10px; font-weight: 500; color: #999; }
+.nav-item.active .nav-label { color: #7B5CE3; }
+.nav-badge {
+  position: absolute; top: -3px; right: -3px;
+  width: 14px; height: 14px; background: #EF4444;
+  border-radius: 50%; font-size: 8px; font-weight: 700;
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid #fff;
+}
+
+/* ── Scroll Container ── */
+.scroll-body {
+  flex: 1; overflow-y: auto; scrollbar-width: none;
+  padding-bottom: 90px;
+}
+.scroll-body::-webkit-scrollbar { display: none; }
+
+/* ── HOME SCREEN ── */
+.home-header {
+  background: linear-gradient(160deg, #1a0533 0%, #2d1060 50%, #7B5CE3 100%);
+  padding: 10px 20px 28px; position: relative; overflow: hidden;
+}
+.home-header::after {
+  content: '';
+  position: absolute; bottom: -1px; left: 0; right: 0; height: 24px;
+  background: #f5f5f7; border-radius: 24px 24px 0 0;
+}
+.home-greeting-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.home-greeting { font-size: 20px; font-weight: 700; color: #fff; line-height: 1.3; }
+.home-sub { font-size: 13px; color: rgba(255,255,255,0.6); margin-bottom: 20px; }
+.home-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: linear-gradient(135deg, #a78bfa, #7c3aed);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+.home-search {
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(255,255,255,0.15); border-radius: 14px;
+  padding: 11px 16px; backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.2);
+}
+.home-search-text { font-size: 14px; color: rgba(255,255,255,0.65); flex: 1; }
+.home-search-mic { color: rgba(255,255,255,0.8); }
+
+/* Home Cards */
+.home-section { padding: 16px 16px 0; }
+.home-section-title { font-size: 12px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 10px; }
+.task-push-card {
+  background: #fff; border-radius: 16px; padding: 14px 16px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.07); margin-bottom: 10px;
+  border-left: 4px solid #7B5CE3;
+}
+.task-push-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.task-push-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #7B5CE3; background: #EDE9FE; padding: 2px 8px; border-radius: 4px; }
+.task-push-title { font-size: 14px; font-weight: 600; color: #111; margin-bottom: 4px; }
+.task-push-sub { font-size: 12px; color: #888; }
+.task-push-actions { display: flex; gap: 8px; margin-top: 10px; }
+.task-push-btn { flex: 1; padding: 8px; border-radius: 10px; font-size: 13px; font-weight: 600; text-align: center; cursor: pointer; border: none; font-family: inherit; }
+.task-push-btn.primary { background: #7B5CE3; color: #fff; }
+.task-push-btn.secondary { background: #F3F4F6; color: #444; }
+
+.quick-actions-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.quick-action-item { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; }
+.quick-action-icon {
+  width: 52px; height: 52px; border-radius: 16px;
+  display: flex; align-items: center; justify-content: center; font-size: 22px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.quick-action-label { font-size: 10px; font-weight: 600; color: #444; text-align: center; }
+
+.news-card {
+  background: #fff; border-radius: 16px; overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.07); margin-bottom: 10px;
+}
+.news-card-img { height: 110px; background: linear-gradient(135deg, #667eea, #764ba2); display: flex; align-items: center; justify-content: center; font-size: 36px; }
+.news-card-body { padding: 12px 14px; }
+.news-card-meta { font-size: 11px; color: #999; margin-bottom: 4px; }
+.news-card-title { font-size: 14px; font-weight: 600; color: #111; line-height: 1.4; margin-bottom: 6px; }
+.news-card-summary { font-size: 12px; color: #666; line-height: 1.5; }
+.news-card-cta { font-size: 12px; font-weight: 600; color: #7B5CE3; margin-top: 8px; display: block; }
+
+/* ── CHAT LIST SCREEN ── */
+.chat-list-header {
+  background: #fff; padding: 10px 20px 14px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.chat-list-title { font-size: 20px; font-weight: 700; color: #111; }
+.chat-list-sub { font-size: 13px; color: #888; margin-top: 2px; }
+
+.chat-list-body { flex: 1; overflow-y: auto; scrollbar-width: none; padding: 12px 16px; padding-bottom: 100px; }
+.chat-list-body::-webkit-scrollbar { display: none; }
+
+.chat-thread-item {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 12px; background: #fff; border-radius: 16px;
+  margin-bottom: 8px; cursor: pointer;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+  transition: transform 0.15s;
+}
+.chat-thread-item:hover { transform: translateY(-1px); }
+.thread-avatar {
+  width: 42px; height: 42px; border-radius: 14px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 18px;
+}
+.thread-body { flex: 1; min-width: 0; }
+.thread-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
+.thread-agent { font-size: 13px; font-weight: 700; color: #111; }
+.thread-time { font-size: 11px; color: #aaa; }
+.thread-preview { font-size: 12px; color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.5; }
+.thread-tags { display: flex; gap: 5px; margin-top: 5px; }
+.thread-tag { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+
+.new-chat-fab {
+  position: absolute; bottom: 90px; right: 20px;
+  width: 52px; height: 52px; border-radius: 50%;
+  background: linear-gradient(135deg, #7B5CE3, #5B3DC3);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 20px rgba(123,92,227,0.5); cursor: pointer; z-index: 30;
+}
+
+.empty-chat {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding: 60px 32px; text-align: center;
+}
+.empty-chat-icon { font-size: 48px; margin-bottom: 16px; }
+.empty-chat-title { font-size: 17px; font-weight: 700; color: #111; margin-bottom: 8px; }
+.empty-chat-sub { font-size: 13px; color: #888; line-height: 1.6; }
+.empty-chat-btn {
+  margin-top: 20px; padding: 12px 24px;
+  background: #7B5CE3; color: #fff; border-radius: 100px;
+  font-size: 14px; font-weight: 600; border: none; cursor: pointer;
+  font-family: inherit;
+}
+
+/* ── CHAT SCREEN ── */
+.chat-screen-header {
+  background: #fff; padding: 10px 20px 12px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  display: flex; align-items: center; gap: 12px;
+}
+.chat-back { color: #7B5CE3; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+.chat-agent-info { flex: 1; }
+.chat-agent-name { font-size: 15px; font-weight: 700; color: #111; }
+.chat-agent-status { font-size: 11px; color: #10B981; display: flex; align-items: center; gap: 4px; }
+.chat-agent-dot { width: 6px; height: 6px; border-radius: 50%; background: #10B981; }
+.chat-more { color: #999; font-size: 18px; }
+
+.chat-messages { flex: 1; overflow-y: auto; padding: 12px 16px 110px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: none; }
+.chat-messages::-webkit-scrollbar { display: none; }
+
+.msg-user {
+  align-self: flex-end; max-width: 78%;
+  background: #7B5CE3; color: #fff;
+  border-radius: 20px 20px 5px 20px; padding: 10px 14px;
+  font-size: 14px; line-height: 1.5;
+}
+.msg-ai-wrap { align-self: flex-start; max-width: 90%; display: flex; flex-direction: column; gap: 8px; }
+.msg-ai-avatar { width: 28px; height: 28px; border-radius: 10px; background: linear-gradient(135deg, #7B5CE3, #5B3DC3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.msg-ai-bubble-row { display: flex; gap: 8px; align-items: flex-start; }
+.msg-ai-bubble { background: #fff; border-radius: 5px 20px 20px 20px; padding: 10px 14px; font-size: 14px; color: #111; line-height: 1.55; box-shadow: 0 1px 6px rgba(0,0,0,0.08); }
+
+.source-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.source-chip {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 10px; background: rgba(0,0,0,0.05);
+  border-radius: 100px; font-size: 11px; color: #555; cursor: pointer;
+}
+.source-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+
+.chat-input-bar {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  padding: 10px 16px 30px;
+  background: rgba(245,245,247,0.97); backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(0,0,0,0.07);
+  z-index: 20; display: flex; gap: 10px; align-items: center;
+}
+.chat-input-field {
+  flex: 1; height: 44px; background: #fff; border-radius: 100px;
+  border: 1.5px solid rgba(0,0,0,0.1); display: flex; align-items: center;
+  padding: 0 16px; font-size: 14px; color: #888;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+.chat-send-btn {
+  width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+  background: linear-gradient(135deg, #7B5CE3, #5B3DC3);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  box-shadow: 0 2px 10px rgba(123,92,227,0.4);
+}
+
+/* Suggestion chips */
+.suggestion-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.suggestion-chip {
+  padding: 7px 13px; background: #EDE9FE; color: #5B21B6;
+  border-radius: 100px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+
+/* Action form card */
+.action-form-card {
+  background: #fff; border-radius: 18px; padding: 16px;
+  box-shadow: 0 3px 20px rgba(0,0,0,0.1); width: 100%;
+}
+.afc-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.afc-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.afc-title { font-size: 14px; font-weight: 700; color: #111; }
+.afc-sub { font-size: 11px; color: #888; }
+.afc-field { margin-bottom: 10px; }
+.afc-label { font-size: 11px; font-weight: 600; color: #666; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+.afc-input { width: 100%; padding: 9px 12px; background: #F3F4F6; border-radius: 10px; font-size: 13px; color: #111; border: none; font-family: inherit; }
+.afc-input.prefilled { color: #5B21B6; background: #EDE9FE; }
+.afc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.afc-balance-row { display: flex; justify-content: space-between; align-items: center; background: #F0FDF4; border-radius: 10px; padding: 9px 12px; margin-bottom: 10px; }
+.afc-balance-text { font-size: 12px; color: #059669; font-weight: 600; }
+.afc-btn { width: 100%; padding: 11px; border-radius: 12px; font-size: 14px; font-weight: 700; border: none; cursor: pointer; font-family: inherit; margin-top: 4px; }
+.afc-btn.primary { background: linear-gradient(135deg, #7B5CE3, #5B3DC3); color: #fff; }
+.afc-btn.secondary { background: #F3F4F6; color: #666; margin-top: 6px; }
+
+/* Confirmation card */
+.confirm-card {
+  background: #fff; border-radius: 18px; overflow: hidden;
+  box-shadow: 0 3px 20px rgba(0,0,0,0.1); width: 100%;
+}
+.confirm-card-top { background: linear-gradient(135deg, #10B981, #059669); padding: 16px; display: flex; align-items: center; gap: 10px; }
+.confirm-check { width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.25); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 14px; font-weight: 700; flex-shrink: 0; }
+.confirm-card-title { font-size: 15px; font-weight: 700; color: #fff; }
+.confirm-card-sub { font-size: 12px; color: rgba(255,255,255,0.8); margin-top: 1px; }
+.confirm-rows { padding: 12px 16px; }
+.confirm-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid #F3F4F6; }
+.confirm-row:last-child { border-bottom: none; }
+.confirm-row-label { font-size: 12px; color: #888; }
+.confirm-row-value { font-size: 12px; font-weight: 600; color: #111; }
+.confirm-link { font-size: 12px; font-weight: 600; color: #7B5CE3; text-decoration: none; display: block; padding: 8px 16px 12px; }
+
+/* ── ACTIONS HUB ── */
+.actions-header {
+  background: #fff; padding: 10px 20px 14px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.actions-title { font-size: 20px; font-weight: 700; color: #111; }
+.actions-sub { font-size: 13px; color: #888; margin-top: 2px; }
+
+.actions-search { margin: 12px 16px 0; }
+.actions-search-box {
+  display: flex; align-items: center; gap: 8px;
+  background: #fff; border-radius: 12px; padding: 10px 14px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+}
+.actions-search-box input { border: none; background: none; flex: 1; font-size: 14px; color: #111; font-family: inherit; outline: none; }
+.actions-search-box input::placeholder { color: #aaa; }
+
+.actions-category { margin: 16px 16px 0; }
+.actions-category-title { font-size: 12px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 10px; }
+.actions-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.action-tile {
+  background: #fff; border-radius: 16px; padding: 14px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.07); cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s; display: flex; align-items: flex-start; gap: 10px;
+}
+.action-tile:hover { transform: translateY(-2px); box-shadow: 0 4px 18px rgba(0,0,0,0.12); }
+.action-tile-icon { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.action-tile-body { flex: 1; min-width: 0; }
+.action-tile-name { font-size: 13px; font-weight: 700; color: #111; }
+.action-tile-desc { font-size: 11px; color: #888; margin-top: 2px; line-height: 1.4; }
+.action-tile-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; margin-top: 5px; display: inline-block; }
+
+/* ── NEWS TAB ── */
+.news-header {
+  background: #fff; padding: 10px 20px 14px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.news-title { font-size: 20px; font-weight: 700; color: #111; }
+.news-sub { font-size: 13px; color: #888; margin-top: 2px; }
+
+.news-navigator-summary {
+  margin: 12px 16px; background: linear-gradient(135deg, #EDE9FE, #DDD6FE);
+  border-radius: 16px; padding: 14px;
+}
+.news-nav-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.news-nav-icon { width: 28px; height: 28px; border-radius: 8px; background: #7B5CE3; display: flex; align-items: center; justify-content: center; }
+.news-nav-label { font-size: 12px; font-weight: 700; color: #5B21B6; }
+.news-nav-text { font-size: 13px; color: #3B0764; line-height: 1.6; }
+.news-ask-chip { display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; background: #7B5CE3; color: #fff; padding: 6px 12px; border-radius: 100px; font-size: 12px; font-weight: 600; cursor: pointer; }
+
+.news-list { padding: 0 16px; }
+.news-item {
+  background: #fff; border-radius: 16px; overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.07); margin-bottom: 12px; cursor: pointer;
+}
+.news-item-img { height: 130px; display: flex; align-items: center; justify-content: center; font-size: 40px; }
+.news-item-body { padding: 12px 14px; }
+.news-item-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.news-item-tag { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; }
+.news-item-date { font-size: 11px; color: #aaa; }
+.news-item-title { font-size: 15px; font-weight: 700; color: #111; line-height: 1.4; margin-bottom: 6px; }
+.news-item-preview { font-size: 12px; color: #777; line-height: 1.55; }
+.news-item-footer { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-top: 1px solid #F3F4F6; }
+.news-item-read { font-size: 11px; color: #888; }
+.news-item-ask { font-size: 11px; font-weight: 700; color: #7B5CE3; display: flex; align-items: center; gap: 4px; }
+
+/* ── ADMIN PUSH SCREEN ── */
+.admin-header {
+  background: linear-gradient(135deg, #0F172A, #1E3A5F);
+  padding: 10px 20px 20px;
+}
+.admin-header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.admin-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); }
+.admin-title { font-size: 18px; font-weight: 700; color: #fff; }
+.admin-badge { font-size: 10px; font-weight: 700; background: #F59E0B; color: #000; padding: 3px 8px; border-radius: 4px; }
+.admin-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.admin-stat { background: rgba(255,255,255,0.1); border-radius: 12px; padding: 10px; text-align: center; }
+.admin-stat-val { font-size: 20px; font-weight: 800; color: #fff; }
+.admin-stat-label { font-size: 10px; color: rgba(255,255,255,0.55); margin-top: 2px; }
+
+.admin-body { flex: 1; overflow-y: auto; padding: 14px 16px 90px; scrollbar-width: none; }
+.admin-body::-webkit-scrollbar { display: none; }
+
+.admin-section-title { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 10px; }
+.admin-push-card {
+  background: #fff; border-radius: 16px; padding: 14px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.07); margin-bottom: 12px;
+}
+.admin-push-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
+.admin-push-type { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 4px; }
+.admin-push-status { font-size: 11px; font-weight: 600; color: #888; }
+.admin-push-title { font-size: 14px; font-weight: 700; color: #111; margin-bottom: 4px; }
+.admin-push-desc { font-size: 12px; color: #666; line-height: 1.5; margin-bottom: 10px; }
+.admin-push-meta { display: flex; align-items: center; gap: 12px; }
+.admin-push-meta-item { font-size: 11px; color: #888; display: flex; align-items: center; gap: 4px; }
+.admin-push-actions { display: flex; gap: 8px; margin-top: 10px; }
+.admin-push-btn { flex: 1; padding: 9px; border-radius: 10px; font-size: 13px; font-weight: 600; text-align: center; cursor: pointer; border: none; font-family: inherit; }
+.admin-push-btn.send { background: #7B5CE3; color: #fff; }
+.admin-push-btn.preview { background: #F3F4F6; color: #444; }
+
+.compose-fab {
+  position: absolute; bottom: 90px; right: 16px;
+  display: flex; align-items: center; gap: 8px;
+  background: linear-gradient(135deg, #7B5CE3, #5B3DC3);
+  color: #fff; padding: 12px 18px 12px 14px;
+  border-radius: 100px; font-size: 13px; font-weight: 700;
+  box-shadow: 0 4px 20px rgba(123,92,227,0.5); cursor: pointer; z-index: 30;
+}
+
+/* Typing indicator */
+.typing-indicator {
+  display: flex; gap: 4px; align-items: center;
+  padding: 10px 14px; background: #fff; border-radius: 5px 20px 20px 20px;
+  width: fit-content; box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+}
+.typing-dot { width: 6px; height: 6px; background: #bbb; border-radius: 50%; animation: tb 1.2s infinite; }
+.typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes tb { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-5px); } }
+
+/* Step hint */
+.step-hint {
+  margin-top: 16px; text-align: center;
+  font-size: 11px; color: rgba(255,255,255,0.4);
+}
+.step-dots { display: flex; justify-content: center; gap: 5px; margin-top: 6px; }
+.step-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.18); transition: background 0.2s; }
+.step-dot.active { background: #7B5CE3; }
+.step-dot.done { background: rgba(123,92,227,0.45); }
+</style>
+</head>
+<body>
+
+<!-- Proto Bar -->
+<nav class="proto-bar">
+  <div class="proto-bar-left">
+    <a class="proto-back" href="../index.html">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Gallery
+    </a>
+    <div class="proto-divider"></div>
+    <span class="proto-title">Navigator — Next-Gen Employee Experience</span>
+  </div>
+  <div class="proto-tags">
+    <span class="proto-tag tag-navigator">Navigator</span>
+    <span class="proto-tag tag-wip">WIP</span>
+  </div>
+</nav>
+
+<!-- Scenario Tabs -->
+<div class="scenario-bar">
+  <span class="scenario-label">View →</span>
+  <button class="tab-btn active" onclick="showScreen('home', this)">🏠 Home</button>
+  <button class="tab-btn" onclick="showScreen('chat-history', this)">💬 Conversations</button>
+  <button class="tab-btn" onclick="showScreen('chat-policy', this)">🔍 Ask Policy</button>
+  <button class="tab-btn" onclick="showScreen('chat-leave', this); initLeave()">🌴 Request Leave</button>
+  <button class="tab-btn" onclick="showScreen('actions', this)">⚡ Actions Hub</button>
+  <button class="tab-btn" onclick="showScreen('news', this)">📰 News Digest</button>
+  <button class="tab-btn" onclick="showScreen('admin', this)">🔐 Admin Push</button>
+</div>
+
+<!-- Phone -->
+<div class="phone-wrap">
+  <div class="phone-frame">
+    <div class="phone-inner" id="phoneInner">
+      <div class="dynamic-island"></div>
+
+      <!-- ──────────────────────────────────────────
+           SCREEN: HOME
+      ────────────────────────────────────────── -->
+      <div class="screen active" id="screen-home">
+        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"><svg width="16" height="12" fill="#111" viewBox="0 0 16 12"><rect x="0" y="3" width="3" height="9" rx="1"/><rect x="4.5" y="2" width="3" height="10" rx="1"/><rect x="9" y="0" width="3" height="12" rx="1"/><rect x="13.5" y="0" width="2.5" height="12" rx="1"/></svg><svg width="16" height="12" fill="#111" viewBox="0 0 20 14"><path d="M10 3.5C7.2 3.5 4.7 4.8 3 6.8L1 4.8C3.2 2.2 6.4.5 10 .5s6.8 1.7 9 4.3l-2 2c-1.7-2-4.2-3.3-7-3.3zm0 4c-1.7 0-3.2.7-4.3 1.8L4 7.7C5.5 6.1 7.6 5 10 5s4.5 1.1 6 2.7l-1.7 1.7C13.2 8.2 11.7 7.5 10 7.5zm0 4c-.8 0-1.5.3-2 .8L10 14l2-1.7c-.5-.5-1.2-.8-2-.8z"/></svg></div></div>
+        <div class="scroll-body">
+          <!-- Header gradient -->
+          <div class="home-header">
+            <div class="home-greeting-row">
+              <div>
+                <div class="home-greeting">Good morning,<br>Zyad 👋</div>
+                <div class="home-sub">You have 3 things waiting</div>
+              </div>
+              <div class="home-avatar">Z</div>
+            </div>
+            <div class="home-search">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="rgba(255,255,255,0.7)" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="rgba(255,255,255,0.7)" stroke-width="2" stroke-linecap="round"/></svg>
+              <span class="home-search-text">Ask anything or start a task…</span>
+              <svg class="home-search-mic" width="16" height="16" fill="none" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3" stroke="rgba(255,255,255,0.8)" stroke-width="2"/><path d="M5 10a7 7 0 0014 0M12 19v3M9 22h6" stroke="rgba(255,255,255,0.8)" stroke-width="2" stroke-linecap="round"/></svg>
+            </div>
+          </div>
+
+          <!-- Pending tasks from admin -->
+          <div class="home-section" style="margin-top:16px;">
+            <div class="home-section-title">📌 Pending from HR</div>
+            <div class="task-push-card">
+              <div class="task-push-header">
+                <div class="task-push-badge">Action Required</div>
+                <span style="font-size:11px; color:#aaa; margin-left:auto;">Due Apr 10</span>
+              </div>
+              <div class="task-push-title">Complete your Q1 Performance Self-Assessment</div>
+              <div class="task-push-sub">Sent to all employees in Product · Est. 10 min</div>
+              <div class="task-push-actions">
+                <button class="task-push-btn primary" onclick="showScreen('chat-leave', document.querySelectorAll('.tab-btn')[3]); initLeave()">Start with Navigator →</button>
+                <button class="task-push-btn secondary">Dismiss</button>
+              </div>
+            </div>
+            <div class="task-push-card" style="border-left-color: #F59E0B;">
+              <div class="task-push-header">
+                <div class="task-push-badge" style="color:#D97706; background:#FEF3C7;">Reminder</div>
+                <span style="font-size:11px; color:#aaa; margin-left:auto;">Due Apr 15</span>
+              </div>
+              <div class="task-push-title">Update your emergency contact information</div>
+              <div class="task-push-sub">Workday · 2 min to complete</div>
+              <div class="task-push-actions">
+                <button class="task-push-btn primary" style="background:#F59E0B;">Update Now →</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Actions -->
+          <div class="home-section" style="margin-top:16px;">
+            <div class="home-section-title">⚡ Quick Actions</div>
+            <div class="quick-actions-grid">
+              <div class="quick-action-item">
+                <div class="quick-action-icon" style="background:#DCFCE7;">🌴</div>
+                <div class="quick-action-label">Request Leave</div>
+              </div>
+              <div class="quick-action-item">
+                <div class="quick-action-icon" style="background:#DBEAFE;">🖥️</div>
+                <div class="quick-action-label">IT Support</div>
+              </div>
+              <div class="quick-action-item">
+                <div class="quick-action-icon" style="background:#FEF3C7;">📊</div>
+                <div class="quick-action-label">Expenses</div>
+              </div>
+              <div class="quick-action-item">
+                <div class="quick-action-icon" style="background:#FCE7F3;">📋</div>
+                <div class="quick-action-label">HR Policies</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- News Preview -->
+          <div class="home-section" style="margin-top:16px; padding-bottom:20px;">
+            <div class="home-section-title">📰 Company Updates</div>
+            <div class="news-card">
+              <div class="news-card-img">🏢</div>
+              <div class="news-card-body">
+                <div class="news-card-meta">HR · Today</div>
+                <div class="news-card-title">New Remote Work Policy — Effective May 1</div>
+                <div class="news-card-summary">Navigator Summary: The 2-day office minimum is changing to a flexible model. IT equipment stipend increases to €400/year.</div>
+                <span class="news-card-cta">Ask Navigator about this →</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Nav -->
+        <div class="bottom-nav">
+          <div class="nav-item active">
+            <div class="nav-icon">
+              <svg width="22" height="22" fill="#7B5CE3" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22" fill="none" stroke="#7B5CE3" stroke-width="2"/></svg>
+            </div>
+            <span class="nav-label" style="color:#7B5CE3;">Home</span>
+          </div>
+          <div class="nav-item">
+            <div class="nav-icon">
+              <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <span class="nav-label">Chat</span>
+          </div>
+          <div class="nav-item">
+            <div class="nav-icon">
+              <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#999" stroke-width="2"/><path d="M12 8v4l3 3" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg>
+              <div class="nav-badge">2</div>
+            </div>
+            <span class="nav-label">Tasks</span>
+          </div>
+          <div class="nav-item">
+            <div class="nav-icon">
+              <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <span class="nav-label">News</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────────────────────────────────────
+           SCREEN: CHAT HISTORY
+      ────────────────────────────────────────── -->
+      <div class="screen" id="screen-chat-history">
+        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"><svg width="16" height="12" fill="#111" viewBox="0 0 16 12"><rect x="0" y="3" width="3" height="9" rx="1"/><rect x="4.5" y="2" width="3" height="10" rx="1"/><rect x="9" y="0" width="3" height="12" rx="1"/></svg></div></div>
+        <div class="chat-list-header">
+          <div class="chat-list-title">Conversations</div>
+          <div class="chat-list-sub">All your Navigator chats in one place</div>
+        </div>
+        <div class="chat-list-body">
+          <!-- Thread items -->
+          <div class="chat-thread-item">
+            <div class="thread-avatar" style="background:#DCFCE7;">🌴</div>
+            <div class="thread-body">
+              <div class="thread-header">
+                <span class="thread-agent">HR Agent · Leave</span>
+                <span class="thread-time">Today</span>
+              </div>
+              <div class="thread-preview">Your leave request for Apr 14–18 was approved ✓</div>
+              <div class="thread-tags">
+                <span class="thread-tag" style="background:#DCFCE7; color:#059669;">✓ Action completed</span>
+              </div>
+            </div>
+          </div>
+          <div class="chat-thread-item">
+            <div class="thread-avatar" style="background:#DBEAFE;">🖥️</div>
+            <div class="thread-body">
+              <div class="thread-header">
+                <span class="thread-agent">IT Agent · Ticket</span>
+                <span class="thread-time">Yesterday</span>
+              </div>
+              <div class="thread-preview">Your MacBook issue has been escalated to Level 2</div>
+              <div class="thread-tags">
+                <span class="thread-tag" style="background:#FEF3C7; color:#D97706;">⏳ In progress</span>
+              </div>
+            </div>
+          </div>
+          <div class="chat-thread-item">
+            <div class="thread-avatar" style="background:#EDE9FE;">🧠</div>
+            <div class="thread-body">
+              <div class="thread-header">
+                <span class="thread-agent">Navigator · Policy</span>
+                <span class="thread-time">Mon</span>
+              </div>
+              <div class="thread-preview">The new remote work policy applies to all full-time…</div>
+              <div class="thread-tags">
+                <span class="thread-tag" style="background:#F3F4F6; color:#666;">📖 Knowledge</span>
+              </div>
+            </div>
+          </div>
+          <div class="chat-thread-item">
+            <div class="thread-avatar" style="background:#FCE7F3;">💳</div>
+            <div class="thread-body">
+              <div class="thread-header">
+                <span class="thread-agent">Finance Agent · Expense</span>
+                <span class="thread-time">Mar 28</span>
+              </div>
+              <div class="thread-preview">Submitted €234 conference expense to Concur</div>
+              <div class="thread-tags">
+                <span class="thread-tag" style="background:#DCFCE7; color:#059669;">✓ Submitted</span>
+              </div>
+            </div>
+          </div>
+          <div class="chat-thread-item" style="opacity:0.6;">
+            <div class="thread-avatar" style="background:#F3F4F6;">❓</div>
+            <div class="thread-body">
+              <div class="thread-header">
+                <span class="thread-agent">Navigator · Onboarding</span>
+                <span class="thread-time">Mar 12</span>
+              </div>
+              <div class="thread-preview">Here's how to set up your benefits in Workday…</div>
+            </div>
+          </div>
+        </div>
+        <!-- FAB -->
+        <div class="new-chat-fab" onclick="showScreen('chat-policy', document.querySelectorAll('.tab-btn')[2])">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>
+        </div>
+        <div class="bottom-nav">
+          <div class="nav-item">
+            <div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg></div>
+            <span class="nav-label">Home</span>
+          </div>
+          <div class="nav-item active">
+            <div class="nav-icon"><svg width="22" height="22" fill="#7B5CE3" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#7B5CE3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <span class="nav-label" style="color:#7B5CE3;">Chat</span>
+          </div>
+          <div class="nav-item">
+            <div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#999" stroke-width="2"/><path d="M12 8v4l3 3" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg><div class="nav-badge">2</div></div>
+            <span class="nav-label">Tasks</span>
+          </div>
+          <div class="nav-item">
+            <div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg></div>
+            <span class="nav-label">News</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────────────────────────────────────
+           SCREEN: CHAT — POLICY QUESTION
+      ────────────────────────────────────────── -->
+      <div class="screen" id="screen-chat-policy">
+        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"><svg width="16" height="12" fill="#111" viewBox="0 0 16 12"><rect x="0" y="3" width="3" height="9" rx="1"/><rect x="4.5" y="2" width="3" height="10" rx="1"/></svg></div></div>
+        <div class="chat-screen-header">
+          <span class="chat-back">‹ Back</span>
+          <div class="chat-agent-info">
+            <div class="chat-agent-name">Navigator</div>
+            <div class="chat-agent-status"><div class="chat-agent-dot"></div>Ready to help</div>
+          </div>
+          <span class="chat-more">···</span>
+        </div>
+        <div class="chat-messages">
+          <div class="msg-ai-wrap">
+            <div class="msg-ai-bubble-row">
+              <div class="msg-ai-avatar"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2h-4M9 3v4h6V3M9 3h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div>
+              <div class="msg-ai-bubble">Hi Zyad! What can I help you with today? I can answer questions, look things up, or take action on your behalf.</div>
+            </div>
+          </div>
+          <div class="suggestion-row">
+            <div class="suggestion-chip">📋 What's the remote work policy?</div>
+            <div class="suggestion-chip">🌴 How many leave days do I have?</div>
+            <div class="suggestion-chip">💻 Report an IT issue</div>
+          </div>
+          <div class="msg-user">What's changing in the new remote work policy?</div>
+          <div class="msg-ai-wrap">
+            <div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
+          </div>
+          <div class="msg-ai-wrap">
+            <div class="msg-ai-bubble-row">
+              <div class="msg-ai-avatar"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2h-4M9 3v4h6V3M9 3h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div>
+              <div class="msg-ai-bubble">The new policy (effective <strong>May 1, 2026</strong>) changes three things:<br><br>
+                <strong>1. Office days:</strong> The previous 2-day minimum becomes fully flexible — you choose when to come in.<br><br>
+                <strong>2. Equipment stipend:</strong> Increases from €200 → <strong>€400/year</strong> for home office setup.<br><br>
+                <strong>3. Core hours:</strong> New overlap window is <strong>10am–3pm CET</strong> regardless of location.
+              </div>
+            </div>
+            <div class="source-row">
+              <div class="source-chip"><div class="source-dot" style="background:#4285F4;"></div>Remote Work Policy 2026</div>
+              <div class="source-chip"><div class="source-dot" style="background:#EA4335;"></div>HR Announcement</div>
+            </div>
+          </div>
+          <div class="suggestion-row">
+            <div class="suggestion-chip">How do I claim the stipend?</div>
+            <div class="suggestion-chip">Who approved this?</div>
+          </div>
+        </div>
+        <div class="chat-input-bar">
+          <div class="chat-input-field">Ask a follow-up…</div>
+          <div class="chat-send-btn"><svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        </div>
+      </div>
+
+      <!-- ──────────────────────────────────────────
+           SCREEN: CHAT — LEAVE REQUEST FLOW
+      ────────────────────────────────────────── -->
+      <div class="screen" id="screen-chat-leave">
+        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"></div></div>
+        <div class="chat-screen-header">
+          <span class="chat-back">‹ Back</span>
+          <div class="chat-agent-info">
+            <div class="chat-agent-name">HR Agent</div>
+            <div class="chat-agent-status"><div class="chat-agent-dot"></div>Connected to BambooHR</div>
+          </div>
+          <span class="chat-more">···</span>
+        </div>
+        <div class="chat-messages" id="leave-chat"></div>
+        <div class="chat-input-bar">
+          <div class="chat-input-field" id="leave-input-hint">Tap phone to continue →</div>
+          <div class="chat-send-btn"><svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        </div>
+      </div>
+
+      <!-- ──────────────────────────────────────────
+           SCREEN: ACTIONS HUB
+      ────────────────────────────────────────── -->
+      <div class="screen" id="screen-actions">
+        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"></div></div>
+        <div class="actions-header">
+          <div class="actions-title">Actions Hub</div>
+          <div class="actions-sub">Things Navigator can do for you</div>
+        </div>
+        <div class="actions-search">
+          <div class="actions-search-box">
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="#aaa" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="#aaa" stroke-width="2" stroke-linecap="round"/></svg>
+            <input placeholder="Search actions…" />
+          </div>
+        </div>
+        <div class="scroll-body" style="padding-bottom: 80px;">
+          <div class="actions-category">
+            <div class="actions-category-title">🏢 HR</div>
+            <div class="actions-grid">
+              <div class="action-tile">
+                <div class="action-tile-icon" style="background:#DCFCE7;">🌴</div>
+                <div class="action-tile-body">
+                  <div class="action-tile-name">Request Leave</div>
+                  <div class="action-tile-desc">Submit vacation, sick, or personal days</div>
+                  <div class="action-tile-badge" style="background:#DCFCE7; color:#059669;">BambooHR</div>
+                </div>
+              </div>
+              <div class="action-tile">
+                <div class="action-tile-icon" style="background:#FEF3C7;">📊</div>
+                <div class="action-tile-body">
+                  <div class="action-tile-name">View Leave Balance</div>
+                  <div class="action-tile-desc">Check remaining days by type</div>
+                  <div class="action-tile-badge" style="background:#FEF3C7; color:#D97706;">BambooHR</div>
+                </div>
+              </div>
+              <div class="action-tile">
+                <div class="action-tile-icon" style="background:#FCE7F3;">📋</div>
+                <div class="action-tile-body">
+                  <div class="action-tile-name">Performance Review</div>
+                  <div class="action-tile-desc">Self-assessment & feedback</div>
+                  <div class="action-tile-badge" style="background:#FCE7F3; color:#BE185D;">Workday</div>
+                </div>
+              </div>
+              <div class="action-tile">
+                <div class="action-tile-icon" style="background:#EDE9FE;">👤</div>
+                <div class="action-tile-body">
+                  <div class="action-tile-name">Update Profile</div>
+                  <div class="action-tile-desc">Emergency contacts, address</div>
+                  <div class="action-tile-badge" style="background:#EDE9FE; color:#5B21B6;">Workday</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="actions-category">
+            <div class="actions-category-title">🖥️ IT</div>
+            <div class="actions-grid">
+              <div class="action-tile">
+                <div class="action-tile-icon" style="background:#DBEAFE;">🎫</div>
+                <div class="action-tile-body">
+                  <div class="action-tile-name">Create IT Ticket</div>
+                  <div class="action-tile-desc">Hardware, software, access</div>
+                  <div class="action-tile-badge" style="background:#DBEAFE; color:#1D4ED8;">ServiceNow</div>
+                </div>
+              </div>
+              <div class="action-tile">
+                <div class="action-tile-icon" style="background:#F0FDF4;">🔑</div>
+                <div class="action-tile-body">
+                  <div class="action-tile-name">Request Access</div>
+                  <div class="action-tile-desc">Software licenses & systems</div>
+                  <div class="action-tile-badge" style="background:#F0FDF4; color:#166534;">ServiceNow</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="actions-category">
+            <div class="actions-category-title">💳 Finance</div>
+            <div class="actions-grid">
+              <div class="action-tile">
+                <div class="action-tile-icon" style="background:#FEF9C3;">🧾</div>
+                <div class="action-tile-body">
+                  <div class="action-tile-name">Submit Expense</div>
+                  <div class="action-tile-desc">Receipts, travel, meals</div>
+                  <div class="action-tile-badge" style="background:#FEF9C3; color:#A16207;">Concur</div>
+                </div>
+              </div>
+              <div class="action-tile">
+                <div class="action-tile-icon" style="background:#FEF3C7;">📈</div>
+                <div class="action-tile-body">
+                  <div class="action-tile-name">Pay Slips</div>
+                  <div class="action-tile-desc">View & download payslips</div>
+                  <div class="action-tile-badge" style="background:#FEF3C7; color:#D97706;">Workday</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="bottom-nav">
+          <div class="nav-item"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="#999" stroke-width="2"/></svg></div><span class="nav-label">Home</span></div>
+          <div class="nav-item"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="nav-label">Chat</span></div>
+          <div class="nav-item active"><div class="nav-icon"><svg width="22" height="22" fill="#7B5CE3" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#7B5CE3" stroke-width="2"/><path d="M12 8v4l3 3" stroke="#7B5CE3" stroke-width="2" stroke-linecap="round"/></svg><div class="nav-badge">2</div></div><span class="nav-label" style="color:#7B5CE3;">Tasks</span></div>
+          <div class="nav-item"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg></div><span class="nav-label">News</span></div>
+        </div>
+      </div>
+
+      <!-- ──────────────────────────────────────────
+           SCREEN: NEWS DIGEST
+      ────────────────────────────────────────── -->
+      <div class="screen" id="screen-news">
+        <div class="status-bar"><span class="status-time">9:41</span><div class="status-icons"></div></div>
+        <div class="news-header">
+          <div class="news-title">Company News</div>
+          <div class="news-sub">Personalized by Navigator for your role</div>
+        </div>
+        <div style="flex:1; overflow-y:auto; scrollbar-width:none; padding-bottom:90px;">
+          <!-- Navigator Summary Card -->
+          <div class="news-navigator-summary">
+            <div class="news-nav-header">
+              <div class="news-nav-icon"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#fff" stroke-width="2"/><path d="M12 8v4l3 3" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div>
+              <div class="news-nav-label">Navigator's Daily Briefing</div>
+            </div>
+            <div class="news-nav-text">Today: <strong>3 updates relevant to Product</strong> — a new remote work policy takes effect May 1, Q1 review season opens this week, and Berlin office maintenance on Apr 12.</div>
+            <div class="news-ask-chip">
+              <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#fff" stroke-width="2"/></svg>
+              Ask Navigator about any of these
+            </div>
+          </div>
+
+          <div class="news-list">
+            <div class="news-item">
+              <div class="news-item-img" style="background: linear-gradient(135deg,#667eea,#764ba2);">🏡</div>
+              <div class="news-item-body">
+                <div class="news-item-meta">
+                  <div class="news-item-tag" style="background:#DCFCE7; color:#166534;">HR Policy</div>
+                  <div class="news-item-date">Apr 7 · 2 min read</div>
+                </div>
+                <div class="news-item-title">New Flexible Remote Work Policy — Effective May 1</div>
+                <div class="news-item-preview">The mandatory 2-day office minimum is replaced with a trust-based flexible model. Equipment stipend doubles to €400/year...</div>
+              </div>
+              <div class="news-item-footer">
+                <div class="news-item-read">4.2k views</div>
+                <div class="news-item-ask">💬 Ask Navigator →</div>
+              </div>
+            </div>
+            <div class="news-item">
+              <div class="news-item-img" style="background: linear-gradient(135deg,#f093fb,#f5576c);">📊</div>
+              <div class="news-item-body">
+                <div class="news-item-meta">
+                  <div class="news-item-tag" style="background:#FEF3C7; color:#D97706;">Performance</div>
+                  <div class="news-item-date">Apr 6 · 3 min read</div>
+                </div>
+                <div class="news-item-title">Q1 Performance Reviews Are Open — Complete by Apr 30</div>
+                <div class="news-item-preview">Self-assessments are now open in Workday. Navigator can help you draft your self-assessment based on your recent activity...</div>
+              </div>
+              <div class="news-item-footer">
+                <div class="news-item-read">1.8k views</div>
+                <div class="news-item-ask">⚡ Start Review →</div>
+              </div>
+            </div>
+            <div class="news-item">
+              <div class="news-item-img" style="background: linear-gradient(135deg,#4facfe,#00f2fe);">🏢</div>
+              <div class="news-item-body">
+                <div class="news-item-meta">
+                  <div class="news-item-tag" style="background:#DBEAFE; color:#1D4ED8;">Facilities</div>
+                  <div class="news-item-date">Apr 5 · 1 min read</div>
+                </div>
+                <div class="news-item-title">Berlin Office — Maintenance Downtime Apr 12 (8am–12pm)</div>
+                <div class="news-item-preview">Elevator and HVAC systems will be serviced. Plan for remote work or arrive after 12pm on Saturday April 12...</div>
+              </div>
+              <div class="news-item-footer">
+                <div class="news-item-read">891 views</div>
+                <div class="news-item-ask">💬 Ask Navigator →</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="bottom-nav">
+          <div class="nav-item"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="#999" stroke-width="2"/></svg></div><span class="nav-label">Home</span></div>
+          <div class="nav-item"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="nav-label">Chat</span></div>
+          <div class="nav-item"><div class="nav-icon"><svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#999" stroke-width="2"/><path d="M12 8v4l3 3" stroke="#999" stroke-width="2" stroke-linecap="round"/></svg><div class="nav-badge">2</div></div><span class="nav-label">Tasks</span></div>
+          <div class="nav-item active"><div class="nav-icon"><svg width="22" height="22" fill="#7B5CE3" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" stroke="#7B5CE3" stroke-width="2" stroke-linecap="round"/></svg></div><span class="nav-label" style="color:#7B5CE3;">News</span></div>
+        </div>
+      </div>
+
+      <!-- ──────────────────────────────────────────
+           SCREEN: ADMIN PUSH
+      ────────────────────────────────────────── -->
+      <div class="screen" id="screen-admin">
+        <div class="status-bar" style="background:linear-gradient(135deg, #0F172A, #1E3A5F);"><span class="status-time" style="color:#fff;">9:41</span><div class="status-icons"></div></div>
+        <div class="admin-header">
+          <div class="admin-header-top">
+            <div>
+              <div class="admin-label">Navigator Studio</div>
+              <div class="admin-title">Push Center</div>
+            </div>
+            <div class="admin-badge">Admin</div>
+          </div>
+          <div class="admin-stats">
+            <div class="admin-stat"><div class="admin-stat-val">1,247</div><div class="admin-stat-label">Employees reached</div></div>
+            <div class="admin-stat"><div class="admin-stat-val">73%</div><div class="admin-stat-label">Completion rate</div></div>
+            <div class="admin-stat"><div class="admin-stat-val">3</div><div class="admin-stat-label">Active pushes</div></div>
+          </div>
+        </div>
+        <div class="admin-body">
+          <div class="admin-section-title" style="margin-bottom:12px;">Active Pushes</div>
+
+          <div class="admin-push-card">
+            <div class="admin-push-top">
+              <div class="admin-push-type" style="background:#EDE9FE; color:#5B21B6;">Task</div>
+              <div class="admin-push-status">🟢 Live · 847 sent</div>
+            </div>
+            <div class="admin-push-title">Q1 Performance Self-Assessment</div>
+            <div class="admin-push-desc">Employees complete their Q1 self-review via Navigator chat flow. Pre-filled with manager notes from Workday.</div>
+            <div class="admin-push-meta">
+              <div class="admin-push-meta-item">👥 Product, Engineering, Design</div>
+              <div class="admin-push-meta-item">📅 Due Apr 30</div>
+            </div>
+            <div style="margin-top:10px; background:#F0FDF4; border-radius:10px; padding:9px 12px; display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:12px; color:#059669; font-weight:600;">📈 617 / 847 completed (73%)</span>
+              <span style="font-size:11px; color:#888;">230 pending</span>
+            </div>
+            <div class="admin-push-actions">
+              <button class="admin-push-btn send" style="background:#EDE9FE; color:#5B21B6;">Send Reminder</button>
+              <button class="admin-push-btn preview">View Responses</button>
+            </div>
+          </div>
+
+          <div class="admin-push-card">
+            <div class="admin-push-top">
+              <div class="admin-push-type" style="background:#FEF3C7; color:#D97706;">Announcement</div>
+              <div class="admin-push-status">🟢 Live · 1,247 sent</div>
+            </div>
+            <div class="admin-push-title">New Remote Work Policy</div>
+            <div class="admin-push-desc">Policy update pushed with Navigator summary. Employees can ask questions directly in the chat interface.</div>
+            <div class="admin-push-meta">
+              <div class="admin-push-meta-item">👥 All Employees</div>
+              <div class="admin-push-meta-item">📅 Sent Apr 7</div>
+            </div>
+            <div class="admin-push-actions">
+              <button class="admin-push-btn send" style="background:#FEF3C7; color:#D97706;">View Q&A Insights</button>
+              <button class="admin-push-btn preview">Analytics</button>
+            </div>
+          </div>
+
+          <div class="admin-section-title" style="margin-top:8px; margin-bottom:12px;">Draft a New Push</div>
+          <div class="admin-push-card" style="border: 2px dashed rgba(123,92,227,0.3); box-shadow:none; background:rgba(123,92,227,0.03);">
+            <div style="text-align:center; padding:10px;">
+              <div style="font-size:28px; margin-bottom:8px;">✨</div>
+              <div style="font-size:14px; font-weight:700; color:#111; margin-bottom:4px;">Create with Navigator</div>
+              <div style="font-size:12px; color:#888; line-height:1.5; margin-bottom:12px;">Describe what you want to push and Navigator will draft the message, select the right audience, and set up the delivery.</div>
+              <button class="admin-push-btn send">Start in Navigator Studio →</button>
+            </div>
+          </div>
+        </div>
+        <div class="compose-fab">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>
+          New Push
+        </div>
+      </div>
+
+    </div><!-- /phone-inner -->
+  </div><!-- /phone-frame -->
+</div><!-- /phone-wrap -->
+
+<!-- Step hint for leave flow -->
+<div class="step-hint" id="stepHint" style="display:none;">
+  <div id="stepHintText">Tap the phone to advance the flow</div>
+  <div class="step-dots" id="stepDots"></div>
+</div>
+
+<script>
+// ── Screen switching ──────────────────────────────────
+function showScreen(name, btn) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  if (name === 'chat-leave') {
+    document.getElementById('stepHint').style.display = 'block';
+  } else {
+    document.getElementById('stepHint').style.display = 'none';
+  }
+}
+
+// ── Leave flow ───────────────────────────────────────
+const leaveSteps = [
+  `<div class="msg-ai-wrap"><div class="msg-ai-bubble-row"><div class="msg-ai-avatar"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2h-4M9 3v4h6V3M9 3h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div><div class="msg-ai-bubble">Hi! I'm your HR Agent. I can help you request leave, check your balance, or answer HR questions. What do you need?</div></div></div>
+   <div class="suggestion-row"><div class="suggestion-chip">🌴 Request vacation days</div><div class="suggestion-chip">📊 Check my leave balance</div></div>`,
+
+  `<div class="msg-user">I want to take 5 days off starting April 14</div>`,
+
+  `<div class="msg-ai-wrap"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>`,
+
+  `<div class="msg-ai-wrap"><div class="msg-ai-bubble-row"><div class="msg-ai-avatar"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2h-4M9 3v4h6V3M9 3h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div><div class="msg-ai-bubble">Got it — Apr 14–18 (5 working days). I checked BambooHR: you have <strong>18 days remaining</strong>. I've pre-filled the form below.</div></div>
+  <div class="action-form-card">
+    <div class="afc-header">
+      <div class="afc-icon" style="background:#DCFCE7;">🌴</div>
+      <div><div class="afc-title">Leave Request</div><div class="afc-sub">BambooHR · Annual Leave</div></div>
+    </div>
+    <div class="afc-field"><div class="afc-label">Leave Type</div><select class="afc-input"><option>Annual Leave</option><option>Sick Leave</option><option>Personal Day</option></select></div>
+    <div class="afc-row">
+      <div class="afc-field"><div class="afc-label">Start</div><input class="afc-input prefilled" value="Apr 14, 2026" readonly /></div>
+      <div class="afc-field"><div class="afc-label">End</div><input class="afc-input prefilled" value="Apr 18, 2026" readonly /></div>
+    </div>
+    <div class="afc-balance-row"><span class="afc-balance-text">✓ 5 days · 13 remaining after</span></div>
+    <div class="afc-field"><div class="afc-label">Note (optional)</div><input class="afc-input" placeholder="Add a note for your manager…" /></div>
+    <button class="afc-btn primary" onclick="advanceLeave(event)">Submit Request →</button>
+    <button class="afc-btn secondary">Cancel</button>
+  </div></div>`,
+
+  `<div class="msg-ai-wrap"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>`,
+
+  `<div class="msg-ai-wrap">
+  <div class="msg-ai-bubble-row"><div class="msg-ai-avatar"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2h-4M9 3v4h6V3M9 3h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div><div class="msg-ai-bubble">Leave request submitted! 🎉 Your manager Sarah Mueller has been notified and will approve it within 24 hours.</div></div>
+  <div class="confirm-card">
+    <div class="confirm-card-top">
+      <div class="confirm-check">✓</div>
+      <div><div class="confirm-card-title">Leave Request Submitted</div><div class="confirm-card-sub">April 14–18, 2026 · 5 working days</div></div>
+    </div>
+    <div class="confirm-rows">
+      <div class="confirm-row"><span class="confirm-row-label">Type</span><span class="confirm-row-value">Annual Leave</span></div>
+      <div class="confirm-row"><span class="confirm-row-label">Status</span><span class="confirm-row-value" style="color:#D97706;">⏳ Pending Approval</span></div>
+      <div class="confirm-row"><span class="confirm-row-label">Approver</span><span class="confirm-row-value">Sarah Mueller</span></div>
+      <div class="confirm-row"><span class="confirm-row-label">Balance after</span><span class="confirm-row-value">13 days remaining</span></div>
+    </div>
+    <a class="confirm-link" href="#">Open in BambooHR ↗</a>
+  </div>
+  <div class="msg-ai-bubble-row" style="margin-top:4px;"><div class="msg-ai-avatar"><svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2h-4M9 3v4h6V3M9 3h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></div><div class="msg-ai-bubble" style="font-size:13px; color:#888;">I'll notify you when Sarah approves. Anything else I can help with?</div></div>
+  </div>`
+];
+
+let leaveStep = 0;
+
+function initLeave() {
+  leaveStep = 0;
+  const c = document.getElementById('leave-chat');
+  c.innerHTML = '';
+  appendLeaveStep(0);
+  updateLeaveHint();
+}
+
+function appendLeaveStep(idx) {
+  const c = document.getElementById('leave-chat');
+  // Remove typing indicator if present
+  const typing = c.querySelector('.typing-indicator');
+  if (typing) typing.closest('.msg-ai-wrap').remove();
+  c.insertAdjacentHTML('beforeend', leaveSteps[idx]);
+  c.scrollTop = c.scrollHeight;
+}
+
+function advanceLeave(e) {
+  if (e) { e.stopPropagation(); }
+  if (leaveStep < leaveSteps.length - 1) {
+    leaveStep++;
+    appendLeaveStep(leaveStep);
+    updateLeaveHint();
+  }
+}
+
+function updateLeaveHint() {
+  const total = leaveSteps.length;
+  const txt = document.getElementById('stepHintText');
+  const dots = document.getElementById('stepDots');
+  if (leaveStep >= total - 1) {
+    txt.textContent = 'Flow complete ✓';
+  } else {
+    txt.textContent = 'Tap phone to continue the flow';
+  }
+  dots.innerHTML = '';
+  for (let i = 0; i < total; i++) {
+    const d = document.createElement('div');
+    d.className = 'step-dot' + (i === leaveStep ? ' active' : i < leaveStep ? ' done' : '');
+    dots.appendChild(d);
+  }
+}
+
+// Tap phone to advance leave flow
+document.getElementById('phoneInner').addEventListener('click', function(e) {
+  const active = document.querySelector('.screen.active');
+  if (!active || active.id !== 'screen-chat-leave') return;
+  if (e.target.closest('button') || e.target.closest('a') || e.target.closest('select') || e.target.closest('input')) return;
+  advanceLeave(null);
+});
+
+// Init leave on load so it's ready
+initLeave();
+</script>
+</body>
+</html>
