@@ -9,6 +9,20 @@ import './styles.css'
 let msgIdCounter = 0
 function nextId() { return ++msgIdCounter }
 
+function getInitials(name) {
+  if (!name || name === 'You') return 'Me'
+  const parts = name.trim().split(/\s+/)
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  return name.slice(0, 2).toUpperCase()
+}
+
+function getAvatarColor(str) {
+  const colors = ['#7B5CE3','#EC4899','#0EA5E9','#10B981','#F59E0B','#EF4444','#8B5CF6']
+  let h = 0
+  for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h)
+  return colors[Math.abs(h) % colors.length]
+}
+
 function FloatingBar({ agentAvatar, agentName, onOpen, unreadCount }) {
   return (
     <div className="cw-floating-bar">
@@ -58,10 +72,65 @@ function WelcomeState({ agentAvatar, agentName, agentSubtitle, suggestions, onSu
   )
 }
 
+function HeaderMenu({ onNewChat, onEmailTranscript, onRateChat, onEndChat }) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleOut(e) {
+      if (!menuRef.current?.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleOut)
+    return () => document.removeEventListener('mousedown', handleOut)
+  }, [open])
+
+  const items = [
+    { icon: '🔄', label: 'New conversation', action: onNewChat },
+    { icon: '✉️', label: 'Email transcript', action: onEmailTranscript },
+    { icon: '⭐', label: 'Rate this chat', action: onRateChat },
+    null, // divider
+    { icon: '✕', label: 'End conversation', action: onEndChat, danger: true },
+  ]
+
+  return (
+    <div ref={menuRef} style={{ position: 'relative' }}>
+      <button
+        className={`cw-header-menu ${open ? 'cw-header-menu-active' : ''}`}
+        onClick={() => setOpen(o => !o)}
+        aria-label="More options"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
+        </svg>
+      </button>
+      {open && (
+        <div className="cw-dropdown">
+          {items.map((item, i) =>
+            item === null ? (
+              <div key={i} className="cw-dropdown-divider" />
+            ) : (
+              <button
+                key={i}
+                className={`cw-dropdown-item ${item.danger ? 'cw-dropdown-item-danger' : ''}`}
+                onClick={() => { item.action?.(); setOpen(false) }}
+              >
+                <span className="cw-dropdown-icon">{item.icon}</span>
+                {item.label}
+              </button>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ChatWidget({
   agentName = 'Navigator',
   agentSubtitle = 'Your AI work assistant · Always available',
   agentAvatar = '🔮',
+  userName = 'You',
   theme = {},
   initialMessages = [],
   scenarios = defaultScenarios,
@@ -79,6 +148,8 @@ export function ChatWidget({
   _onSendRef,
 }) {
   const primary = theme.primary || '#7B5CE3'
+  const userInitials = getInitials(userName)
+  const userAvatarColor = getAvatarColor(userName)
   const [isOpen, setIsOpen] = useState(controlledIsOpen ?? defaultOpen)
   const [messages, setMessages] = useState(() =>
     initialMessages.map(m => ({ ...m, id: nextId() }))
@@ -188,6 +259,44 @@ export function ChatWidget({
     }
   }
 
+  function clearMessages() {
+    clearScenarioTimers()
+    setMessages([])
+    setActiveSuggestions([])
+    setIsTyping(false)
+    setPendingScenario(null)
+    // brief toast welcome back
+    setTimeout(() => {
+      addMessage({
+        role: 'ai',
+        type: 'text',
+        text: 'Starting a new conversation. How can I help you?',
+      })
+      setActiveSuggestions(suggestions)
+    }, 300)
+  }
+
+  function emailTranscript() {
+    addMessage({
+      role: 'ai',
+      type: 'text',
+      text: '✓ Transcript sent to your work email. You\'ll receive it within a few minutes.',
+    })
+  }
+
+  function rateChat() {
+    addMessage({
+      role: 'ai',
+      type: 'confirm',
+      content: {
+        icon: '⭐',
+        title: 'Thanks for the feedback!',
+        subtitle: 'Your rating helps us improve Navigator.',
+        chips: ['Helpful', 'Quick response', 'Accurate'],
+      },
+    })
+  }
+
   function handleSend(text) {
     if (!text.trim()) return
 
@@ -260,11 +369,12 @@ export function ChatWidget({
               </span>
             </div>
           </div>
-          <button className="cw-header-menu" aria-label="More options">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
-            </svg>
-          </button>
+          <HeaderMenu
+            onNewChat={clearMessages}
+            onEmailTranscript={emailTranscript}
+            onRateChat={rateChat}
+            onEndChat={close}
+          />
         </div>
 
         {/* Messages or welcome */}
@@ -284,6 +394,8 @@ export function ChatWidget({
                 key={msg.id}
                 message={msg}
                 agentAvatar={agentAvatar}
+                userInitials={userInitials}
+                userAvatarColor={userAvatarColor}
                 onAction={handleAction}
               />
             ))}

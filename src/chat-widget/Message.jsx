@@ -150,7 +150,7 @@ function ActionCard({ content, onAction }) {
   )
 }
 
-export function Message({ message, agentAvatar, userInitial = 'U', onAction }) {
+export function Message({ message, agentAvatar, userInitials = 'Me', userAvatarColor = '#7B5CE3', onAction }) {
   const isUser = message.role === 'user'
   const time = message.timestamp
     ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -182,15 +182,18 @@ export function Message({ message, agentAvatar, userInitial = 'U', onAction }) {
           <span>{agentAvatar}</span>
         </div>
       )}
+      {isUser && (
+        <div
+          className="cw-msg-avatar cw-user-avatar"
+          style={{ background: `linear-gradient(135deg, ${userAvatarColor}, ${userAvatarColor}cc)` }}
+        >
+          <span>{userInitials}</span>
+        </div>
+      )}
       <div className="cw-msg-body">
         {renderContent()}
         {time && <span className="cw-msg-time">{time}</span>}
       </div>
-      {isUser && (
-        <div className="cw-msg-avatar cw-user-avatar">
-          <span>{userInitial}</span>
-        </div>
-      )}
     </div>
   )
 }
