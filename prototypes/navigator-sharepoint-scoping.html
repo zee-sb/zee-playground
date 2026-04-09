@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Navigator — SharePoint Scoping + Federated Chat</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    * { font-family: 'Inter', sans-serif; box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #F3F4F6; color: #111827; font-size: 14px; overflow: hidden; height: 100vh; display: flex; flex-direction: column; padding-top: 48px; }
+
+    /* ── Prototype chrome bar ── */
+    .proto-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 9999; background: #1C1C1E; color: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 48px; font-size: 13px; }
+    .proto-bar-left { display: flex; align-items: center; gap: 12px; }
+    .proto-back { display: inline-flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.6); text-decoration: none; font-size: 13px; transition: color 0.15s; }
+    .proto-back:hover { color: #fff; }
+    .proto-divider { width: 1px; height: 16px; background: rgba(255,255,255,0.15); }
+    .proto-title { font-weight: 500; }
+    .proto-tags { display: flex; gap: 6px; }
+    .proto-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+    .tag-navigator { background: #1D4ED8; color: #BFDBFE; }
+    .tag-ready { background: #14532D; color: #86EFAC; }
+    .tag-wip { background: #422006; color: #FCD34D; }
+
+    /* ── Main layout ── */
+    .main-layout { display: flex; flex: 1; gap: 0; overflow: hidden; }
+
+    /* ── Settings Panel (Left) ── */
+    .settings-panel {
+      width: 360px;
+      background: #fff;
+      border-right: 1px solid #E5E7EB;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+    .settings-panel::-webkit-scrollbar { width: 6px; }
+    .settings-panel::-webkit-scrollbar-track { background: transparent; }
+    .settings-panel::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
+
+    .settings-header {
+      padding: 20px 20px;
+      border-bottom: 1px solid #F3F4F6;
+      background: #FAFBFC;
+    }
+    .settings-title { font-size: 15px; font-weight: 600; color: #111827; margin-bottom: 4px; }
+    .settings-subtitle { font-size: 13px; color: #6B7280; }
+
+    .settings-content { padding: 20px; flex: 1; }
+
+    .setting-section { margin-bottom: 24px; }
+    .setting-section-title { font-size: 12px; font-weight: 700; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+    .setting-section-icon { width: 16px; height: 16px; background: #3B82F6; border-radius: 3px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 10px; }
+
+    .form-group { margin-bottom: 14px; }
+    .form-label { display: block; font-size: 13px; font-weight: 500; color: #111827; margin-bottom: 6px; }
+    .form-label.required::after { content: " *"; color: #EF4444; }
+    .form-input, .form-select {
+      width: 100%;
+      border: 1.5px solid #D1D5DB;
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 13px;
+      color: #111827;
+      outline: none;
+      background: #fff;
+      transition: all 0.15s;
+    }
+    .form-input:focus, .form-select:focus { border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+    .form-hint { font-size: 12px; color: #6B7280; margin-top: 4px; }
+
+    .path-list {
+      background: #F9FAFB;
+      border: 1px solid #E5E7EB;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .path-item {
+      padding: 12px 14px;
+      border-bottom: 1px solid #F3F4F6;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .path-item:last-child { border-bottom: none; }
+    .path-icon {
+      width: 24px; height: 24px;
+      background: #EFF6FF;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #1D4ED8;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    .path-details { flex: 1; min-width: 0; }
+    .path-name { font-weight: 500; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .path-url { font-size: 12px; color: #6B7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .path-remove {
+      color: #EF4444;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+    .path-remove:hover { color: #DC2626; }
+
+    .button-group { display: flex; gap: 8px; }
+    .btn { border: none; border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .btn-primary { background: #3B82F6; color: #fff; }
+    .btn-primary:hover { background: #2563EB; }
+    .btn-secondary { background: #F3F4F6; color: #374151; border: 1px solid #D1D5DB; }
+    .btn-secondary:hover { background: #F9FAFB; }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #ECFDF5;
+      color: #047857;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 10px;
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+    .status-dot {
+      width: 6px; height: 6px;
+      background: #10B981;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* ── Chat Panel (Right) ── */
+    .chat-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .chat-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #E5E7EB;
+      background: #FAFBFC;
+      flex-shrink: 0;
+    }
+    .chat-header-title { font-size: 15px; font-weight: 600; color: #111827; margin-bottom: 4px; }
+    .chat-header-subtitle { font-size: 12px; color: #6B7280; }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .chat-messages::-webkit-scrollbar { width: 6px; }
+    .chat-messages::-webkit-scrollbar-track { background: transparent; }
+    .chat-messages::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
+
+    .message { display: flex; gap: 8px; }
+    .message.user { flex-direction: row-reverse; }
+    .message-avatar {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .message.user .message-avatar { background: #3B82F6; }
+    .message.assistant .message-avatar { background: #6B7280; }
+
+    .message-content { flex: 1; max-width: 70%; }
+    .message.user .message-bubble {
+      background: #3B82F6;
+      color: #fff;
+      border-radius: 18px 18px 4px 18px;
+    }
+    .message.assistant .message-bubble {
+      background: #F3F4F6;
+      color: #111827;
+      border-radius: 18px 18px 18px 4px;
+    }
+    .message-bubble {
+      padding: 12px 14px;
+      font-size: 14px;
+      line-height: 1.5;
+      word-wrap: break-word;
+    }
+
+    .sources-container {
+      background: #F9FAFB;
+      border: 1px solid #E5E7EB;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .sources-header {
+      padding: 10px 12px;
+      background: #F3F4F6;
+      border-bottom: 1px solid #E5E7EB;
+      font-size: 11px;
+      font-weight: 700;
+      color: #6B7280;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .source-item {
+      padding: 10px 12px;
+      border-bottom: 1px solid #F3F4F6;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .source-item:last-child { border-bottom: none; }
+    .source-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #DBEAFE;
+      color: #1D4ED8;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 10px;
+      text-transform: uppercase;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .source-badge.staffbase { background: #C7D2FE; color: #3730A3; }
+    .source-badge.sharepoint { background: #D1FAE5; color: #047857; }
+    .source-title {
+      color: #111827;
+      font-weight: 500;
+      margin-bottom: 2px;
+    }
+    .source-snippet {
+      color: #6B7280;
+      font-size: 11px;
+      line-height: 1.4;
+      margin-top: 3px;
+    }
+
+    .chat-input-area {
+      padding: 16px 20px;
+      border-top: 1px solid #E5E7EB;
+      background: #F9FAFB;
+      flex-shrink: 0;
+      display: flex;
+      gap: 8px;
+    }
+    .chat-input-field {
+      flex: 1;
+      border: 1.5px solid #D1D5DB;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 14px;
+      color: #111827;
+      outline: none;
+      background: #fff;
+    }
+    .chat-input-field:focus { border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+    .chat-send-btn {
+      width: 40px; height: 40px;
+      border: none;
+      border-radius: 8px;
+      background: #3B82F6;
+      color: #fff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      transition: background 0.15s;
+    }
+    .chat-send-btn:hover { background: #2563EB; }
+  </style>
+</head>
+<body>
+  <nav class="proto-bar">
+    <div class="proto-bar-left">
+      <a class="proto-back" href="../index.html">← Prototypes</a>
+      <div class="proto-divider"></div>
+      <span class="proto-title">Navigator — SharePoint Scoping + Federated Chat</span>
+    </div>
+    <div class="proto-tags">
+      <span class="proto-tag tag-navigator">Navigator</span>
+      <span class="proto-tag tag-wip">WIP</span>
+    </div>
+  </nav>
+
+  <div class="main-layout">
+    <!-- ── Settings Panel ── -->
+    <div class="settings-panel">
+      <div class="settings-header">
+        <div class="settings-title">Knowledge Bases</div>
+        <div class="settings-subtitle">Manage connected sources</div>
+      </div>
+
+      <div class="settings-content">
+        <!-- Staffbase Knowledge Base -->
+        <div class="setting-section">
+          <div class="setting-section-title">
+            <div class="setting-section-icon">📚</div>
+            Staffbase
+          </div>
+          <div style="padding: 12px; background: #F0EEFF; border-radius: 8px; border: 1px solid #DDD6FE; margin-bottom: 12px;">
+            <div style="font-size: 13px; font-weight: 500; color: #4C1D95; margin-bottom: 6px;">Internal Knowledge</div>
+            <div style="font-size: 12px; color: #6B7280;">Policies, procedures, FAQs</div>
+            <div class="status-badge" style="margin-top: 8px;">
+              <div class="status-dot"></div>
+              Connected
+            </div>
+          </div>
+        </div>
+
+        <!-- SharePoint Knowledge Base -->
+        <div class="setting-section">
+          <div class="setting-section-title">
+            <div class="setting-section-icon">☁️</div>
+            SharePoint
+          </div>
+
+          <!-- SharePoint enabled toggle -->
+          <div class="form-group">
+            <label class="form-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 12px;">
+              <input type="checkbox" checked style="width: 18px; height: 18px; cursor: pointer;"/>
+              <span>Enable SharePoint scoping</span>
+            </label>
+          </div>
+
+          <!-- SharePoint tenant URL -->
+          <div class="form-group">
+            <label class="form-label required">SharePoint Tenant URL</label>
+            <input type="text" class="form-input" value="https://contoso.sharepoint.com" readonly style="background: #F9FAFB; color: #6B7280;"/>
+            <div class="form-hint">Read-only: configured during integration setup</div>
+          </div>
+
+          <!-- Scoping level selector -->
+          <div class="form-group">
+            <label class="form-label required">Scoping Level</label>
+            <select class="form-select">
+              <option value="">Select granularity...</option>
+              <option value="site">Site URL (all libraries in site)</option>
+              <option value="library" selected>Library URL (specific libraries)</option>
+              <option value="folder">Folder Path (specific folders)</option>
+            </select>
+            <div class="form-hint">Choose how specifically to restrict search scope</div>
+          </div>
+
+          <!-- Allowlisted paths -->
+          <div class="form-group">
+            <label class="form-label required">Allowlisted Paths</label>
+            <div class="path-list">
+              <div class="path-item">
+                <div class="path-icon">📁</div>
+                <div class="path-details">
+                  <div class="path-name">Shared Documents Library</div>
+                  <div class="path-url">/sites/marketing/Shared Documents</div>
+                </div>
+                <div class="path-remove">Remove</div>
+              </div>
+              <div class="path-item">
+                <div class="path-icon">📁</div>
+                <div class="path-details">
+                  <div class="path-name">Policies</div>
+                  <div class="path-url">/sites/HR/Shared Documents/Policies</div>
+                </div>
+                <div class="path-remove">Remove</div>
+              </div>
+              <div class="path-item">
+                <div class="path-icon">📁</div>
+                <div class="path-details">
+                  <div class="path-name">Product Documentation</div>
+                  <div class="path-url">/sites/product/Shared Documents/Docs</div>
+                </div>
+                <div class="path-remove">Remove</div>
+              </div>
+            </div>
+            <div class="form-hint" style="margin-top: 8px;">Only documents in these paths are searchable by Navigator</div>
+          </div>
+
+          <!-- Add new path -->
+          <div class="form-group">
+            <label class="form-label">Add New Path</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" class="form-input" placeholder="/sites/.../" style="flex: 1;"/>
+              <button class="btn btn-secondary" style="padding: 9px 12px;">Add</button>
+            </div>
+          </div>
+
+          <!-- Permission model -->
+          <div class="form-group">
+            <label class="form-label">Permission Model</label>
+            <div style="padding: 10px 12px; background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 13px;">
+              <div style="color: #111827; margin-bottom: 4px;">User-delegated tokens</div>
+              <div style="color: #6B7280; font-size: 12px;">Results respect individual user permissions</div>
+            </div>
+          </div>
+
+          <!-- Sync status -->
+          <div class="form-group">
+            <label class="form-label">Sync Status</label>
+            <div class="status-badge" style="margin-top: 0; width: 100%; justify-content: space-between;">
+              <span style="display: flex; align-items: center; gap: 6px;">
+                <div class="status-dot"></div>
+                Last indexed 2 hours ago
+              </span>
+            </div>
+          </div>
+
+          <!-- Action buttons -->
+          <div class="button-group" style="margin-top: 16px;">
+            <button class="btn btn-primary" style="flex: 1;">Save Changes</button>
+            <button class="btn btn-secondary" style="flex: 1;">Test Connection</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Chat Panel ── -->
+    <div class="chat-panel">
+      <div class="chat-header">
+        <div class="chat-header-title">Navigator Chat</div>
+        <div class="chat-header-subtitle">Scenario: Federated search across Staffbase + SharePoint</div>
+      </div>
+
+      <div class="chat-messages">
+        <!-- User message -->
+        <div class="message user">
+          <div class="message-avatar">You</div>
+          <div class="message-content">
+            <div class="message-bubble">What's our current remote work policy?</div>
+          </div>
+        </div>
+
+        <!-- Assistant response with sources -->
+        <div class="message assistant">
+          <div class="message-avatar">Nav</div>
+          <div class="message-content">
+            <div class="message-bubble">
+              Based on our current policies, employees in most roles are eligible for up to 3 days per week of remote work, subject to their manager's approval. Core hours are Monday through Thursday, 10am to 4pm.
+            </div>
+
+            <!-- Sources container -->
+            <div class="sources-container">
+              <div class="sources-header">📋 Sources Used</div>
+              
+              <!-- Staffbase source -->
+              <div class="source-item">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                    <span class="source-badge staffbase">Staffbase</span>
+                  </div>
+                  <div class="source-title">Remote Work Policy v3.2</div>
+                  <div class="source-snippet">"...employees are eligible for flexible remote work arrangements. Up to 3 days per week approved by manager. Core collaboration hours 10am–4pm..."</div>
+                </div>
+              </div>
+
+              <!-- SharePoint source -->
+              <div class="source-item">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                    <span class="source-badge sharepoint">SharePoint</span>
+                  </div>
+                  <div class="source-title">HR Policies/Remote Work Guidelines</div>
+                  <div class="source-snippet">"Core hours defined as Monday–Thursday, 10am–4pm PT for team synchronization. Exceptions require VP approval..."</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Follow-up question -->
+        <div class="message user">
+          <div class="message-avatar">You</div>
+          <div class="message-content">
+            <div class="message-bubble">What about exceptions for customer-facing teams?</div>
+          </div>
+        </div>
+
+        <!-- Follow-up response with federated sources -->
+        <div class="message assistant">
+          <div class="message-avatar">Nav</div>
+          <div class="message-content">
+            <div class="message-bubble">
+              Customer-facing teams have stricter requirements. Sales and Support must maintain coverage 8am–6pm PT, with remote work allowed only on non-core contact days. Your manager needs to document the business justification.
+            </div>
+
+            <!-- Sources container -->
+            <div class="sources-container">
+              <div class="sources-header">📋 Sources Used</div>
+              
+              <!-- SharePoint sources (primary) -->
+              <div class="source-item">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                    <span class="source-badge sharepoint">SharePoint</span>
+                  </div>
+                  <div class="source-title">Sales Team Handbook/Remote Work Exception</div>
+                  <div class="source-snippet">"Sales and Account Management teams must maintain 8am–6pm PT availability for customer contact. Remote work permitted only on designated non-contact days..."</div>
+                </div>
+              </div>
+
+              <!-- Staffbase source (supplementary) -->
+              <div class="source-item">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                    <span class="source-badge staffbase">Staffbase</span>
+                  </div>
+                  <div class="source-title">Exceptions & Manager Approval Process</div>
+                  <div class="source-snippet">"All exceptions to standard policy require documented business justification and approval from department VP. Process outlined in HR Portal..."</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat input area -->
+      <div class="chat-input-area">
+        <input type="text" class="chat-input-field" placeholder="Ask a question..."/>
+        <button class="chat-send-btn">→</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Minimal interactivity for demo
+    document.querySelectorAll('.chat-send-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const input = btn.previousElementSibling;
+        if (input.value.trim()) {
+          console.log('Message sent:', input.value);
+          input.value = '';
+        }
+      });
+    });
+
+    document.querySelectorAll('.path-remove').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.target.closest('.path-item').remove();
+      });
+    });
+
+    // Scoping level explanation
+    document.querySelector('.form-select').addEventListener('change', (e) => {
+      const hints = {
+        site: 'Search includes all libraries within this SharePoint site',
+        library: 'Search includes only specified libraries',
+        folder: 'Search includes only documents within specified folder paths'
+      };
+      console.log('Scoping hint:', hints[e.target.value] || '');
+    });
+  </script>
+</body>
+</html>
