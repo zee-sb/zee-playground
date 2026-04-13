@@ -390,7 +390,10 @@ const IntegrationsTab = () => {
                  <h2 className="text-[20px] font-bold text-[#111827]">Skill Orchestration</h2>
                  <p className="text-[13px] text-[#64748B]">Manage how Navigator interprets and routes intents to your integrations.</p>
               </div>
-              <button className="px-4 py-2 bg-white border border-[#E2E8F0] rounded-xl text-[13px] font-bold text-[#111827] shadow-sm hover:bg-[#F8FAFC]">
+              <button 
+                onClick={() => success('Export Successful', 'Skill mapping configuration has been exported to CSV.')}
+                className="px-4 py-2 bg-white border border-[#E2E8F0] rounded-xl text-[13px] font-bold text-[#111827] shadow-sm hover:bg-[#F8FAFC]"
+              >
                  Export Mapping View
               </button>
            </div>
@@ -623,7 +626,12 @@ const IntegrationsTab = () => {
                             <label className="text-[12px] font-black text-[#64748B] uppercase tracking-widest">Global Client Secret</label>
                             <div className="flex gap-2">
                                <div className="flex-1 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-4 py-2.5 text-[14px] text-[#94A3B8]">••••••••••••••••</div>
-                               <button className="px-4 py-2.5 bg-white border border-[#E2E8F0] rounded-xl text-[12px] font-black uppercase tracking-widest hover:bg-[#F8FAFC] transition-all">Rotate</button>
+                               <button 
+                                 onClick={() => info('Secret Rotation', 'A new global client secret has been generated and pushed to the secure vault.')}
+                                 className="px-4 py-2.5 bg-white border border-[#E2E8F0] rounded-xl text-[12px] font-black uppercase tracking-widest hover:bg-[#F8FAFC] transition-all"
+                               >
+                                 Rotate
+                               </button>
                             </div>
                          </div>
                       </div>

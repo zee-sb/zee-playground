@@ -76,14 +76,8 @@ export default function AssistantsTab({ onSelect, onSelectExternal, onCreateExte
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={onCreateExternal}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-purple-200 text-purple-700 text-sm font-medium hover:bg-purple-50 transition-colors"
-          >
-            <Zap size={14} className="inline mr-1" /> Connect External
-          </button>
-          <button
             onClick={() => onSelect({ _new: true })}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white transition-colors"
+            className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-[13.5px] font-bold text-white transition-all hover:scale-105 shadow-[0_4px_12px_rgba(59,130,246,0.3)] active:scale-[0.98]"
             style={{ backgroundColor: '#3B82F6' }}
           >
             + Create Assistant

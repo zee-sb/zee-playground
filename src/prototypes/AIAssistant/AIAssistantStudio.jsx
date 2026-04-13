@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ExternalLink, Smartphone } from 'lucide-react';
+import { ExternalLink, Smartphone, Check } from 'lucide-react';
+import { useNotification } from '../../components/NotificationProvider';
 import { StudioShell } from '../../components/StudioShell';
 import { FeatureHeader } from '../../components/SettingsCard';
 import IdentityTab from './IdentityTab';
@@ -9,7 +10,7 @@ import AnalyticsTab from './AnalyticsTab';
 import BrandingTab from './BrandingTab';
 import AssistantsTab from './AssistantsTab';
 import AssistantDetail from './AssistantDetail';
-import ExternalAgentCreation from './ExternalAgentCreation';
+import AssistantWizard from './AssistantWizard';
 import ExternalAgentDetail from './ExternalAgentDetail';
 import IntegrationsTab from './IntegrationsTab';
 import DeploymentTab from './DeploymentTab';
@@ -23,7 +24,11 @@ const AIAssistantStudio = ({ onBack }) => {
   const [isFloating, setIsFloating] = useState(true);
   const [selectedAssistant, setSelectedAssistant] = useState(null);
   const [selectedExternalAgent, setSelectedExternalAgent] = useState(null);
-  const [creatingExternalAgent, setCreatingExternalAgent] = useState(false);
+  const { success } = useNotification();
+
+  const handleSaveAll = () => {
+    success('Workspace Saved', 'All Navigator configuration changes have been persisted across the network.');
+  };
 
   const tabs = [
     { id: 'identity', label: 'Identity' },
@@ -47,7 +52,11 @@ const AIAssistantStudio = ({ onBack }) => {
         onTabChange={setActiveTab}
         actions={
           <>
-            <button className="px-5 py-1.5 bg-[#111827] text-white text-[13px] font-bold rounded-md shadow-sm hover:opacity-90 transition-opacity">
+            <button 
+              onClick={handleSaveAll}
+              className="px-5 py-1.5 bg-[#111827] text-white text-[13px] font-bold rounded-md shadow-sm hover:opacity-90 transition-opacity flex items-center gap-2"
+            >
+              <Check size={14} />
               Save All Changes
             </button>
           </>
@@ -61,23 +70,29 @@ const AIAssistantStudio = ({ onBack }) => {
               {activeTab === 'identity' && <IdentityTab />}
               {activeTab === 'knowledge' && <KnowledgeTab />}
               {activeTab === 'branding' && <BrandingTab />}
-              {activeTab === 'assistants' && !selectedAssistant && !selectedExternalAgent && !creatingExternalAgent && (
+              {activeTab === 'assistants' && !selectedAssistant && !selectedExternalAgent && (
                 <AssistantsTab
                   onSelect={setSelectedAssistant}
                   onSelectExternal={setSelectedExternalAgent}
-                  onCreateExternal={() => setCreatingExternalAgent(true)}
                 />
               )}
-              {activeTab === 'assistants' && selectedAssistant && (
+              {activeTab === 'assistants' && selectedAssistant && selectedAssistant._new && (
+                <AssistantWizard
+                  onBack={() => setSelectedAssistant(null)}
+                  onComplete={(assistant) => { 
+                    setSelectedAssistant(null); 
+                    if (assistant.type === 'external') {
+                      setSelectedExternalAgent(assistant);
+                    } else {
+                      setSelectedAssistant(assistant);
+                    }
+                  }}
+                />
+              )}
+              {activeTab === 'assistants' && selectedAssistant && !selectedAssistant._new && (
                 <AssistantDetail
                   assistant={selectedAssistant}
                   onBack={() => setSelectedAssistant(null)}
-                />
-              )}
-              {activeTab === 'assistants' && creatingExternalAgent && (
-                <ExternalAgentCreation
-                  onBack={() => setCreatingExternalAgent(false)}
-                  onComplete={(agent) => { setCreatingExternalAgent(false); setSelectedExternalAgent(agent); }}
                 />
               )}
               {activeTab === 'assistants' && selectedExternalAgent && (

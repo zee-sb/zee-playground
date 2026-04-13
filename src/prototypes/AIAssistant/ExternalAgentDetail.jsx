@@ -22,8 +22,9 @@ function OverviewTab({ agent }) {
     ['Provider', PROVIDER_LABELS[agent.provider] || agent.provider],
     ['Connection', 'MCP (Model Context Protocol)'],
     ['Endpoint', agent.endpoint || 'https://agent.example.com/mcp'],
+    ['Authentication', (agent.authMethod || 'oauth2').toUpperCase()],
+    ['Identity Context', agent.propagateIdentity ? 'User Delegation (Staffbase OIDC)' : 'Service Account'],
     ['Groups', (agent.groups || []).join(', ') || '—'],
-    ['Fallback', agent.fallback || 'Route to global agent'],
   ];
 
   return (
@@ -101,48 +102,83 @@ function CapabilitiesTab({ agent }) {
 }
 
 function AuthenticationTab({ agent }) {
+  const authMethod = agent.authMethod || 'oauth2';
   const jwtPayload = JSON.stringify({
-    sub: "user_12345",
-    name: "Jane Smith",
-    email: "jane.smith@company.com",
-    role: "employee",
-    department: "Engineering",
-    groups: ["All Employees", "IT Team"],
-    staffbase_instance: "company.staffbase.com",
-    iat: 1712345678,
-    exp: 1712346578
+    iss: "Navigator",
+    sub: "usr_sb_99482",
+    aud: agent.name.replace(/\s+/g, '-').toLowerCase(),
+    context: {
+      user: {
+        email: "jane.smith@company.com",
+        groups: ["Engineering", "All Employees"],
+        region: "EMEA"
+      },
+      delegation: agent.propagateIdentity ? "OIDC_ON_BEHALF_OF" : "SERVICE_PRINCIPAL"
+    },
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 900
   }, null, 2);
 
   return (
     <div className="space-y-5">
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-sm font-semibold text-gray-800">OAuth 2.0 credentials</h4>
-          <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">● Active</span>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Client ID</label>
-            <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg border border-gray-200">
-              <code className="text-xs text-gray-700 flex-1">a8f3d2e1-4b5c-4d9e-8f2a-1c3b5d7e9f01</code>
-              <button className="text-xs text-gray-400 hover:text-gray-600">Copy</button>
+      {authMethod === 'oauth2' && (
+        <div className="bg-white border border-gray-200 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h4 className="text-[15px] font-bold text-gray-900">OAuth 2.1 / OIDC Details</h4>
+            <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-black uppercase tracking-widest rounded-full">Handshake Verified</span>
+          </div>
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-4">
+               <div>
+                  <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Client Identifier</label>
+                  <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg border border-gray-200 font-mono text-[11px] text-gray-600">
+                    sb-navigator-agent-{agent.id.slice(-4)}
+                  </div>
+               </div>
+               <div>
+                  <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Authorization Scopes</label>
+                  <div className="flex flex-wrap gap-1">
+                    {['openid', 'profile', 'mcp.execute', 'tools.read'].map(s => (
+                      <span key={s} className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-[10px] font-bold">{s}</span>
+                    ))}
+                  </div>
+               </div>
+            </div>
+            <div className="p-4 bg-[#F8FAFC] rounded-2xl border border-[#E2E8F0]">
+               <div className="text-[11px] font-bold text-gray-700 mb-2">Protocol: PKCE (Proof Key for Code Exchange)</div>
+               <p className="text-[11px] text-gray-500 leading-relaxed mb-3">
+                 This agent uses OIDC federation. Navigator provides a secure, short-lived session token during tool execution.
+               </p>
+               <button className="text-[11px] font-black text-blue-600 uppercase tracking-widest hover:underline">Re-authenticate Service</button>
             </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Client Secret</label>
-            <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg border border-gray-200">
-              <code className="text-xs text-gray-400 flex-1">••••••••••••••••••••••••••••</code>
-              <button className="text-xs text-blue-500 hover:text-blue-700 font-medium">Rotate secret</button>
-            </div>
-          </div>
         </div>
-      </div>
+      )}
 
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <h4 className="text-sm font-semibold text-gray-800 mb-1">Staffbase-issued JWT</h4>
-        <p className="text-xs text-gray-500 mb-3">A short-lived token (15 min TTL) passed on every request so the agent can personalize without raw credential access.</p>
-        <pre className="text-xs bg-gray-900 text-green-400 rounded-lg p-3 overflow-x-auto font-mono leading-relaxed">{jwtPayload}</pre>
-      </div>
+      {agent.propagateIdentity && (
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100 bg-[#F9FAFB] flex items-center justify-between">
+            <div>
+              <h4 className="text-[14px] font-bold text-gray-900">Identity Context (MCP Header)</h4>
+              <p className="text-[11px] text-gray-500">The delegated principal sent to {agent.name}</p>
+            </div>
+            <Zap size={16} className="text-[#7C3AED]" />
+          </div>
+          <div className="p-5">
+            <div className="mb-4 flex items-center gap-2 text-[11px] font-bold text-emerald-600">
+               <Check size={14} strokeWidth={3} /> Trusted delegation active via {agent.provider === 'copilot_studio' ? 'Entra ID' : 'Google Identity'}
+            </div>
+            <pre className="text-[12px] bg-gray-900 text-green-400 rounded-xl p-5 overflow-x-auto font-mono leading-relaxed shadow-inner">{jwtPayload}</pre>
+          </div>
+        </div>
+      )}
+
+      {!agent.propagateIdentity && (
+        <div className="p-8 bg-gray-50 border border-dashed border-gray-200 rounded-2xl text-center">
+           <p className="text-sm text-gray-500 mb-2">This agent is running under a static **Service Account**.</p>
+           <button className="text-xs font-bold text-blue-600 hover:underline">Switch to User Delegation</button>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,14 +2,14 @@ import React from 'react';
 
 export const SettingsCard = ({ title, description, children, className = '' }) => {
   return (
-    <div className={`bg-white border border-[#E5E7EB] rounded-xl overflow-hidden shadow-sm ${className}`}>
+    <div className={`bg-white border border-[#E5E7EB] rounded-[4px] mb-6 ${className}`}>
       {(title || description) && (
-        <div className="px-6 py-4 border-b border-[#F3F4FB]">
-          {title && <h3 className="text-[15px] font-bold text-[#111827]">{title}</h3>}
-          {description && <p className="text-[13px] text-[#6B7280] mt-0.5">{description}</p>}
+        <div className="px-8 py-6">
+          {title && <h3 className="text-[16px] font-bold text-[#111827]">{title}</h3>}
+          {description && <p className="text-[13px] text-[#6B7280] mt-1">{description}</p>}
         </div>
       )}
-      <div className="p-6 space-y-6">
+      <div className="px-8 pb-8 space-y-6">
         {children}
       </div>
     </div>
