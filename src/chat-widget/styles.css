@@ -16,11 +16,34 @@
 
 /* ── Root container ── */
 .cw-root {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
+  position: relative;
+  width: 100%;
+  height: 100%;
   z-index: 100;
   font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+}
+
+.cw-root-floating {
+  position: fixed;
+  bottom: -40px; /* offset for scaling */
+  right: -40px;  /* offset for scaling */
+  width: auto;
+  height: auto;
+  z-index: 9999;
+  pointer-events: none;
+  transform: scale(0.6);
+  transform-origin: bottom right;
+}
+
+.cw-root-floating .group {
+  pointer-events: all;
+}
+
+.cw-root-floating .cw-floating-bar {
+  pointer-events: all;
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
 }
 
 /* ─────────────────────────────────────────
@@ -146,6 +169,11 @@
   transform: translateY(100%);
   transition: transform 0.42s cubic-bezier(0.32, 0.72, 0, 1);
   will-change: transform;
+}
+
+/* Ensure inside PhoneMockup it matches rounded corners */
+.relative.flex-1.bg-white.rounded-\[3\.8rem\] .cw-screen {
+  border-radius: 3.8rem;
 }
 
 .cw-screen.cw-open {

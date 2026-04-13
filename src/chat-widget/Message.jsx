@@ -1,7 +1,8 @@
 import { useState } from 'react'
+import { ClipboardList, CheckCircle, FilePenLine } from 'lucide-react'
 
 function InfoCard({ content }) {
-  const { title, icon = '📋', rows = [], badge } = content
+  const { title, icon = <ClipboardList size={18} />, rows = [], badge } = content
   return (
     <div className="cw-card">
       <div className="cw-card-header">
@@ -32,7 +33,7 @@ function InfoCard({ content }) {
 }
 
 function FormCard({ content, onAction }) {
-  const { title, icon = '📝', fields = [], submitLabel = 'Submit' } = content
+  const { title, icon = <FilePenLine size={18} />, fields = [], submitLabel = 'Submit' } = content
   const [values, setValues] = useState(() => {
     const init = {}
     fields.forEach(f => { init[f.id] = f.defaultValue || '' })
@@ -49,7 +50,7 @@ function FormCard({ content, onAction }) {
   if (submitted) {
     return (
       <div className="cw-confirm-card">
-        <div className="cw-confirm-icon">✅</div>
+        <div className="cw-confirm-icon"><CheckCircle size={24} className="text-green-500" /></div>
         <div className="cw-confirm-title">Submitted!</div>
         <div className="cw-confirm-subtitle">Your request has been sent successfully.</div>
       </div>
@@ -103,7 +104,7 @@ function FormCard({ content, onAction }) {
 }
 
 function ConfirmCard({ content }) {
-  const { icon = '✅', title, subtitle, chips = [] } = content
+  const { icon = <CheckCircle size={24} className="text-green-500" />, title, subtitle, chips = [] } = content
   return (
     <div className="cw-confirm-card">
       <div className="cw-confirm-icon">{icon}</div>

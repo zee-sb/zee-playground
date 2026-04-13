@@ -8,23 +8,18 @@ export default defineConfig({
     'process.env.NODE_ENV': '"production"',
     'process.env': '{}',
   },
+  // Default build for the Prototype Hub SPA
   build: {
-    lib: {
-      entry: resolve(__dirname, 'src/main.jsx'),
-      name: 'ChatWidget',
-      formats: ['iife'],
-    },
-    outDir: 'assets',
-    emptyOutDir: false,
-    cssCodeSplit: false,
+    outDir: 'dist',
+    emptyOutDir: true,
     rollupOptions: {
-      output: {
-        entryFileNames: 'chat-widget.js',
-        assetFileNames: (assetInfo) => {
-          if (assetInfo.name === 'style.css') return 'chat-widget.css'
-          return assetInfo.name
-        },
-      },
-    },
+      input: {
+        main: resolve(__dirname, 'index.html'),
+      }
+    }
   },
+  server: {
+    port: 3456,
+    open: true
+  }
 })

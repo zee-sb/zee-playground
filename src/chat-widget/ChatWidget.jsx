@@ -1,9 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
+import { ChevronUp, MoreVertical, ChevronLeft, Sparkles, RefreshCw, Mail, Star, X, Palmtree, Laptop, CreditCard, FileText, Banknote, Headphones } from 'lucide-react'
 import { Message } from './Message.jsx'
 import { TypingIndicator } from './TypingIndicator.jsx'
 import { SuggestionChips } from './SuggestionChips.jsx'
 import { ChatInput } from './ChatInput.jsx'
-import { matchScenario, defaultScenarios } from './scenarios.js'
+import { matchScenario, defaultScenarios } from './scenarios.jsx'
+import { PhoneMockup } from '../components/PhoneMockup.jsx'
 import './styles.css'
 
 let msgIdCounter = 0
@@ -33,16 +36,28 @@ function FloatingBar({ agentAvatar, agentName, onOpen, unreadCount }) {
         </div>
         <span className="cw-floating-placeholder">Ask {agentName} anything…</span>
         <button className="cw-floating-send" onClick={onOpen} aria-label="Open chat">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="18 15 12 9 6 15" />
-          </svg>
+          <ChevronUp size={14} strokeWidth={2.5} />
         </button>
       </div>
     </div>
   )
 }
 
-function WelcomeState({ agentAvatar, agentName, agentSubtitle, suggestions, onSuggestion }) {
+function WelcomeState({ agentAvatar, agentName, agentSubtitle, suggestions, onSuggestion, enabledActions = [], scenarios = [] }) {
+  const filteredSuggestions = suggestions.filter(s => {
+    const label = typeof s === 'string' ? s : s.label;
+    // Find the scenario that WOULD match this chip if everything was enabled
+    const potentialScenario = scenarios.find(scenario => 
+      !scenario.fallback && scenario.trigger.some(kw => label.toLowerCase().includes(kw))
+    );
+    
+    // If it requires an action that isn't enabled, hide the chip
+    if (potentialScenario?.requiredAction && !enabledActions.includes(potentialScenario.requiredAction)) {
+      return false;
+    }
+    return true;
+  });
+
   return (
     <div className="cw-welcome">
       <div className="cw-welcome-avatar-wrap">
@@ -51,11 +66,11 @@ function WelcomeState({ agentAvatar, agentName, agentSubtitle, suggestions, onSu
       </div>
       <div className="cw-welcome-name">{agentName}</div>
       <div className="cw-welcome-subtitle">{agentSubtitle || 'Your AI assistant. Ask me anything.'}</div>
-      {suggestions && suggestions.length > 0 && (
+      {filteredSuggestions && filteredSuggestions.length > 0 && (
         <>
           <div className="cw-welcome-divider-text">Quick actions</div>
           <div className="cw-welcome-chips">
-            {suggestions.map((s, i) => (
+            {filteredSuggestions.map((s, i) => (
               <button
                 key={i}
                 className="cw-suggestion-chip"
@@ -86,11 +101,11 @@ function HeaderMenu({ onNewChat, onEmailTranscript, onRateChat, onEndChat }) {
   }, [open])
 
   const items = [
-    { icon: '🔄', label: 'New conversation', action: onNewChat },
-    { icon: '✉️', label: 'Email transcript', action: onEmailTranscript },
-    { icon: '⭐', label: 'Rate this chat', action: onRateChat },
+    { icon: <RefreshCw size={16} />, label: 'New conversation', action: onNewChat },
+    { icon: <Mail size={16} />, label: 'Email transcript', action: onEmailTranscript },
+    { icon: <Star size={16} />, label: 'Rate this chat', action: onRateChat },
     null, // divider
-    { icon: '✕', label: 'End conversation', action: onEndChat, danger: true },
+    { icon: <X size={16} />, label: 'End conversation', action: onEndChat, danger: true },
   ]
 
   return (
@@ -100,9 +115,7 @@ function HeaderMenu({ onNewChat, onEmailTranscript, onRateChat, onEndChat }) {
         onClick={() => setOpen(o => !o)}
         aria-label="More options"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
-        </svg>
+        <MoreVertical size={18} strokeWidth={2} />
       </button>
       {open && (
         <div className="cw-dropdown">
@@ -129,23 +142,26 @@ function HeaderMenu({ onNewChat, onEmailTranscript, onRateChat, onEndChat }) {
 export function ChatWidget({
   agentName = 'Navigator',
   agentSubtitle = 'Your AI work assistant · Always available',
-  agentAvatar = '🔮',
+  agentAvatar = <Sparkles size={20} />,
   userName = 'You',
   theme = {},
   initialMessages = [],
   scenarios = defaultScenarios,
   suggestions = [
-    { icon: '🌴', label: 'Request leave' },
-    { icon: '💻', label: 'IT support' },
-    { icon: '💳', label: 'Submit expense' },
-    { icon: '📄', label: 'HR policies' },
-    { icon: '💰', label: 'My payslip' },
+    { icon: <Palmtree size={14} />, label: 'Request leave' },
+    { icon: <Laptop size={14} />, label: 'IT support' },
+    { icon: <CreditCard size={14} />, label: 'Submit expense' },
+    { icon: <FileText size={14} />, label: 'HR policies' },
+    { icon: <Banknote size={14} />, label: 'My payslip' },
+    { icon: <Headphones size={14} />, label: 'Zendesk support' },
   ],
   onMinimize,
   isOpen: controlledIsOpen,
   onOpenChange,
   defaultOpen = false,
   _onSendRef,
+  enabledActions = [],
+  variant = 'inline', // 'inline' | 'floating'
 }) {
   const primary = theme.primary || '#7B5CE3'
   const userInitials = getInitials(userName)
@@ -289,7 +305,7 @@ export function ChatWidget({
       role: 'ai',
       type: 'confirm',
       content: {
-        icon: '⭐',
+        icon: <Star size={24} className="text-yellow-400" />,
         title: 'Thanks for the feedback!',
         subtitle: 'Your rating helps us improve Navigator.',
         chips: ['Helpful', 'Quick response', 'Accurate'],
@@ -304,12 +320,16 @@ export function ChatWidget({
     setActiveSuggestions([])
     clearScenarioTimers()
 
-    const scenario = matchScenario(text, scenarios)
+    const scenario = matchScenario(text, scenarios, enabledActions)
     if (scenario) {
       setPendingScenario(scenario)
       playScenarioMessages(scenario.messages, () => {
         if (!scenario.onFormSubmit && !scenario.onActionClick) {
-          setActiveSuggestions(suggestions)
+          setActiveSuggestions(suggestions.filter(s => {
+             const m = matchScenario(typeof s === 'string' ? s : s.label, scenarios, enabledActions);
+             if (!m || !m.requiredAction) return true;
+             return enabledActions.includes(m.requiredAction);
+          }))
         }
       })
     } else {
@@ -321,7 +341,11 @@ export function ChatWidget({
           type: 'text',
           text: `I'm looking into "${text}" for you. Can you give me a bit more detail about what you need? I can help with leave requests, IT support, expenses, HR policies, and more.`,
         })
-        setActiveSuggestions(suggestions)
+        setActiveSuggestions(suggestions.filter(s => {
+           const m = matchScenario(typeof s === 'string' ? s : s.label, scenarios, enabledActions);
+           if (!m || !m.requiredAction) return true;
+           return enabledActions.includes(m.requiredAction);
+        }))
       }, 1200)
       scenarioTimersRef.current.push(t)
     }
@@ -336,26 +360,14 @@ export function ChatWidget({
 
   const isEmpty = messages.length === 0 && !isTyping
 
-  return (
-    <div className="cw-root">
-      {/* Floating bar — shown when closed */}
-      {!isOpen && (
-        <FloatingBar
-          agentAvatar={agentAvatar}
-          agentName={agentName}
-          onOpen={open}
-          unreadCount={unreadCount}
-        />
-      )}
-
+  const chatContent = (
+    <>
       {/* Full chat screen */}
       <div className={`cw-screen ${isOpen ? 'cw-open' : ''}`}>
         {/* Header */}
         <div className="cw-header">
           <button className="cw-header-back" onClick={close} aria-label="Close chat">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
+            <ChevronLeft size={18} strokeWidth={2.5} />
           </button>
           <div className="cw-header-agent">
             <div className="cw-header-avatar-wrap">
@@ -385,6 +397,8 @@ export function ChatWidget({
             agentSubtitle={agentSubtitle}
             suggestions={suggestions}
             onSuggestion={handleSend}
+            enabledActions={enabledActions}
+            scenarios={scenarios}
           />
         ) : (
           <div className="cw-messages">
@@ -415,6 +429,35 @@ export function ChatWidget({
         {/* Input */}
         <ChatInput onSend={handleSend} placeholder={`Message ${agentName}…`} />
       </div>
+    </>
+  )
+
+  const widgetContent = (
+    <div className={`cw-root ${variant === 'floating' ? 'cw-root-floating' : ''}`}>
+      {/* Floating bar — shown when closed */}
+      {!isOpen && (
+        <FloatingBar
+          agentAvatar={agentAvatar}
+          agentName={agentName}
+          onOpen={open}
+          unreadCount={unreadCount}
+        />
+      )}
+
+      {/* Conditional Phone Mockup wrapping */}
+      {variant === 'floating' && isOpen ? (
+        <PhoneMockup>
+          {chatContent}
+        </PhoneMockup>
+      ) : (
+        chatContent
+      )}
     </div>
   )
+
+  if (variant === 'floating') {
+    return createPortal(widgetContent, document.body)
+  }
+
+  return widgetContent
 }

@@ -1,5 +1,8 @@
-import React, { useState, useEffect } from 'react'
+import React from 'react'
 import { createRoot } from 'react-dom/client'
+import App from './App'
+import { BrowserRouter } from 'react-router-dom'
+import { NotificationProvider } from './components/NotificationProvider'
 import { ChatWidget } from './chat-widget/ChatWidget.jsx'
 import {
   defaultScenarios,
@@ -9,85 +12,56 @@ import {
   expenseScenario,
   payslipScenario,
   onboardingScenario,
-} from './chat-widget/scenarios.js'
+} from './chat-widget/scenarios.jsx'
 
-// ── Public API ──────────────────────────────────────────────────
-// ChatWidget.init(container, config) → handle
-// handle.open()         — open widget
-// handle.close()        — close widget
-// handle.send(text)     — send message programmatically
-// handle.unmount()      — destroy widget
+// ── App Rendering ──────────────────────────────────────────────────
+const container = document.getElementById('root')
+if (container) {
+  const root = createRoot(container)
+  root.render(
+    <BrowserRouter>
+      <NotificationProvider>
+        <App />
+      </NotificationProvider>
+    </BrowserRouter>
+  )
+}
 
+// ── Public API (Legacy & Library Support) ──────────────────────────
 const instances = new WeakMap()
 
 function init(containerOrSelector, config = {}) {
-  const container =
+  const target =
     typeof containerOrSelector === 'string'
       ? document.querySelector(containerOrSelector)
       : containerOrSelector
 
-  if (!container) {
-    console.warn('[ChatWidget] Container not found:', containerOrSelector)
-    return null
-  }
+  if (!target) return null
 
-  let reactSetOpen = null
   let reactSend = null
+  const root = createRoot(target)
 
   function WidgetWrapper() {
-    const [isOpen, setIsOpen] = useState(config.defaultOpen ?? false)
-
-    useEffect(() => {
-      reactSetOpen = setIsOpen
-    }, [])
-
-    return React.createElement(ChatWidget, {
-      ...config,
-      isOpen,
-      onOpenChange: (v) => {
-        setIsOpen(v)
-        config.onOpenChange?.(v)
-      },
-      // Inject a send callback via a ref-like prop
-      _onSendRef: (fn) => { reactSend = fn },
-    })
+    return (
+      <ChatWidget 
+        {...config} 
+        _onSendRef={(fn) => { reactSend = fn }}
+      />
+    )
   }
 
-  const root = createRoot(container)
-  root.render(React.createElement(WidgetWrapper))
-
+  root.render(<WidgetWrapper />)
+  
   const handle = {
-    open()        { reactSetOpen?.(true) },
-    close()       { reactSetOpen?.(false) },
-    send(text)    { reactSend?.(text) },
-    unmount()     { root.unmount() },
+    send(text) { reactSend?.(text) },
+    unmount() { root.unmount() }
   }
-
-  instances.set(container, handle)
+  instances.set(target, handle)
   return handle
 }
 
-function open(containerOrHandle) {
-  if (containerOrHandle && typeof containerOrHandle.open === 'function') {
-    containerOrHandle.open()
-  } else if (containerOrHandle instanceof Element) {
-    instances.get(containerOrHandle)?.open()
-  }
-}
-
-function close(containerOrHandle) {
-  if (containerOrHandle && typeof containerOrHandle.close === 'function') {
-    containerOrHandle.close()
-  } else if (containerOrHandle instanceof Element) {
-    instances.get(containerOrHandle)?.close()
-  }
-}
-
-// ── Export global ────────────────────────────────────────────────
 const ChatWidgetAPI = {
   init,
-  open,
-  close,
   scenarios: {
     defaults: defaultScenarios,
     leave: leaveScenario,
@@ -99,7 +73,6 @@ const ChatWidgetAPI = {
   },
 }
 
-// Expose as global (IIFE build)
 if (typeof window !== 'undefined') {
   window.ChatWidget = ChatWidgetAPI
 }
