@@ -95,7 +95,7 @@ export const StudioShell = ({ children, activeSidebarItem }) => {
           <SidebarItem label="Trash" />
           <SidebarItem label="Spaces" />
           <SidebarItem label="Menu" />
-          <SidebarItem label="AI Assistant" active={activeSidebarItem === 'AI Assistant'} />
+          <SidebarItem label="Navigator" active={activeSidebarItem === 'Navigator'} />
           <SidebarItem label="Launchpad" />
           <SidebarItem label="Print on Demand" />
         </aside>

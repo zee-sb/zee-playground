@@ -38,10 +38,10 @@ const AIAssistantStudio = ({ onBack }) => {
   ];
 
   return (
-    <StudioShell activeSidebarItem="AI Assistant">
+    <StudioShell activeSidebarItem="Navigator">
       <FeatureHeader 
-        title="AI Assistant"
-        subtitle="Configure AI Assistant settings and preferences"
+        title="Navigator"
+        subtitle="Configure Navigator settings and preferences"
         tabs={tabs}
         activeTab={activeTab}
         onTabChange={setActiveTab}
@@ -57,7 +57,7 @@ const AIAssistantStudio = ({ onBack }) => {
       <div className="flex-1 overflow-hidden flex origin-top-left transition-all duration-500">
         {/* Settings Column */}
         <div className={`flex-1 overflow-y-auto p-8 bg-[#F9FAFB] transition-all duration-500 ease-in-out`}>
-           <div className="max-w-[1000px] mx-auto">
+           <div className="max-w-full mx-auto">
               {activeTab === 'identity' && <IdentityTab />}
               {activeTab === 'knowledge' && <KnowledgeTab />}
               {activeTab === 'branding' && <BrandingTab />}
