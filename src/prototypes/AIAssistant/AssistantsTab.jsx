@@ -93,7 +93,11 @@ export default function AssistantsTab({ onSelect, onSelectExternal, onCreateExte
 
       {/* Filter tabs */}
       <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 w-fit">
-        {[['all', 'All'], ['internal', '<Brain size={12} className="inline mx-1" /> Internal'], ['external', '<Zap size={12} className="inline mx-1" /> External']].map(([val, label]) => (
+        {[
+          ['all', 'All'],
+          ['internal', <><Brain size={12} className="inline mx-1" /> Internal</>],
+          ['external', <><Zap size={12} className="inline mx-1" /> External</>]
+        ].map(([val, label]) => (
           <button
             key={val}
             onClick={() => setFilter(val)}

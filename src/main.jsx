@@ -6,12 +6,11 @@ import { NotificationProvider } from './components/NotificationProvider'
 import { ChatWidget } from './chat-widget/ChatWidget.jsx'
 import {
   defaultScenarios,
-  leaveScenario,
-  policyScenario,
-  itScenario,
-  expenseScenario,
-  payslipScenario,
+  hrWorkdayScenario,
+  itCopilotScenario,
+  travelScenario,
   onboardingScenario,
+  policyScenario,
 } from './chat-widget/scenarios.jsx'
 
 // ── App Rendering ──────────────────────────────────────────────────
@@ -64,11 +63,10 @@ const ChatWidgetAPI = {
   init,
   scenarios: {
     defaults: defaultScenarios,
-    leave: leaveScenario,
+    hrWorkday: hrWorkdayScenario,
+    itCopilot: itCopilotScenario,
+    travel: travelScenario,
     policy: policyScenario,
-    it: itScenario,
-    expense: expenseScenario,
-    payslip: payslipScenario,
     onboarding: onboardingScenario,
   },
 }

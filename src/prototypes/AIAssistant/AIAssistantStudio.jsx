@@ -137,23 +137,7 @@ const AIAssistantStudio = ({ onBack }) => {
                           <ExternalLink size={18} strokeWidth={2.5} />
                        </button>
                        <ChatWidget 
-                          agentName={selectedAssistant ? selectedAssistant.name : "Staff Scout"}
-                          agentSubtitle={selectedAssistant ? selectedAssistant.description : "Ask me anything!"}
-                          enabledActions={
-                             selectedAssistant?.id === 'it' ? ['service-now:create'] :
-                             selectedAssistant?.id === 'travel' ? ['bamboo-hr:request-leave'] :
-                             selectedAssistant?.id === 'hr' ? ['bamboo-hr:request-leave', 'zendesk:create'] :
-                             ['service-now:create', 'bamboo-hr:request-leave', 'zendesk:create']
-                          }
-                          initialMessages={[
-                            { 
-                              role: 'ai', 
-                              type: 'text', 
-                              text: selectedAssistant 
-                                ? `Hello! I'm the ${selectedAssistant.name}. How can I help with ${selectedAssistant.id} queries?`
-                                : "Hello! I'm your AI Assistant. I can help with policies, IT issues, and more." 
-                            }
-                          ]}
+                          enabledActions={['gemini-workday:connect', 'copilot-studio:connect']}
                        />
                     </div>
                   )}
@@ -163,23 +147,7 @@ const AIAssistantStudio = ({ onBack }) => {
              {isFloating && (
                 <ChatWidget 
                   variant="floating"
-                  agentName={selectedAssistant ? selectedAssistant.name : "Staff Scout"}
-                  agentSubtitle={selectedAssistant ? selectedAssistant.description : "Ask me anything!"}
-                  enabledActions={
-                     selectedAssistant?.id === 'it' ? ['service-now:create'] :
-                     selectedAssistant?.id === 'travel' ? ['bamboo-hr:request-leave'] :
-                     selectedAssistant?.id === 'hr' ? ['bamboo-hr:request-leave', 'zendesk:create'] :
-                     ['service-now:create', 'bamboo-hr:request-leave', 'zendesk:create']
-                  }
-                  initialMessages={[
-                    { 
-                      role: 'ai', 
-                      type: 'text', 
-                      text: selectedAssistant 
-                        ? `Hello! I'm the ${selectedAssistant.name}. How can I help with ${selectedAssistant.id} queries?`
-                        : "Hello! I'm your AI Assistant. I can help with policies, IT issues, and more." 
-                    }
-                  ]}
+                  enabledActions={['gemini-workday:connect', 'copilot-studio:connect']}
                 />
              )}
           </div>
