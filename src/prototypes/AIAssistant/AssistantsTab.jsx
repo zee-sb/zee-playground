@@ -1,6 +1,5 @@
-import { Plane, Laptop, Users, CircleDollarSign, Scale, PartyPopper, Zap, Brain } from "lucide-react";
+import { Plane, Laptop, Users, CircleDollarSign, Scale, PartyPopper, Zap, Brain, Info, Link2 } from "lucide-react";
 import { useState } from 'react';
-import {  } from 'lucide-react';
 
 const internalAssistants = [
   { id: 'travel', type: 'internal', name: 'Travel Policy', emoji: <Plane size={18} className="text-blue-500" />, groups: ['All Employees'], status: 'active', priority: 1, intents: 3 },
@@ -12,8 +11,36 @@ const internalAssistants = [
 ];
 
 const externalAssistants = [
-  { id: 'ext-copilot-it', type: 'external', name: 'IT Helpdesk (Copilot Studio)', provider: 'copilot_studio', groups: ['All Employees'], status: 'active', latency: '1.2s', completionRate: 94, attachment: 'standalone' },
-  { id: 'ext-gemini-hr', type: 'external', name: 'HR Workday Agent (Gemini)', provider: 'gemini', groups: ['HR Team', 'Managers'], status: 'active', latency: '0.8s', completionRate: 97, attachment: 'standalone' },
+  {
+    id: 'ext-copilot-it',
+    type: 'external',
+    name: 'IT Helpdesk (Copilot Studio)',
+    provider: 'copilot_studio',
+    groups: ['All Employees'],
+    targetGroups: ['All Employees'],
+    targetUsers: ['maria.schmidt@staffbase.com'],
+    sourceConnectorId: 'copilot-it-helpdesk',
+    sourceConnectorName: 'IT Helpdesk Agent',
+    status: 'active',
+    latency: '1.2s',
+    completionRate: 94,
+    attachment: 'standalone',
+  },
+  {
+    id: 'ext-gemini-hr',
+    type: 'external',
+    name: 'HR Workday Agent (Gemini)',
+    provider: 'gemini',
+    groups: ['HR Team', 'Managers'],
+    targetGroups: ['HR Team', 'Managers'],
+    targetUsers: ['john.doe@staffbase.com'],
+    sourceConnectorId: 'gemini-hr-workday',
+    sourceConnectorName: 'HR Workday Agent',
+    status: 'active',
+    latency: '0.8s',
+    completionRate: 97,
+    attachment: 'standalone',
+  },
 ];
 
 const PROVIDER_LABELS = { copilot_studio: 'Copilot Studio', gemini: 'Gemini', custom: 'Custom MCP' };
@@ -56,13 +83,38 @@ function ProviderBadge({ provider }) {
   );
 }
 
-export default function AssistantsTab({ onSelect, onSelectExternal, onCreateExternal }) {
+export default function AssistantsTab({
+  onSelect,
+  onSelectExternal,
+  onCreateExternal = () => {},
+  hasAgentConnector = true,
+  assistants = null,
+  connectors = [],
+}) {
   const [filter, setFilter] = useState('all');
 
-  const allAssistants = [...internalAssistants, ...externalAssistants];
-  const visible = filter === 'all' ? allAssistants
-    : filter === 'internal' ? internalAssistants
-    : externalAssistants;
+  const defaultAll = [...internalAssistants, ...externalAssistants];
+  const assistantMap = new Map(defaultAll.map((assistant) => [assistant.id, assistant]));
+  (assistants || []).forEach((assistant) => {
+    const existing = assistantMap.get(assistant.id) || {};
+    assistantMap.set(assistant.id, {
+      ...existing,
+      ...assistant,
+      groups: assistant.groups || assistant.targetGroups || assistant.selectedGroups || existing.groups || [],
+    });
+  });
+  const allAssistants = Array.from(assistantMap.values());
+  const internal = allAssistants.filter((assistant) => assistant.type !== 'external');
+  const external = allAssistants.filter((assistant) => assistant.type === 'external');
+  const visible = filter === 'all' ? allAssistants : filter === 'internal' ? internal : external;
+  const connectorById = new Map((connectors || []).map((connection) => [connection.id, connection]));
+
+  const connectionStateStyles = {
+    connected: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    testing: 'bg-amber-50 text-amber-700 border-amber-200',
+    error: 'bg-rose-50 text-rose-700 border-rose-200',
+    disabled: 'bg-slate-100 text-slate-600 border-slate-200',
+  };
 
   return (
     <div className="animate-in fade-in duration-500">
@@ -71,7 +123,10 @@ export default function AssistantsTab({ onSelect, onSelectExternal, onCreateExte
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Assistants</h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            {internalAssistants.length} internal · {externalAssistants.length} external connected
+            {internal.length} internal · {external.length} external connected
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            External assistants run through linked MCP connectors in Connectors &gt; Configured.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -82,8 +137,21 @@ export default function AssistantsTab({ onSelect, onSelectExternal, onCreateExte
           >
             + Create Assistant
           </button>
+          <button
+            onClick={onCreateExternal}
+            disabled={!hasAgentConnector}
+            className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-[13.5px] font-bold text-white transition-all hover:scale-105 shadow-[0_4px_12px_rgba(124,58,237,0.3)] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+            style={{ backgroundColor: '#7C3AED' }}
+          >
+            <Zap size={14} /> Create External Assistant
+          </button>
         </div>
       </div>
+      {!hasAgentConnector && (
+        <div className="mb-4 rounded-xl border border-[#DDD6FE] bg-violet-50 px-4 py-3 text-[12px] text-violet-800">
+          Create an Agent MCP connector in the top-level Connectors module before adding external assistants.
+        </div>
+      )}
 
       {/* Filter tabs */}
       <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 w-fit">
@@ -104,6 +172,16 @@ export default function AssistantsTab({ onSelect, onSelectExternal, onCreateExte
         ))}
       </div>
 
+      {/* External agents info callout */}
+      {filter === 'external' && (
+        <div className="flex items-start gap-3 p-4 mb-2 bg-purple-50 border border-purple-200 rounded-xl">
+          <Info size={15} className="text-purple-600 mt-0.5 shrink-0" />
+          <p className="text-[13px] text-purple-800">
+            <span className="font-bold">External agents</span> connect via MCP and handle specific employee intents. Navigator routes queries to them automatically based on their declared capabilities. User context (role, region, groups) is passed with every request so agents can personalize their responses.
+          </p>
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
         <table className="w-full text-sm">
@@ -111,7 +189,7 @@ export default function AssistantsTab({ onSelect, onSelectExternal, onCreateExte
             <tr className="border-b border-gray-100 bg-gray-50">
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Groups</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Targeting</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Details</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
               <th className="px-4 py-3" />
@@ -119,6 +197,15 @@ export default function AssistantsTab({ onSelect, onSelectExternal, onCreateExte
           </thead>
           <tbody className="divide-y divide-gray-50">
             {visible.map((a) => (
+              (() => {
+                const groupList = a.groups || a.selectedGroups || [];
+                const userList = a.targetUsers || [];
+                const linkedConnector = a.type === 'external'
+                  ? connectorById.get(a.sourceConnectorId)
+                  : null;
+                const linkedConnectorName = linkedConnector?.name || a.sourceConnectorName || 'Unlinked connector';
+                const linkedState = linkedConnector?.connectionState || 'disabled';
+                return (
               <tr
                 key={a.id}
                 className="hover:bg-gray-50 cursor-pointer transition-colors"
@@ -136,23 +223,44 @@ export default function AssistantsTab({ onSelect, onSelectExternal, onCreateExte
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1">
-                    {a.groups.slice(0, 2).map(g => (
+                    {groupList.slice(0, 2).map(g => (
                       <span key={g} className="px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">{g}</span>
                     ))}
-                    {a.groups.length > 2 && (
-                      <span className="px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-400">+{a.groups.length - 2}</span>
+                    {groupList.length > 2 && (
+                      <span className="px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-400">+{groupList.length - 2}</span>
+                    )}
+                    {userList.length > 0 && (
+                      <span className="px-2 py-0.5 bg-sky-50 rounded text-xs text-sky-700">{userList.length} user{userList.length === 1 ? '' : 's'}</span>
                     )}
                   </div>
                 </td>
                 <td className="px-4 py-3 text-gray-500">
                   {a.type === 'internal'
-                    ? <span>{a.intents} intent{a.intents !== 1 ? 's' : ''} · P{a.priority}</span>
-                    : <span>{a.completionRate}% completion · {a.latency}</span>
+                    ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Link2 size={12} />
+                        {(a.assignedCapabilityIds || []).length} capabilit{(a.assignedCapabilityIds || []).length === 1 ? 'y' : 'ies'}
+                      </span>
+                    )
+                    : (
+                      <div className="space-y-1">
+                        <div className="text-gray-700">{a.completionRate || 94}% completion · {a.latency || '1.2s'}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-gray-500">Linked MCP:</span>
+                          <span className="text-[11px] font-semibold text-gray-800">{linkedConnectorName}</span>
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${connectionStateStyles[linkedState] || connectionStateStyles.disabled}`}>
+                            {linkedState}
+                          </span>
+                        </div>
+                      </div>
+                    )
                   }
                 </td>
                 <td className="px-4 py-3"><StatusDot status={a.status} /></td>
                 <td className="px-4 py-3 text-right text-gray-400 text-xs">›</td>
               </tr>
+                );
+              })()
             ))}
           </tbody>
         </table>

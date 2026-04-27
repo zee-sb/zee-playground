@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Sparkles, HelpCircle, Users, Settings, FileText } from 'lucide-react';
+import { Sparkles, HelpCircle, Users, Settings, FileText, Plug } from 'lucide-react';
 
 const SidebarItem = ({ label, active, icon, onClick, sub = false }) => (
   <button 
@@ -22,7 +22,7 @@ const SidebarSection = ({ title }) => (
   </div>
 );
 
-export const StudioShell = ({ children, activeSidebarItem }) => {
+export const StudioShell = ({ children, activeSidebarItem, onNavigatorClick, onConnectionsClick }) => {
   return (
     <div className="flex flex-col h-screen bg-[#F3F4FB] font-sans selection:bg-[#3B82F6]/20">
       {/* Top Navigation */}
@@ -95,7 +95,8 @@ export const StudioShell = ({ children, activeSidebarItem }) => {
           <SidebarItem label="Trash" />
           <SidebarItem label="Spaces" />
           <SidebarItem label="Menu" />
-          <SidebarItem label="Navigator" active={activeSidebarItem === 'Navigator'} />
+          <SidebarItem label="Navigator" active={activeSidebarItem === 'Navigator'} onClick={onNavigatorClick} />
+          <SidebarItem label="Connectors" active={activeSidebarItem === 'Connectors'} onClick={onConnectionsClick} icon={<Plug size={14} />} />
           <SidebarItem label="Launchpad" />
           <SidebarItem label="Print on Demand" />
         </aside>

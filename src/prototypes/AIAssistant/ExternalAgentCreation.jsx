@@ -345,9 +345,9 @@ const INTERNAL_STUBS = [
   { id: 'hr', name: 'HR Assistant', emoji: null },
 ];
 
-export default function ExternalAgentCreation({ onBack, onComplete }) {
+export default function ExternalAgentCreation({ onBack, onComplete, agentConnectors = [] }) {
   const [step, setStep] = useState(0);
-  const [data, setData] = useState({ attachmentMode: 'standalone', confidenceThreshold: 0.75, fallback: 'global', selectedTopics: [], selectedGroups: [], exampleQueries: [] });
+  const [data, setData] = useState({ attachmentMode: 'standalone', confidenceThreshold: 0.75, fallback: 'global', selectedTopics: [], selectedGroups: [], exampleQueries: [], connectorId: '' });
 
   function next() { if (step < 2) setStep(s => s + 1); }
   function back() { if (step > 0) setStep(s => s - 1); else onBack(); }
@@ -371,7 +371,7 @@ export default function ExternalAgentCreation({ onBack, onComplete }) {
   const canProceed = step === 0
     ? (data.attachmentMode === 'standalone' || data.parentAssistant)
     : step === 1
-    ? (data.name && data.endpoint && data.provider)
+    ? (data.name && data.endpoint && data.provider && data.connectorId)
     : ((data.selectedTopics || []).length > 0 && (data.selectedGroups || []).length > 0);
 
   return (
@@ -389,8 +389,39 @@ export default function ExternalAgentCreation({ onBack, onComplete }) {
       <StepIndicator current={step} />
 
       <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
+        {agentConnectors.length === 0 && (
+          <div className="mb-4 rounded-lg border border-[#DDD6FE] bg-violet-50 px-3 py-2 text-[12px] text-violet-800">
+            Create an Agent MCP connector in Connectors first, then bind it here.
+          </div>
+        )}
         {step === 0 && <Step1Attachment data={data} setData={setData} internalAssistants={INTERNAL_STUBS} />}
-        {step === 1 && <Step2Connection data={data} setData={setData} />}
+        {step === 1 && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Bound Agent MCP connector</label>
+              <select
+                value={data.connectorId}
+                onChange={(e) => {
+                  const connector = agentConnectors.find((item) => item.id === e.target.value);
+                  setData((draft) => ({
+                    ...draft,
+                    connectorId: e.target.value,
+                    endpoint: connector?.endpoint || draft.endpoint,
+                    provider: connector?.provider?.toLowerCase().includes('copilot') ? 'copilot_studio' : connector?.provider?.toLowerCase().includes('gemini') ? 'gemini' : 'custom',
+                    name: draft.name || connector?.name || '',
+                  }));
+                }}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"
+              >
+                <option value="">Select connector…</option>
+                {agentConnectors.map((connector) => (
+                  <option key={connector.id} value={connector.id}>{connector.name} · {connector.provider}</option>
+                ))}
+              </select>
+            </div>
+            <Step2Connection data={data} setData={setData} />
+          </div>
+        )}
         {step === 2 && <Step3Capabilities data={data} setData={setData} />}
       </div>
 

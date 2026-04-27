@@ -18,7 +18,7 @@ import {
   Sparkles
 } from 'lucide-react';
 
-const AssistantDetail = ({ assistant, onBack }) => {
+const AssistantDetail = ({ assistant, onBack, capabilityIndex = {}, connectors = [], onAssistantUpdate }) => {
   const { success } = useNotification();
   const [name, setName] = useState(assistant.name || '');
   const [instructions, setInstructions] = useState(
@@ -30,10 +30,54 @@ const AssistantDetail = ({ assistant, onBack }) => {
   ]);
 
   const [selectedGroups, setSelectedGroups] = useState(assistant.selectedGroups || ['All Employees']);
+  const [selectedUsers, setSelectedUsers] = useState(assistant.targetUsers || []);
   const ALL_GROUPS = ['All Employees', 'Managers', 'HR Team', 'Finance Team', 'Legal Team', 'IT Team', 'New Joiners', 'Executives'];
+  const ALL_USERS = ['alex.meyer@staffbase.com', 'maria.schmidt@staffbase.com', 'john.doe@staffbase.com', 'liam.chen@staffbase.com', 'sarah.lee@staffbase.com'];
 
   const handleSave = () => {
+    if (onAssistantUpdate) {
+      onAssistantUpdate({
+        ...assistant,
+        name,
+        instructions,
+        selectedGroups,
+        targetGroups: selectedGroups,
+        targetUsers: selectedUsers,
+      });
+    }
     success('Saved successfully', `${name} settings have been updated.`);
+  };
+
+  const assignedCapabilities = (assistant.assignedCapabilityIds || [])
+    .map((id) => capabilityIndex[id])
+    .filter(Boolean);
+
+  const connectorRows = connectors.map((connector) => {
+    const connectorCapabilities = (connector.capabilities || []).filter((capability) =>
+      (assistant.assignedCapabilityIds || []).includes(capability.id)
+    );
+    return {
+      connector,
+      connectorCapabilities,
+      enabled: connectorCapabilities.length > 0,
+    };
+  });
+
+  const toggleConnectorForAssistant = (connectorId, enabled) => {
+    if (!onAssistantUpdate) return;
+    const connector = connectors.find((item) => item.id === connectorId);
+    if (!connector) return;
+    const connectorCapabilityIds = (connector.capabilities || []).map((capability) => capability.id);
+    const nextAssigned = enabled
+      ? Array.from(new Set([...(assistant.assignedCapabilityIds || []), ...connectorCapabilityIds]))
+      : (assistant.assignedCapabilityIds || []).filter((capabilityId) => !connectorCapabilityIds.includes(capabilityId));
+    onAssistantUpdate({
+      ...assistant,
+      assignedCapabilityIds: nextAssigned,
+      selectedGroups,
+      name,
+      instructions,
+    });
   };
 
   return (
@@ -179,6 +223,26 @@ const AssistantDetail = ({ assistant, onBack }) => {
                  </div>
               </div>
 
+              <div className="space-y-3">
+                 <label className="text-[14px] font-bold text-[#111827]">Target users</label>
+                 <p className="text-[12px] text-[#6B7280]">Optional direct allowlist for specific users.</p>
+                 <div className="flex flex-wrap gap-2 pt-1">
+                    {ALL_USERS.map((user) => (
+                      <button
+                        key={user}
+                        onClick={() => setSelectedUsers((prev) => prev.includes(user) ? prev.filter((item) => item !== user) : [...prev, user])}
+                        className={`px-4 py-1.5 rounded-full text-[12.5px] font-medium transition-all ${
+                          selectedUsers.includes(user)
+                            ? 'bg-[#0EA5E9] text-white border border-[#0EA5E9]'
+                            : 'bg-white text-[#6B7280] border border-[#E5E7EB] hover:bg-[#F9FAFB]'
+                        }`}
+                      >
+                        {user}
+                      </button>
+                    ))}
+                 </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-8 pt-4 border-t border-[#F3F4F6]">
                  <div className="space-y-3">
                     <div className="flex justify-between">
@@ -197,6 +261,84 @@ const AssistantDetail = ({ assistant, onBack }) => {
                  </div>
               </div>
            </div>
+        </div>
+
+        <div className="bg-white border border-[#E5E7EB] rounded-lg p-8">
+          <h2 className="text-[18px] font-bold text-[#111827] mb-2">Connectors</h2>
+          <p className="text-[12px] text-[#6B7280] mb-5">
+            Configure which global connectors are available to this assistant. Availability here is separate from connector-level user access rules.
+          </p>
+          <div className="overflow-hidden border border-[#E5E7EB] rounded-xl">
+            <table className="w-full text-left">
+              <thead className="bg-[#F8FAFC] border-b border-[#E5E7EB] text-[10px] uppercase tracking-widest text-[#94A3B8]">
+                <tr>
+                  <th className="px-3 py-2">Connector</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Capabilities enabled for this assistant</th>
+                </tr>
+              </thead>
+              <tbody className="text-[12px] divide-y divide-[#F1F5F9]">
+                {connectorRows.map(({ connector, connectorCapabilities, enabled }) => (
+                  <tr key={connector.id}>
+                    <td className="px-3 py-2 font-semibold text-[#111827]">{connector.name}</td>
+                    <td className="px-3 py-2">
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={enabled}
+                          onChange={(event) => toggleConnectorForAssistant(connector.id, event.target.checked)}
+                        />
+                        <span>{enabled ? 'Enabled' : 'Not available'}</span>
+                      </label>
+                    </td>
+                    <td className="px-3 py-2 text-[#64748B]">
+                      {connectorCapabilities.length > 0
+                        ? connectorCapabilities.map((capability) => capability.title).join(', ')
+                        : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="bg-white border border-[#E5E7EB] rounded-lg p-8">
+          <h2 className="text-[18px] font-bold text-[#111827] mb-2">Invocation Decision</h2>
+          <p className="text-[12px] text-[#6B7280] mb-5">Runtime routing checks and capability assignment preview for this assistant.</p>
+          <div className="grid grid-cols-3 gap-3 mb-5">
+            <div className="p-3 border border-[#E5E7EB] rounded-lg bg-[#F8FAFC]">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-[#94A3B8]">Visibility</div>
+              <div className="text-[13px] font-semibold text-[#111827]">{selectedGroups.length} groups · {selectedUsers.length} users</div>
+            </div>
+            <div className="p-3 border border-[#E5E7EB] rounded-lg bg-[#F8FAFC]">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-[#94A3B8]">Capabilities</div>
+              <div className="text-[13px] font-semibold text-[#111827]">{assignedCapabilities.length} assigned</div>
+            </div>
+            <div className="p-3 border border-[#E5E7EB] rounded-lg bg-[#F8FAFC]">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-[#94A3B8]">Fallback</div>
+              <div className="text-[13px] font-semibold text-[#111827]">Route to global</div>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {assignedCapabilities.length === 0 && (
+              <div className="text-[12px] text-[#6B7280] border border-dashed border-[#E5E7EB] rounded-lg p-4">
+                No platform capabilities assigned yet. Attach capabilities from the assistant wizard.
+              </div>
+            )}
+            {assignedCapabilities.map((capability) => (
+              <div key={capability.id} className="border border-[#E5E7EB] rounded-lg px-3 py-2">
+                <div className="text-[12px] font-semibold text-[#111827]">{capability.title}</div>
+                <div className="text-[11px] text-[#6B7280]">{capability.description}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-5 border border-[#E5E7EB] rounded-lg p-4 bg-[#F8FAFC] text-[12px] text-[#334155]">
+            <div className="font-semibold text-[#111827] mb-2">Test with this assistant</div>
+            <div>Prompt: “My laptop is broken. Can you help?”</div>
+            <div>Connector selected: {connectorRows.find((row) => row.enabled)?.connector?.name || 'No connector available'}</div>
+            <div>Confirmation preview: {assignedCapabilities.some((cap) => cap.category === 'action') ? 'Ask before executing write actions' : 'Not required for read-only actions'}</div>
+          </div>
         </div>
 
         {/* Bottom Support/Help as seen in modern apps */}

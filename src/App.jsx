@@ -9,7 +9,7 @@ const PROTOTYPES = [
   {
     id: "ai-assistant-studio",
     title: "AI Assistant Studio (Premium)",
-    description: "Complete Staffbase Studio experience for configuring Identity, Knowledge, Assistants, Flows, Integrations and Settings.",
+    description: "Complete Staffbase Studio experience for configuring Identity, Knowledge, Assistants, Connectors, Flows, and Settings.",
     epic: "Navigator",
     status: "ready",
     icon: Sparkles,

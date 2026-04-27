@@ -1,10 +1,19 @@
-import { useState } from 'react';
-import { Check, BarChart2, Zap } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, BarChart2, Zap, Copy, Download, Plus, X } from 'lucide-react';
+import { useNotification } from '../../components/NotificationProvider';
 
 const PROVIDER_LABELS = { copilot_studio: 'Copilot Studio', gemini: 'Gemini', custom: 'Custom MCP' };
 const PROVIDER_COLORS = { copilot_studio: '#0078d4', gemini: '#1a73e8', custom: '#6B7280' };
 
 const TABS = ['Overview', 'Capabilities', 'Authentication', 'Test mode', 'Analytics'];
+const TARGET_GROUP_OPTIONS = ['All Employees', 'Managers', 'HR Team', 'Finance Team', 'Legal Team', 'IT Team', 'New Joiners', 'Executives'];
+const TARGET_USER_OPTIONS = [
+  'alex.meyer@staffbase.com',
+  'maria.schmidt@staffbase.com',
+  'john.doe@staffbase.com',
+  'liam.chen@staffbase.com',
+  'sarah.lee@staffbase.com',
+];
 
 function StatCard({ label, value, sub, color }) {
   return (
@@ -63,40 +72,186 @@ function OverviewTab({ agent }) {
   );
 }
 
-function CapabilitiesTab({ agent }) {
-  const topics = agent.selectedTopics || ['IT Support', 'Security'];
-  const examples = agent.exampleQueries || ['Reset my laptop password', 'VPN not connecting', 'Request software license'];
-  const threshold = agent.confidenceThreshold || 0.75;
+function generateManifestYaml({ agentName, connectorName, endpoint, topics, capabilityMap }) {
+  const capabilityLines = capabilityMap.map((capability) => [
+    `  - id: ${capability.id}`,
+    `    title: "${capability.title}"`,
+    `    category: "${capability.category}"`,
+    `    operation: "${capability.name}"`,
+    `    source: "${capability.source}"`,
+    `    sample_queries:`,
+    ...capability.sampleQueries.map((query) => `      - "${query}"`),
+  ].join('\n')).join('\n');
+
+  return `# Navigator Agent Manifest
+# Routing contract for: ${agentName}
+# Derived from MCP discovery output
+
+agent:
+  name: "${agentName}"
+  connector: "${connectorName}"
+  protocol: "mcp"
+  endpoint: "${endpoint}"
+
+discovery:
+  source: "tools/list"
+  capabilities_detected: ${capabilityMap.length}
+
+routing:
+  topic_areas:
+${topics.map((topic) => `    - ${topic}`).join('\n')}
+
+  capability_map:
+${capabilityLines}
+
+  fallback:
+    behavior: "route_to_global"
+    escalation: "human_handoff"
+`;
+}
+
+function CapabilitiesTab({ agent, linkedConnector }) {
+  const { success } = useNotification();
+  const [view, setView] = useState('form');
+  const discoveredTools = linkedConnector?.tools || [];
+  const capabilityMap = useMemo(
+    () => discoveredTools.map((tool) => ({
+      id: `${linkedConnector?.id || 'connector'}:${tool.id}`,
+      name: tool.name,
+      title: tool.title,
+      category: tool.category,
+      source: linkedConnector?.name || 'Unknown connector',
+      sampleQueries: [
+        `Run ${tool.title} for this user`,
+        `Help me with ${tool.title.toLowerCase()}`,
+      ],
+      inputSchema: tool.inputSchema || [],
+    })),
+    [discoveredTools, linkedConnector]
+  );
+  const topics = agent.selectedTopics || linkedConnector?.agentMeta?.supportedTopics || ['IT Support'];
+  const yaml = generateManifestYaml({
+    agentName: agent.name,
+    connectorName: linkedConnector?.name || agent.sourceConnectorName || 'Unlinked connector',
+    endpoint: linkedConnector?.endpoint || agent.endpoint || 'n/a',
+    topics,
+    capabilityMap,
+  });
+
+  function handleCopy() {
+    navigator.clipboard?.writeText(yaml);
+    success('Copied', 'Manifest YAML copied to clipboard.');
+  }
+
+  function handleDownload() {
+    const blob = new Blob([yaml], { type: 'text/yaml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${agent.name.replace(/\s+/g, '-').toLowerCase()}-manifest.yaml`;
+    a.click();
+    URL.revokeObjectURL(url);
+    success('Downloaded', 'Manifest YAML file downloaded.');
+  }
 
   return (
     <div className="space-y-5">
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <h4 className="text-sm font-semibold text-gray-800 mb-3">Declared intent areas</h4>
-        <div className="flex flex-wrap gap-2 mb-4">
-          {topics.map(t => (
-            <span key={t} className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-xs font-medium">{t}</span>
+      {/* View toggle */}
+      <div className="flex items-center justify-between">
+        <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+          {[['form', 'Form'], ['yaml', 'Manifest YAML']].map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => setView(val)}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                view === val ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {label}
+            </button>
           ))}
         </div>
-        <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-          <div className="flex-1">
-            <div className="text-xs font-medium text-gray-600 mb-1">Confidence threshold</div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${threshold * 100}%` }} />
-            </div>
+        {view === 'yaml' && (
+          <div className="flex gap-2">
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              <Copy size={12} /> Copy YAML
+            </button>
+            <button
+              onClick={handleDownload}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              <Download size={12} /> Download .yaml
+            </button>
           </div>
-          <div className="text-sm font-bold text-gray-800">{threshold}</div>
-        </div>
+        )}
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <h4 className="text-sm font-semibold text-gray-800 mb-3">Example queries</h4>
-        <div className="flex flex-wrap gap-2">
-          {examples.map((q, i) => (
-            <span key={i} className="px-2.5 py-1.5 bg-gray-100 rounded-lg text-xs text-gray-700">"{q}"</span>
-          ))}
+      {view === 'form' && (
+        <>
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <h4 className="text-sm font-semibold text-gray-800 mb-2">Discovery source</h4>
+            <p className="text-xs text-gray-600">
+              Capability map is simulated from MCP `tools/list` on the linked connector: <span className="font-semibold">{linkedConnector?.name || 'Unlinked connector'}</span>.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {capabilityMap.map((capability) => (
+              <div key={capability.id} className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900">{capability.title}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{capability.name} · {capability.category}</div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full border text-[10px] font-semibold bg-violet-50 text-violet-700 border-violet-200">
+                    discovered
+                  </span>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-500 mb-1.5">Sample routing queries</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {capability.sampleQueries.map((query) => (
+                      <span key={query} className="px-2.5 py-1 bg-gray-100 rounded-lg text-xs text-gray-700">
+                        "{query}"
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-500 mb-1.5">Input schema</div>
+                  <div className="space-y-1">
+                    {capability.inputSchema.map((param) => (
+                      <div key={param.name} className="text-xs text-gray-600">
+                        <span className="font-semibold text-gray-800">{param.name}</span> · {param.type}{param.required ? '' : ' (optional)'}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-start gap-3 p-4 bg-purple-50 border border-purple-200 rounded-xl">
+            <Zap size={15} className="text-purple-600 mt-0.5 shrink-0" />
+            <p className="text-[13px] text-purple-800">
+              Navigator will route queries across <span className="font-bold">{topics.length} topic area{topics.length !== 1 ? 's' : ''}</span> and <span className="font-bold">{capabilityMap.length} discovered capabilities</span> from this linked MCP connector.
+            </p>
+          </div>
+        </>
+      )}
+
+      {view === 'yaml' && (
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+            <h4 className="text-sm font-semibold text-gray-800">Navigator Agent Manifest</h4>
+            <p className="text-xs text-gray-500 mt-0.5">The routing contract Navigator uses to decide when to call this agent</p>
+          </div>
+          <pre className="text-[12px] bg-gray-900 text-green-400 p-5 overflow-x-auto font-mono leading-relaxed">{yaml}</pre>
         </div>
-        <p className="text-xs text-gray-400 mt-3">These examples help the Navigator router decide when to call this agent.</p>
-      </div>
+      )}
     </div>
   );
 }
@@ -185,7 +340,7 @@ function AuthenticationTab({ agent }) {
 
 const TEST_USERS = ['Jane Smith (Engineering)', 'John Doe (HR)', 'Sarah Lee (IT Team)', 'Mark Chen (Finance)'];
 
-function TestModeTab({ agent }) {
+function TestModeTab({ agent, policyProfile }) {
   const [testUser, setTestUser] = useState(TEST_USERS[0]);
   const [testQuery, setTestQuery] = useState('');
   const [isRunning, setIsRunning] = useState(false);
@@ -201,7 +356,10 @@ function TestModeTab({ agent }) {
         intent: (agent.selectedTopics || ['IT Support'])[0],
         confidence: 0.91,
         groupCheck: 'passed',
+        policyCheck: policyProfile?.visibility?.enabled ? 'passed' : 'skipped',
+        invocationCheck: policyProfile?.invocation?.enabled ? 'passed' : 'skipped',
         latency: '1.1s',
+        fallbackReason: null,
         response: `Hi Jane! I can help you with that. Based on your request about "${testQuery}", I'm connecting to the ${agent.name} system to resolve this for you.\n\nPlease allow 2-3 minutes for the ticket to be created and assigned to the right team.`,
         type: 'external',
       });
@@ -262,6 +420,14 @@ function TestModeTab({ agent }) {
             </div>
           </div>
           <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Invocation Decision</div>
+            <div className="grid grid-cols-3 gap-3 text-xs">
+              <div className="p-2 rounded-lg bg-gray-50 border border-gray-100">Visibility policy: <span className="font-semibold text-green-700">{result.policyCheck}</span></div>
+              <div className="p-2 rounded-lg bg-gray-50 border border-gray-100">Invocation policy: <span className="font-semibold text-green-700">{result.invocationCheck}</span></div>
+              <div className="p-2 rounded-lg bg-gray-50 border border-gray-100">Fallback reason: <span className="font-semibold text-gray-700">{result.fallbackReason || 'none'}</span></div>
+            </div>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Agent response</div>
             <p className="text-sm text-gray-800 whitespace-pre-line">{result.response}</p>
           </div>
@@ -292,8 +458,31 @@ function AnalyticsTab() {
   );
 }
 
-export default function ExternalAgentDetail({ agent, onBack }) {
+export default function ExternalAgentDetail({
+  agent,
+  onBack,
+  policyProfile,
+  connectors = [],
+  onOpenConnectors = () => {},
+  onAgentUpdate = () => {},
+}) {
   const [activeTab, setActiveTab] = useState('Overview');
+  const [targetGroups, setTargetGroups] = useState(agent.targetGroups || agent.groups || ['All Employees']);
+  const [targetUsers, setTargetUsers] = useState(agent.targetUsers || []);
+  const linkedConnector = (connectors || []).find((connection) => connection.id === agent.sourceConnectorId) || null;
+  const linkedName = linkedConnector?.name || agent.sourceConnectorName || 'Unlinked connector';
+  const linkedState = linkedConnector?.connectionState || 'disabled';
+  const linkedStatusStyles = {
+    connected: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    testing: 'bg-amber-50 text-amber-700 border-amber-200',
+    error: 'bg-rose-50 text-rose-700 border-rose-200',
+    disabled: 'bg-slate-100 text-slate-600 border-slate-200',
+  };
+
+  useEffect(() => {
+    setTargetGroups(agent.targetGroups || agent.groups || ['All Employees']);
+    setTargetUsers(agent.targetUsers || []);
+  }, [agent.id, agent.targetGroups, agent.groups, agent.targetUsers]);
 
   return (
     <div className="animate-in slide-in-from-right-4 duration-500">
@@ -329,6 +518,89 @@ export default function ExternalAgentDetail({ agent, onBack }) {
       </div>
 
       {/* Tabs */}
+      <div className="mb-5 rounded-xl border border-[#E5E7EB] bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-[11px] font-black uppercase tracking-widest text-[#64748B]">Linked MCP Connector</div>
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-[14px] font-semibold text-[#111827]">{linkedName}</span>
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${linkedStatusStyles[linkedState] || linkedStatusStyles.disabled}`}>
+                {linkedState}
+              </span>
+            </div>
+            <p className="mt-1 text-[12px] text-[#64748B]">
+              {linkedConnector
+                ? `${linkedConnector.provider} · Last used ${linkedConnector.lastUsedAt || 'Never'} · Last tested ${linkedConnector.lastTestedAt || 'Never'}`
+                : 'This external assistant is not linked to a configured MCP connector.'}
+            </p>
+          </div>
+          <button
+            onClick={onOpenConnectors}
+            className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-gray-50 transition-colors text-gray-700"
+          >
+            Open in Connectors
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-5 rounded-xl border border-[#E5E7EB] bg-white p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-[11px] font-black uppercase tracking-widest text-[#64748B]">Assistant targeting</div>
+            <p className="mt-1 text-[12px] text-[#64748B]">Select one or more groups and/or users for this external assistant.</p>
+          </div>
+          <button
+            onClick={() => {
+              onAgentUpdate({
+                ...agent,
+                groups: targetGroups,
+                targetGroups,
+                targetUsers,
+              });
+            }}
+            className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm hover:bg-gray-50 transition-colors text-gray-700"
+          >
+            Save targeting
+          </button>
+        </div>
+        <div className="mt-3">
+          <div className="text-[11px] font-semibold text-gray-600 mb-1.5">Groups</div>
+          <div className="flex flex-wrap gap-2">
+            {TARGET_GROUP_OPTIONS.map((group) => (
+              <button
+                key={group}
+                onClick={() => setTargetGroups((prev) => prev.includes(group) ? prev.filter((item) => item !== group) : [...prev, group])}
+                className={`px-3 py-1 rounded-full text-[12px] border ${
+                  targetGroups.includes(group)
+                    ? 'bg-blue-50 border-blue-200 text-blue-700'
+                    : 'bg-white border-gray-200 text-gray-600'
+                }`}
+              >
+                {group}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-3">
+          <div className="text-[11px] font-semibold text-gray-600 mb-1.5">Users</div>
+          <div className="flex flex-wrap gap-2">
+            {TARGET_USER_OPTIONS.map((user) => (
+              <button
+                key={user}
+                onClick={() => setTargetUsers((prev) => prev.includes(user) ? prev.filter((item) => item !== user) : [...prev, user])}
+                className={`px-3 py-1 rounded-full text-[12px] border ${
+                  targetUsers.includes(user)
+                    ? 'bg-sky-50 border-sky-200 text-sky-700'
+                    : 'bg-white border-gray-200 text-gray-600'
+                }`}
+              >
+                {user}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="flex gap-1 border-b border-gray-200 mb-6">
         {TABS.map(tab => (
           <button
@@ -347,9 +619,9 @@ export default function ExternalAgentDetail({ agent, onBack }) {
       </div>
 
       {activeTab === 'Overview' && <OverviewTab agent={agent} />}
-      {activeTab === 'Capabilities' && <CapabilitiesTab agent={agent} />}
+      {activeTab === 'Capabilities' && <CapabilitiesTab agent={agent} linkedConnector={linkedConnector} />}
       {activeTab === 'Authentication' && <AuthenticationTab agent={agent} />}
-      {activeTab === 'Test mode' && <TestModeTab agent={agent} />}
+      {activeTab === 'Test mode' && <TestModeTab agent={agent} policyProfile={policyProfile} />}
       {activeTab === 'Analytics' && <AnalyticsTab />}
     </div>
   );
