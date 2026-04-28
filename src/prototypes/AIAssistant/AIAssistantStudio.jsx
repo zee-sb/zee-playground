@@ -17,7 +17,7 @@ import DeploymentTab from './DeploymentTab';
 import FlowsTab from './FlowsTab';
 import CapabilitiesTab from './CapabilitiesTab';
 import PlatformConnectionsHub from './PlatformConnectionsHub';
-import RoutingMatrixTab from './RoutingMatrixTab';
+import AccessExplorerTab from './AccessExplorerTab';
 import { ChatWidget } from '../../chat-widget/ChatWidget';
 import { PhoneMockup } from '../../components/PhoneMockup';
 
@@ -535,7 +535,7 @@ const AIAssistantStudio = ({ onBack }) => {
   const tabs = [
     { id: 'identity', label: 'Identity' },
     { id: 'assistants', label: 'Assistants' },
-    { id: 'routing_matrix', label: 'Routing Map' },
+    { id: 'access-explorer', label: 'Access Explorer' },
     { id: 'knowledge', label: 'Knowledge' },
     { id: 'capabilities', label: 'Connectors' },
     { id: 'flows', label: 'Explore Flows' },
@@ -654,7 +654,7 @@ const AIAssistantStudio = ({ onBack }) => {
                     onNavigate={setCurrentModule}
                   />
                 )}
-                {activeTab === 'routing_matrix' && <RoutingMatrixTab assistants={assistantAssignments} />}
+                {activeTab === 'access-explorer' && <AccessExplorerTab assistants={assistantAssignments} />}
                 {activeTab === 'flows' && <FlowsTab />}
                 {activeTab === 'deployment' && <DeploymentTab />}
                 {activeTab === 'settings' && <SettingsTab />}
