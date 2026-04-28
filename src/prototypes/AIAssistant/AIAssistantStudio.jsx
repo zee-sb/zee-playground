@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ExternalLink, Smartphone, Check } from 'lucide-react';
 import { useNotification } from '../../components/NotificationProvider';
 import { StudioShell } from '../../components/StudioShell';
@@ -16,6 +17,7 @@ import DeploymentTab from './DeploymentTab';
 import FlowsTab from './FlowsTab';
 import CapabilitiesTab from './CapabilitiesTab';
 import PlatformConnectionsHub from './PlatformConnectionsHub';
+import RoutingMatrixTab from './RoutingMatrixTab';
 import { ChatWidget } from '../../chat-widget/ChatWidget';
 import { PhoneMockup } from '../../components/PhoneMockup';
 
@@ -420,15 +422,77 @@ function enrichConnections(connections) {
 }
 
 const AIAssistantStudio = ({ onBack }) => {
-  const [currentModule, setCurrentModule] = useState('navigator');
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // URL Path Parsing
+  const pathParts = location.pathname.split('/').filter(Boolean);
+  const studioIdx = pathParts.indexOf('ai-assistant-studio');
+  const basePath = studioIdx !== -1 ? '/' + pathParts.slice(0, studioIdx + 1).join('/') : '/prototypes/ai-assistant-studio';
+  
+  const moduleSegment = pathParts[studioIdx + 1];
+  const tabSegment = pathParts[studioIdx + 2];
+  const idSegment = pathParts[studioIdx + 3];
+
+  const currentModule = moduleSegment === 'connections' ? 'connections' : 'navigator';
+  const activeTab = tabSegment || 'identity';
+
+  // Global State (persists across routes)
   const [platformConnections, setPlatformConnections] = useState(enrichConnections(INITIAL_PLATFORM_CONNECTIONS));
   const [assistantAssignments, setAssistantAssignments] = useState(INITIAL_ASSISTANTS);
   const [policies, setPolicies] = useState(DEFAULT_POLICIES);
-  const [activeTab, setActiveTab] = useState('identity');
   const [showPreview, setShowPreview] = useState(true);
   const [isFloating, setIsFloating] = useState(true);
-  const [selectedAssistant, setSelectedAssistant] = useState(null);
-  const [selectedExternalAgent, setSelectedExternalAgent] = useState(null);
+
+  // Derived routing state
+  let selectedAssistant = null;
+  let selectedExternalAgent = null;
+
+  if (currentModule === 'navigator' && activeTab === 'assistants' && idSegment) {
+    if (idSegment === 'new') {
+      selectedAssistant = { _new: true };
+    } else if (idSegment === 'new-external') {
+      selectedAssistant = { _new: true, _startExternal: true };
+    } else {
+      const found = assistantAssignments.find(a => a.id === idSegment);
+      if (found) {
+        if (found.type === 'external') {
+          selectedExternalAgent = found;
+        } else {
+          selectedAssistant = found;
+        }
+      }
+    }
+  }
+
+  // Enforce default route
+  useEffect(() => {
+    if (studioIdx !== -1 && !moduleSegment) {
+      navigate(`${basePath}/navigator/identity`, { replace: true });
+    }
+  }, [studioIdx, moduleSegment, navigate, basePath]);
+
+  // Shim Setters (convert state changes to URL changes)
+  const setCurrentModule = (mod) => {
+    if (mod === 'connections') navigate(`${basePath}/connections`);
+    else navigate(`${basePath}/navigator/${activeTab === 'assistants' && idSegment ? 'assistants' : activeTab}`);
+  };
+
+  const setActiveTab = (tab) => navigate(`${basePath}/navigator/${tab}`);
+  
+  const setSelectedAssistant = (ast) => {
+    if (!ast) navigate(`${basePath}/navigator/assistants`);
+    else if (ast._new) {
+      navigate(`${basePath}/navigator/assistants/${ast._startExternal ? 'new-external' : 'new'}`);
+    } else {
+      navigate(`${basePath}/navigator/assistants/${ast.id}`);
+    }
+  };
+  
+  const setSelectedExternalAgent = (ast) => {
+    if (!ast) navigate(`${basePath}/navigator/assistants`);
+    else navigate(`${basePath}/navigator/assistants/${ast.id}`);
+  };
   const { success } = useNotification();
 
   const hasAgentConnector = platformConnections.some((connection) => connection.type === 'full_agent');
@@ -471,6 +535,7 @@ const AIAssistantStudio = ({ onBack }) => {
   const tabs = [
     { id: 'identity', label: 'Identity' },
     { id: 'assistants', label: 'Assistants' },
+    { id: 'routing_matrix', label: 'Routing Map' },
     { id: 'knowledge', label: 'Knowledge' },
     { id: 'capabilities', label: 'Connectors' },
     { id: 'flows', label: 'Explore Flows' },
@@ -589,6 +654,7 @@ const AIAssistantStudio = ({ onBack }) => {
                     onNavigate={setCurrentModule}
                   />
                 )}
+                {activeTab === 'routing_matrix' && <RoutingMatrixTab assistants={assistantAssignments} />}
                 {activeTab === 'flows' && <FlowsTab />}
                 {activeTab === 'deployment' && <DeploymentTab />}
                 {activeTab === 'settings' && <SettingsTab />}

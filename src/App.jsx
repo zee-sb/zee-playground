@@ -102,7 +102,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Gallery />} />
-      <Route path="/prototypes/:id" element={<PrototypeViewer />} />
+      <Route path="/prototypes/:id/*" element={<PrototypeViewer />} />
     </Routes>
   );
 }

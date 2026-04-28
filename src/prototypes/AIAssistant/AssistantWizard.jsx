@@ -38,6 +38,72 @@ function StepIndicator({ current, steps }) {
   );
 }
 
+// ── MULTI-SELECT WITH PILLS ──────────────────────────────────────────
+function MultiSelectPills({ options, selected, onChange, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const unselectedOptions = options.filter(o => !selected.includes(o));
+
+  return (
+    <div className="space-y-2 relative">
+      {/* Selected Pills */}
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {selected.map(item => (
+            <span key={item} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#F3F4F6] rounded-lg text-[12px] text-[#374151] font-medium border border-[#E5E7EB]">
+              {item}
+              <button 
+                type="button"
+                onClick={() => onChange(selected.filter(x => x !== item))}
+                className="text-[#9CA3AF] hover:text-[#EF4444] ml-0.5 rounded-full hover:bg-gray-200 p-0.5 transition-colors"
+              >
+                <X size={12} strokeWidth={3} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Dropdown Toggle */}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="w-full flex items-center justify-between px-4 py-2 text-left border border-[#E5E7EB] rounded-md focus:ring-1 focus:ring-[#0055F9] focus:outline-none bg-white text-[13px] text-[#6B7280] hover:border-[#D1D5DB] transition-colors shadow-sm"
+        >
+          <span>{placeholder}</span>
+          <ChevronDown size={16} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        </button>
+
+        {/* Dropdown Menu */}
+        {open && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+            <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white border border-[#E5E7EB] rounded-md shadow-lg max-h-[240px] overflow-y-auto py-1">
+              {unselectedOptions.length === 0 ? (
+                <div className="px-4 py-3 text-[12px] text-[#9CA3AF] text-center italic">All options selected</div>
+              ) : (
+                unselectedOptions.map(option => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => {
+                      onChange([...selected, option]);
+                      setOpen(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-[13px] text-[#374151] hover:bg-[#F3F4F6] transition-colors"
+                  >
+                    {option}
+                  </button>
+                ))
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── STEP 0: TYPE SELECTION ───────────────────────────────────────────
 function StepTypeSelection({ onSelect }) {
   const options = [
@@ -293,8 +359,8 @@ function StepExternalConnection({ data, setData, agentConnectors = [] }) {
 function StepExternalCapabilities({ data, setData }) {
   const { success } = useNotification();
   const [newQuery, setNewQuery] = useState('');
-  const [manifestParsed, setManifestParsed] = useState(false);
-  const manifestMode = data.manifestMode || 'wizard';
+  const [discovering, setDiscovering] = useState(false);
+  const discovered = data.discovered || false;
 
   function toggleTopic(t) {
     const topics = data.selectedTopics || [];
@@ -314,17 +380,20 @@ function StepExternalCapabilities({ data, setData }) {
     setData(d => ({ ...d, exampleQueries: (d.exampleQueries || []).filter((_, idx) => idx !== i) }));
   }
 
-  function parseManifest() {
-    setData(d => ({
-      ...d,
-      selectedTopics: ['IT Support', 'Security'],
-      exampleQueries: ['Reset my laptop password', 'VPN not connecting', 'Request software license'],
-      confidenceThreshold: 0.75,
-      fallback: 'global',
-      manifestMode: 'wizard',
-    }));
-    setManifestParsed(true);
-    success('Manifest parsed', '2 intents detected from Navigator Agent Manifest');
+  function runDiscovery() {
+    setDiscovering(true);
+    setTimeout(() => {
+      setData(d => ({
+        ...d,
+        selectedTopics: ['IT Support', 'Security'],
+        exampleQueries: ['Reset my laptop password', 'VPN not connecting', 'Request software license'],
+        confidenceThreshold: 0.75,
+        fallback: 'global',
+        discovered: true,
+      }));
+      setDiscovering(false);
+      success('Auto-Discovery Complete', 'Discovered 2 intents and 3 example queries via MCP listPrompts.');
+    }, 1500);
   }
 
   const hasConflict = (data.selectedTopics || []).includes('IT Support') &&
@@ -339,51 +408,29 @@ function StepExternalCapabilities({ data, setData }) {
         </p>
       </div>
 
-      {/* Mode toggle */}
-      <div className="flex gap-1 p-1 bg-[#F3F4F6] rounded-lg w-fit">
-        {[['wizard', 'Wizard'], ['manifest', 'Upload Manifest']].map(([val, label]) => (
-          <button
-            key={val}
-            onClick={() => setData(d => ({ ...d, manifestMode: val }))}
-            className={`px-4 py-1.5 rounded-md text-[13px] font-bold transition-all ${
-              manifestMode === val ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#111827]'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {/* Manifest upload mode */}
-      {manifestMode === 'manifest' && (
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-[14px] font-bold text-[#111827]">Navigator Agent Manifest (YAML)</label>
-            <textarea
-              value={data.manifestYaml || ''}
-              onChange={e => setData(d => ({ ...d, manifestYaml: e.target.value }))}
-              placeholder={`navigator_manifest_version: "1.0"\nagent:\n  id: "acme-it-helpdesk"\n  display_name: "IT Helpdesk Agent"\n  provider: "copilot_studio"\ncapabilities:\n  intents:\n    - id: "password_reset"\n      description: "User wants to reset a password"\n      example_queries: ["I can't log in", "reset my password"]\n  topics: ["IT Support", "Security"]\nrouting:\n  priority: 10\n  fallback_behavior: "pass_to_global_agent"`}
-              className="w-full min-h-[200px] p-4 border border-[#E5E7EB] rounded-md font-mono text-[12px] leading-relaxed bg-[#FAFAFA] focus:ring-1 focus:ring-[#0055F9] outline-none resize-none"
-            />
+      {!discovered ? (
+        <div className="p-8 border-2 border-dashed border-[#E5E7EB] rounded-lg bg-[#FAFAFA] flex flex-col items-center text-center">
+          <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm border border-[#E5E7EB] mb-4">
+             <Zap size={20} className="text-[#7C3AED]" />
           </div>
+          <h4 className="text-[14px] font-bold text-[#111827] mb-2">Auto-Discover via MCP</h4>
+          <p className="text-[13px] text-[#6B7280] max-w-sm mb-6">
+            Navigator will ping the external agent's endpoint to pull supported intents, topics, and prompts automatically.
+          </p>
           <button
-            onClick={parseManifest}
-            className="px-6 py-2 bg-[#111827] text-white text-[13px] font-bold rounded-md hover:bg-[#1F2937] transition-colors"
+            onClick={runDiscovery}
+            disabled={discovering}
+            className="px-6 py-2.5 bg-[#111827] text-white text-[13px] font-bold rounded-md hover:bg-[#1F2937] transition-colors flex items-center gap-2 disabled:opacity-50 shadow-sm"
           >
-            Parse Manifest
+            {discovering ? <><Loader2 size={16} className="animate-spin" /> Discovering...</> : 'Run Discovery'}
           </button>
-          {manifestParsed && (
-            <div className="flex items-center gap-2 p-3 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg text-[13px] text-[#166534] font-medium">
-              <Check size={14} strokeWidth={3} /> Parsed — 2 intents detected. Switching to wizard view.
-            </div>
-          )}
-          <p className="text-[12px] text-[#9CA3AF]">Paste your Navigator Agent Manifest YAML. Click Parse to auto-fill the wizard fields.</p>
         </div>
-      )}
+      ) : (
+        <div className="space-y-6 animate-in fade-in duration-500">
+           <div className="flex items-center gap-2 p-3 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg text-[13px] text-[#166534] font-medium mb-2">
+             <Check size={14} strokeWidth={3} /> Successfully discovered intents from MCP server. Review or adjust them below.
+           </div>
 
-      {/* Wizard mode */}
-      {manifestMode === 'wizard' && (
-        <div className="space-y-6">
           {hasConflict && (
             <div className="flex items-start gap-3 p-4 rounded-lg bg-amber-50 border border-amber-200">
               <AlertTriangle size={15} className="text-amber-500 mt-0.5 shrink-0" />
@@ -568,46 +615,24 @@ function StepUnifiedGovernance({ data, setData, platformConnections = [] }) {
 
          <div className="space-y-3">
             <label className="text-[14px] font-bold text-[#111827]">Visibility Groups</label>
-            <div className="flex flex-wrap gap-2">
-               {ALL_GROUPS.map(g => (
-                 <button
-                   key={g}
-                   onClick={() => setData(d => ({ ...d, selectedGroups: d.selectedGroups.includes(g) ? d.selectedGroups.filter(x => x !== g) : [...d.selectedGroups, g]}))}
-                   className={`px-4 py-1.5 rounded-full text-[12.5px] font-medium transition-all ${
-                     data.selectedGroups.includes(g) 
-                        ? 'bg-[#0055F9] text-white' 
-                        : 'bg-white text-[#6B7280] border border-[#E5E7EB] hover:bg-[#F9FAFB]'
-                   }`}
-                 >
-                   {g}
-                 </button>
-               ))}
-            </div>
+            <p className="text-[12px] text-[#6B7280]">Select the employee groups that should have access to this assistant.</p>
+            <MultiSelectPills 
+              options={ALL_GROUPS} 
+              selected={data.selectedGroups || []} 
+              onChange={(newSelected) => setData(d => ({ ...d, selectedGroups: newSelected }))}
+              placeholder="Add visibility group..."
+            />
          </div>
 
          <div className="space-y-3">
             <label className="text-[14px] font-bold text-[#111827]">Target users</label>
             <p className="text-[12px] text-[#6B7280]">Optional direct allowlist for individual users.</p>
-            <div className="flex flex-wrap gap-2">
-               {ALL_USERS.map((user) => (
-                 <button
-                   key={user}
-                   onClick={() => setData((d) => ({
-                     ...d,
-                     targetUsers: (d.targetUsers || []).includes(user)
-                       ? (d.targetUsers || []).filter((item) => item !== user)
-                       : [...(d.targetUsers || []), user],
-                   }))}
-                   className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-all ${
-                     (data.targetUsers || []).includes(user)
-                       ? 'bg-[#0EA5E9] text-white'
-                       : 'bg-white text-[#6B7280] border border-[#E5E7EB] hover:bg-[#F9FAFB]'
-                   }`}
-                 >
-                   {user}
-                 </button>
-               ))}
-            </div>
+            <MultiSelectPills 
+              options={ALL_USERS} 
+              selected={data.targetUsers || []} 
+              onChange={(newSelected) => setData(d => ({ ...d, targetUsers: newSelected }))}
+              placeholder="Add specific user..."
+            />
          </div>
 
          <div className="grid grid-cols-2 gap-8 pt-4 border-t border-[#F3F4F6]">
