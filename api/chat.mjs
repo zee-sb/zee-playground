@@ -28,7 +28,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { messages, tools, model = 'gpt-4o-mini' } = req.body || {};
+  const { messages, tools, model = 'gpt-5-mini' } = req.body || {};
 
   if (!messages?.length) {
     res.status(400).json({ error: 'messages array is required' });
