@@ -744,7 +744,22 @@ function ChatTab({ session }) {
     setInput('');
 
     try {
-      let currentMessages = [...history];
+      const today = new Date().toISOString().split('T')[0];
+      const nextMonday = (() => {
+        const d = new Date(); d.setDate(d.getDate() + (8 - d.getDay()) % 7 || 7); return d.toISOString().split('T')[0];
+      })();
+      const systemMessage = {
+        role: 'system',
+        content: `You are a helpful HR assistant for Acme Corp with access to HR tools.
+Rules:
+- Always call tools immediately without asking clarifying questions.
+- For time-off requests: interpret relative dates ("next week", "Friday", "tomorrow") and call submit_time_off_request right away with calculated dates. The user will see a confirmation form to review and adjust before anything is submitted, so never ask them to confirm dates first.
+- For employee lookups: call lookup_employee immediately with whatever name/dept/role was mentioned.
+- For PTO balance checks: call check_pto_balance immediately.
+- Today's date: ${today}. Next Monday: ${nextMonday}.
+- Authenticated user: ${session?.user?.name} (${session?.user?.title}, ${session?.user?.department}).`,
+      };
+      let currentMessages = [systemMessage, ...history];
       for (let round = 0; round < 6; round++) {
         const res = await fetch(CHAT_BASE, {
           method: 'POST',
