@@ -223,6 +223,72 @@ function RequestConfirmedCard({ data }) {
   );
 }
 
+// ── User Profile Card ─────────────────────────────────────────────────────────
+
+const MANAGER_NAMES = {
+  'alice@acme.com': 'Alice Chen',
+  'bob@acme.com': 'Bob Smith',
+  'carol@acme.com': 'Carol Davis',
+  'dave@acme.com': 'Dave Wilson',
+  'eve@acme.com': 'Eve Martinez',
+  'frank@acme.com': 'Frank Lee',
+};
+
+function UserProfileCard({ user }) {
+  const color = deptColor(user.department);
+  const pct = Math.min(100, Math.round((user.ptoBalance / 30) * 100));
+  const ptoColor = user.ptoBalance >= 15 ? '#059669' : user.ptoBalance >= 7 ? '#D97706' : '#DC2626';
+  const managerName = user.manager ? (MANAGER_NAMES[user.manager] || user.manager) : null;
+
+  return (
+    <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-sm overflow-hidden">
+      <div className="h-16 relative" style={{ background: `linear-gradient(135deg, ${color}22, ${color}44)` }}>
+        <div
+          className="absolute bottom-0 left-4 translate-y-1/2 w-12 h-12 rounded-xl grid place-items-center text-white font-bold text-base shadow-md border-2 border-white"
+          style={{ background: color }}
+        >
+          {initials(user.name)}
+        </div>
+      </div>
+      <div className="px-4 pt-8 pb-4 space-y-3">
+        <div>
+          <p className="font-semibold text-[#111827] text-sm leading-tight">{user.name}</p>
+          <p className="text-xs text-[#6B7280] mt-0.5">{user.title}</p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <span className="px-2 py-0.5 rounded-full text-[11px] font-medium text-white" style={{ background: color }}>
+            {user.department}
+          </span>
+          <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#F3F4F6] text-[#374151] capitalize">
+            {user.role.replace('_', ' ')}
+          </span>
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="text-[#6B7280] font-medium">PTO Balance</span>
+            <span className="font-semibold" style={{ color: ptoColor }}>{user.ptoBalance} days</span>
+          </div>
+          <div className="h-1.5 bg-[#F3F4F6] rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: ptoColor }} />
+          </div>
+        </div>
+        <div className="space-y-1.5 pt-0.5">
+          <div className="flex items-center gap-1.5 text-[11px] text-[#6B7280]">
+            <Mail size={10} className="shrink-0" />
+            <span className="truncate">{user.email}</span>
+          </div>
+          {managerName && (
+            <div className="flex items-center gap-1.5 text-[11px] text-[#6B7280]">
+              <Users size={10} className="shrink-0" />
+              <span className="truncate">Reports to {managerName}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── PTO Request Form (date picker with validation) ────────────────────────────
 
 function PtoRequestForm({ suggestedArgs, onConfirm, onCancel }) {
@@ -1069,6 +1135,8 @@ export default function MCPDemoStudio({ onBack }) {
         </div>
 
         <div className="w-64 shrink-0 space-y-4">
+          {session && <UserProfileCard user={session.user} />}
+
           <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-sm p-4 space-y-3">
             <p className="text-xs font-bold uppercase tracking-wide text-[#6B7280]">Server Info</p>
             <div className="space-y-2 text-sm">

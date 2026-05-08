@@ -316,25 +316,29 @@ function buildServer(currentUser) {
 
   server.tool(
     'get_direct_reports',
-    'Get the direct reports for a given manager',
+    'Get the direct reports for a given manager. Defaults to the current authenticated user.',
     {
-      manager_email: z.string().email().describe('Email of the manager'),
+      manager_email: z.string().email().optional().describe('Email of the manager. Omit to use the current user.'),
     },
     async ({ manager_email }) => {
-      const manager = EMPLOYEES.find(e => e.email === manager_email);
+      const email = manager_email || currentUser?.email;
+      if (!email) {
+        return { content: [{ type: 'text', text: 'Authentication required or manager_email must be provided.' }], isError: true };
+      }
+      const manager = EMPLOYEES.find(e => e.email === email);
       if (!manager) {
-        return { content: [{ type: 'text', text: `Manager ${manager_email} not found.` }], isError: true };
+        return { content: [{ type: 'text', text: `Manager ${email} not found.` }], isError: true };
       }
 
       const reports = EMPLOYEES
-        .filter(e => e.manager === manager_email)
+        .filter(e => e.manager === email)
         .map(e => ({ id: e.id, name: e.name, email: e.email, title: e.title, department: e.department }));
 
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
-            manager: { name: manager.name, email: manager.email, title: manager.title },
+            manager: { name: manager.name, email: manager.email, title: manager.title, department: manager.department },
             directReports: reports,
             count: reports.length,
           }, null, 2),
