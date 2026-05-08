@@ -376,8 +376,9 @@ The suggestions must be:
         if (delta.content) {
           roundContent += delta.content;
           totalContent += delta.content;
-          // Don't stream the <suggestions> block itself — buffer it silently
-          if (!delta.content.includes('<suggestions>') && !delta.content.includes('</suggestions>')) {
+          // Don't stream UI control tokens — buffer them silently
+          const isUIToken = delta.content.includes('<suggestions>') || delta.content.includes('</suggestions>') || delta.content.includes('<ticket-form>');
+          if (!isUIToken) {
             emit({ type: 'delta', content: delta.content });
           }
         }
@@ -420,17 +421,19 @@ The suggestions must be:
       loopMessages.push(...toolResults);
     }
 
-    // ── Step 5: Parse suggestions + clean content ───────────────────────────
+    // ── Step 5: Parse suggestions + special UI tokens + clean content ──────
     const suggestMatch = totalContent.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
     let suggestions = [];
     if (suggestMatch) {
       try { suggestions = JSON.parse(suggestMatch[1]); } catch { /* malformed */ }
     }
+    const ticketForm = /<ticket-form>/i.test(totalContent);
     const cleanContent = totalContent
       .replace(/<suggestions>[\s\S]*?<\/suggestions>/g, '')
+      .replace(/<ticket-form>/gi, '')
       .trim();
 
-    emit({ type: 'done', toolCallsExecuted, suggestions, cleanContent });
+    emit({ type: 'done', toolCallsExecuted, suggestions, cleanContent, ticketForm });
   } catch (err) {
     emit({ type: 'error', message: err.message });
   }

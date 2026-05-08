@@ -382,8 +382,13 @@ Status icons: 🔴 critical • 🟠 high • 🟡 medium • 🔵 low • ✅ r
 **Single ticket detail**
 Show: ticket ID in bold, status badge, priority, category, creation date, and the latest update. Keep it under 5 lines.
 
+**New ticket submission**
+When the user asks to submit a ticket WITHOUT providing the required fields (title, description, priority, category), output EXACTLY this token on its own line — nothing else before or after it on that line:
+<ticket-form>
+The Navigator UI will intercept this token and display a structured form. Do NOT ask for the fields yourself. Do NOT describe what a form would look like.
+
 **Ticket creation confirmation**
-"✅ Ticket **INC-XXXX** created. IT will respond within 1 business day."
+Show: ✅ **INC-XXXX** • [Category] • [Priority] badge • "[Title]" • "IT will respond within 1 business day."
 
 **Equipment list**
 Each item: **Device type** — Model name

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useContext, createContext } from 'r
 import {
   Users, Monitor, Zap, ChevronDown, ChevronRight,
   Send, LogOut, CheckCircle, Loader2, AlertCircle, Wifi,
-  Calendar, MapPin, Mail, Clock, Building2, X, FileText,
+  Calendar, MapPin, Mail, Clock, Building2, X, FileText, Wrench,
   ThumbsUp, ThumbsDown, Copy, Check, Globe,
   UserPlus, Share2, Bot, Circle, ClipboardList, Camera, RotateCcw, Database,
 } from 'lucide-react';
@@ -67,6 +67,15 @@ const FORM_TRIGGER_PHRASES = [
   "take time off",
   "book pto",
   "request pto",
+];
+
+const TICKET_FORM_TRIGGER_PHRASES = [
+  "submit a support ticket",
+  "create a ticket",
+  "open a ticket",
+  "submit a ticket",
+  "log a ticket",
+  "report an issue",
 ];
 
 const DEMO_USERS = [
@@ -664,6 +673,109 @@ function PtoRequestForm({ onConfirm, onCancel }) {
   );
 }
 
+// ── Ticket Form ───────────────────────────────────────────────────────────────
+
+const PRIORITY_OPTIONS = [
+  { value: 'low',      label: '🔵 Low',      color: '#3B82F6' },
+  { value: 'medium',   label: '🟡 Medium',   color: '#D97706' },
+  { value: 'high',     label: '🟠 High',     color: '#EA580C' },
+  { value: 'critical', label: '🔴 Critical', color: '#DC2626' },
+];
+
+const CATEGORY_OPTIONS = [
+  { value: 'hardware', label: '🖥️ Hardware' },
+  { value: 'software', label: '💻 Software' },
+  { value: 'access',   label: '🔑 Access' },
+  { value: 'network',  label: '🌐 Network' },
+  { value: 'other',    label: '📋 Other' },
+];
+
+function TicketForm({ onConfirm, onCancel }) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [priority, setPriority] = useState('medium');
+  const [category, setCategory] = useState('software');
+
+  const isValid = title.trim().length >= 3 && description.trim().length >= 10;
+
+  const fieldStyle = {
+    width: '100%', padding: '7px 10px', border: '1px solid #E5E7EB',
+    borderRadius: 8, fontSize: 12, outline: 'none', boxSizing: 'border-box',
+    color: '#111827', fontFamily: 'inherit',
+  };
+  const labelStyle = {
+    display: 'block', fontSize: 10, fontWeight: 700, color: '#6B7280',
+    textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4,
+  };
+
+  return (
+    <div style={{ padding: '12px 14px', background: 'white', border: '2px solid #BFDBFE', borderRadius: 14, boxShadow: '0 2px 8px rgba(37,99,235,0.10)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+        <div style={{ width: 24, height: 24, borderRadius: 6, background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Wrench size={12} color="#2563EB" />
+        </div>
+        <span style={{ fontWeight: 700, fontSize: 13, color: '#111827', flex: 1 }}>New Support Ticket</span>
+        <button onClick={onCancel} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: 0 }}>
+          <X size={14} />
+        </button>
+      </div>
+
+      <div style={{ marginBottom: 8 }}>
+        <label style={labelStyle}>Title</label>
+        <input
+          type="text"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="Short summary of the issue"
+          style={fieldStyle}
+        />
+      </div>
+
+      <div style={{ marginBottom: 8 }}>
+        <label style={labelStyle}>Description</label>
+        <textarea
+          value={description}
+          onChange={e => setDescription(e.target.value)}
+          placeholder="Describe the problem in detail…"
+          rows={3}
+          style={{ ...fieldStyle, resize: 'none' }}
+        />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+        <div>
+          <label style={labelStyle}>Priority</label>
+          <select value={priority} onChange={e => setPriority(e.target.value)} style={fieldStyle}>
+            {PRIORITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Category</label>
+          <select value={category} onChange={e => setCategory(e.target.value)} style={fieldStyle}>
+            {CATEGORY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button
+          onClick={() => onConfirm({ title: title.trim(), description: description.trim(), priority, category })}
+          disabled={!isValid}
+          style={{
+            flex: 1, padding: '8px', background: isValid ? '#2563EB' : '#E5E7EB',
+            color: isValid ? 'white' : '#9CA3AF', border: 'none', borderRadius: 8,
+            fontSize: 12, fontWeight: 700, cursor: isValid ? 'pointer' : 'not-allowed',
+          }}>
+          Submit Ticket
+        </button>
+        <button onClick={onCancel} style={{ padding: '8px 12px', background: 'none', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 12, color: '#6B7280', cursor: 'pointer' }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Suggestion chips ──────────────────────────────────────────────────────────
 
 function SuggestionChips({ items, onSelect, disabled, large }) {
@@ -985,6 +1097,28 @@ function ChatMessage({ msg, onSuggestionSelect, onOpenSources, loading }) {
     );
   }
 
+  // Ticket form message type
+  if (msg.role === 'ticket-form') {
+    return (
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, paddingRight: 8, alignItems: 'flex-start' }}>
+        <div style={{
+          width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+          background: 'linear-gradient(135deg, #2563EB, #0EA5E9)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          marginTop: 2,
+        }}>
+          <Wrench size={13} color="white" />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <TicketForm
+            onConfirm={msg.onConfirm}
+            onCancel={msg.onCancel}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return null;
 }
 
@@ -1285,22 +1419,26 @@ export default function NavigatorOrchestratorStudio() {
   async function sendMessage(text, { skipFormCheck = false } = {}) {
     if (!text.trim() || loading) return;
 
-    // Intercept PTO form trigger phrases — show form instead of sending
+    // Intercept form trigger phrases — show form instead of sending
     const lower = text.trim().toLowerCase();
     if (!skipFormCheck && FORM_TRIGGER_PHRASES.some(p => lower.includes(p))) {
       showPtoForm();
       return;
     }
+    if (!skipFormCheck && TICKET_FORM_TRIGGER_PHRASES.some(p => lower.includes(p))) {
+      showTicketForm();
+      return;
+    }
 
     const userMsg = { role: 'user', content: text.trim() };
-    const newMessages = [...messages.filter(m => m.role !== 'pto-form'), userMsg];
+    const newMessages = [...messages.filter(m => m.role !== 'pto-form' && m.role !== 'ticket-form'), userMsg];
     setMessages(newMessages);
     setInput('');
     setLoading(true);
 
     const assistantIdx = newMessages.length;
     const emptyTrace = { streaming: true, domains: [], reasoning: '', serversQueried: [], toolCount: 0, toolCalls: [] };
-    setMessages(prev => [...prev.filter(m => m.role !== 'pto-form'), { role: 'assistant', content: '', trace: emptyTrace, suggestions: [], toolResults: [] }]);
+    setMessages(prev => [...prev.filter(m => m.role !== 'pto-form' && m.role !== 'ticket-form'), { role: 'assistant', content: '', trace: emptyTrace, suggestions: [], toolResults: [] }]);
 
     const history = newMessages.map(m => ({ role: m.role, content: m.content }));
 
@@ -1357,6 +1495,9 @@ export default function NavigatorOrchestratorStudio() {
               updated[assistantIdx] = { role: 'assistant', content: fullContent, trace: { ...currentTrace }, suggestions: event.suggestions || [], toolResults, a2aArtifact: currentTrace.a2aArtifact || null };
               return updated;
             });
+            if (event.ticketForm) {
+              setTimeout(() => showTicketForm(), 50);
+            }
             continue;
           }
 
@@ -1389,6 +1530,20 @@ export default function NavigatorOrchestratorStudio() {
         sendMessage(dateStr, { skipFormCheck: true });
       },
       onCancel: () => setMessages(prev => prev.filter(m => m.role !== 'pto-form')),
+    };
+    setMessages(prev => [...prev, formMsg]);
+  }
+
+  function showTicketForm() {
+    if (messages.some(m => m.role === 'ticket-form')) return;
+    const formMsg = {
+      role: 'ticket-form',
+      onConfirm: (args) => {
+        setMessages(prev => prev.filter(m => m.role !== 'ticket-form'));
+        const msg = `Submit a support ticket — Title: ${args.title}, Description: ${args.description}, Priority: ${args.priority}, Category: ${args.category}`;
+        sendMessage(msg, { skipFormCheck: true });
+      },
+      onCancel: () => setMessages(prev => prev.filter(m => m.role !== 'ticket-form')),
     };
     setMessages(prev => [...prev, formMsg]);
   }
