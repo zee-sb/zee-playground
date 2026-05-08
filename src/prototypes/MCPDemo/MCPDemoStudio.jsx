@@ -1,5 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ArrowLeft, Plug, BookOpen, MessageSquare, ChevronRight, Loader2, CheckCircle, XCircle, User, Wrench, FileText, Zap, Send, RotateCcw, Copy, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
+import {
+  ArrowLeft, Plug, BookOpen, MessageSquare, ChevronRight, Loader2,
+  CheckCircle, XCircle, User, Wrench, FileText, Zap, Send, RotateCcw,
+  ChevronDown, ChevronUp, AlertCircle, Calendar, MapPin, Mail, Clock,
+  Users, Building2, X,
+} from 'lucide-react';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -34,10 +39,336 @@ async function mcpCall(method, params = {}, token = null) {
   });
 
   const text = await res.text();
-  // Response may be plain JSON or SSE; parse the first JSON object found
   const jsonLine = text.split('\n').find(l => l.startsWith('data: ') || l.startsWith('{'));
   const raw = jsonLine?.startsWith('data: ') ? jsonLine.slice(6) : jsonLine || text;
   return JSON.parse(raw);
+}
+
+// ── Dept colors ───────────────────────────────────────────────────────────────
+
+const DEPT_COLORS = {
+  HR: '#7C3AED',
+  Engineering: '#2563EB',
+  Product: '#059669',
+  Design: '#D97706',
+  default: '#6B7280',
+};
+
+function deptColor(dept) { return DEPT_COLORS[dept] || DEPT_COLORS.default; }
+function initials(name) { return name.split(' ').map(n => n[0]).join('').toUpperCase(); }
+
+// ── Rich UI Cards ─────────────────────────────────────────────────────────────
+
+function EmployeeCard({ emp }) {
+  const color = deptColor(emp.department);
+  return (
+    <div className="flex items-start gap-3 p-3 bg-white border border-[#E5E7EB] rounded-xl shadow-sm">
+      <div className="w-10 h-10 rounded-full grid place-items-center text-white text-sm font-bold shrink-0"
+        style={{ background: color }}>
+        {initials(emp.name)}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-[#111827] text-sm">{emp.name}</p>
+        <p className="text-xs text-[#6B7280]">{emp.title}</p>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
+          <span className="flex items-center gap-1 text-[11px] text-[#9CA3AF]">
+            <Building2 size={10} style={{ color }} />{emp.department}
+          </span>
+          {emp.location && (
+            <span className="flex items-center gap-1 text-[11px] text-[#9CA3AF]">
+              <MapPin size={10} />{emp.location}
+            </span>
+          )}
+          {emp.email && (
+            <span className="flex items-center gap-1 text-[11px] text-[#9CA3AF]">
+              <Mail size={10} />{emp.email}
+            </span>
+          )}
+          {emp.startDate && (
+            <span className="flex items-center gap-1 text-[11px] text-[#9CA3AF]">
+              <Clock size={10} />Since {emp.startDate}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PtoBalanceCard({ data }) {
+  const pct = Math.min(100, Math.round((data.ptoBalance / 30) * 100));
+  const color = data.ptoBalance >= 15 ? '#059669' : data.ptoBalance >= 7 ? '#D97706' : '#DC2626';
+  return (
+    <div className="p-4 bg-white border border-[#E5E7EB] rounded-xl shadow-sm space-y-3">
+      <div className="flex items-center gap-3">
+        <div className="w-14 h-14 rounded-2xl grid place-items-center shrink-0"
+          style={{ background: color + '18' }}>
+          <span className="text-xl font-bold" style={{ color }}>{data.ptoBalance}</span>
+          <span className="text-[9px] font-medium" style={{ color }}>DAYS</span>
+        </div>
+        <div>
+          <p className="font-semibold text-[#111827] text-sm">{data.employee}</p>
+          <p className="text-xs text-[#6B7280]">Available PTO balance</p>
+        </div>
+      </div>
+      <div>
+        <div className="flex justify-between text-[10px] text-[#9CA3AF] mb-1">
+          <span>0 days</span>
+          <span>30 day max</span>
+        </div>
+        <div className="h-2 bg-[#F3F4F6] rounded-full overflow-hidden">
+          <div className="h-full rounded-full transition-all duration-700"
+            style={{ width: `${pct}%`, background: color }} />
+        </div>
+      </div>
+      {data.note && <p className="text-[11px] text-[#9CA3AF]">{data.note}</p>}
+    </div>
+  );
+}
+
+function PolicyResultCard({ policy }) {
+  const catColors = {
+    Benefits: '#7C3AED', 'Work Arrangements': '#2563EB',
+    Compliance: '#DC2626', default: '#6B7280',
+  };
+  const color = catColors[policy.category] || catColors.default;
+  return (
+    <div className="p-3 bg-white border border-[#E5E7EB] rounded-xl shadow-sm space-y-1.5">
+      <div className="flex items-start gap-2">
+        <FileText size={14} className="mt-0.5 shrink-0" style={{ color }} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-semibold text-sm text-[#111827]">{policy.title}</p>
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+              style={{ background: color + '15', color }}>
+              {policy.category}
+            </span>
+          </div>
+          {policy.lastUpdated && (
+            <p className="text-[11px] text-[#9CA3AF]">Updated {policy.lastUpdated}</p>
+          )}
+          {policy.excerpt && (
+            <p className="text-xs text-[#6B7280] mt-1 leading-relaxed line-clamp-3">
+              {policy.excerpt.replace(/^#.*\n/, '').replace(/\*\*/g, '').trim()}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DirectReportsCard({ manager, reports }) {
+  const color = deptColor(manager?.department);
+  return (
+    <div className="p-3 bg-white border border-[#E5E7EB] rounded-xl shadow-sm space-y-3">
+      <div className="flex items-center gap-2 pb-2 border-b border-[#F3F4F6]">
+        <div className="w-7 h-7 rounded-full grid place-items-center text-white text-xs font-bold"
+          style={{ background: color }}>
+          {initials(manager?.name || '?')}
+        </div>
+        <div>
+          <p className="font-semibold text-xs text-[#111827]">{manager?.name}</p>
+          <p className="text-[11px] text-[#6B7280]">{manager?.title}</p>
+        </div>
+        <span className="ml-auto text-[11px] text-[#9CA3AF]">{reports.length} report{reports.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {reports.map(r => (
+          <div key={r.id} className="flex items-center gap-2 p-2 bg-[#F9FAFB] rounded-lg">
+            <div className="w-6 h-6 rounded-full grid place-items-center text-white text-[10px] font-bold shrink-0"
+              style={{ background: deptColor(r.department) }}>
+              {initials(r.name)}
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-[#111827] truncate">{r.name}</p>
+              <p className="text-[10px] text-[#9CA3AF] truncate">{r.title}</p>
+            </div>
+          </div>
+        ))}
+        {reports.length === 0 && (
+          <p className="text-xs text-[#9CA3AF] col-span-2">No direct reports found.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RequestConfirmedCard({ data }) {
+  return (
+    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-2">
+      <div className="flex items-center gap-2">
+        <CheckCircle size={15} className="text-emerald-500" />
+        <span className="font-semibold text-emerald-800 text-sm">Time Off Request Submitted</span>
+        <code className="ml-auto text-[11px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-mono">
+          {data.requestId}
+        </code>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <div className="p-2 bg-white rounded-lg border border-emerald-100 text-center">
+          <p className="text-[10px] text-[#6B7280] font-medium uppercase tracking-wide">From</p>
+          <p className="text-xs font-semibold text-[#111827] mt-0.5">{data.startDate}</p>
+        </div>
+        <div className="p-2 bg-white rounded-lg border border-emerald-100 text-center">
+          <p className="text-[10px] text-[#6B7280] font-medium uppercase tracking-wide">To</p>
+          <p className="text-xs font-semibold text-[#111827] mt-0.5">{data.endDate}</p>
+        </div>
+        <div className="p-2 bg-white rounded-lg border border-emerald-100 text-center">
+          <p className="text-[10px] text-[#6B7280] font-medium uppercase tracking-wide">Days</p>
+          <p className="text-xs font-semibold text-emerald-700 mt-0.5">{data.daysRequested}</p>
+        </div>
+      </div>
+      <p className="text-[11px] text-emerald-700">{data.message}</p>
+    </div>
+  );
+}
+
+// ── PTO Request Form (date picker with validation) ────────────────────────────
+
+function PtoRequestForm({ suggestedArgs, onConfirm, onCancel }) {
+  const today = new Date().toISOString().split('T')[0];
+  const [start, setStart] = useState(suggestedArgs?.start_date || today);
+  const [end, setEnd] = useState(suggestedArgs?.end_date || suggestedArgs?.start_date || today);
+  const [reason, setReason] = useState(suggestedArgs?.reason || '');
+
+  const startDate = new Date(start + 'T00:00:00');
+  const endDate = new Date(end + 'T00:00:00');
+  const days = start && end && end >= start
+    ? Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1
+    : 0;
+
+  const isPast = start < today;
+  const isInvalidRange = end < start;
+  const isValid = start >= today && end >= start;
+
+  return (
+    <div className="p-4 bg-white border-2 border-[#7C3AED] border-opacity-40 rounded-xl space-y-3 shadow-sm">
+      <div className="flex items-center gap-2">
+        <div className="w-6 h-6 rounded-md bg-[#EDE9FE] grid place-items-center">
+          <Calendar size={13} className="text-[#7C3AED]" />
+        </div>
+        <span className="font-semibold text-sm text-[#111827]">Confirm Time Off Request</span>
+        <button onClick={onCancel} className="ml-auto text-[#9CA3AF] hover:text-[#374151] transition-colors">
+          <X size={15} />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-[11px] font-semibold text-[#6B7280] uppercase tracking-wide mb-1">
+            Start Date
+          </label>
+          <input type="date" value={start} min={today}
+            onChange={e => { setStart(e.target.value); if (e.target.value > end) setEnd(e.target.value); }}
+            className={`w-full px-3 py-2 border rounded-lg text-sm outline-none transition-colors focus:border-[#7C3AED] ${isPast ? 'border-red-300 bg-red-50' : 'border-[#E5E7EB]'}`} />
+          {isPast && <p className="text-[10px] text-red-500 mt-0.5">Date is in the past</p>}
+        </div>
+        <div>
+          <label className="block text-[11px] font-semibold text-[#6B7280] uppercase tracking-wide mb-1">
+            End Date
+          </label>
+          <input type="date" value={end} min={start}
+            onChange={e => setEnd(e.target.value)}
+            className={`w-full px-3 py-2 border rounded-lg text-sm outline-none transition-colors focus:border-[#7C3AED] ${isInvalidRange ? 'border-red-300 bg-red-50' : 'border-[#E5E7EB]'}`} />
+          {isInvalidRange && <p className="text-[10px] text-red-500 mt-0.5">Must be on or after start</p>}
+        </div>
+      </div>
+
+      {days > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-[#F9FAFB] rounded-lg border border-[#E5E7EB]">
+          <Calendar size={13} className="text-[#7C3AED]" />
+          <span className="text-sm font-medium text-[#374151]">
+            {days} day{days !== 1 ? 's' : ''} off
+          </span>
+          <span className="text-xs text-[#9CA3AF]">{start} → {end}</span>
+        </div>
+      )}
+
+      <div>
+        <label className="block text-[11px] font-semibold text-[#6B7280] uppercase tracking-wide mb-1">
+          Reason <span className="font-normal normal-case">(optional)</span>
+        </label>
+        <textarea value={reason} onChange={e => setReason(e.target.value)}
+          placeholder="Vacation, personal, medical…"
+          rows={2}
+          className="w-full px-3 py-2 border border-[#E5E7EB] rounded-lg text-sm resize-none outline-none focus:border-[#7C3AED] transition-colors" />
+      </div>
+
+      <div className="flex gap-2 pt-1">
+        <button
+          onClick={() => onConfirm({ start_date: start, end_date: end, reason: reason || undefined })}
+          disabled={!isValid}
+          className="flex-1 py-2 bg-[#7C3AED] text-white rounded-lg text-sm font-semibold hover:bg-[#6D28D9] transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+          Submit Request
+        </button>
+        <button onClick={onCancel}
+          className="px-4 py-2 border border-[#E5E7EB] rounded-lg text-sm text-[#6B7280] hover:bg-[#F9FAFB] transition-colors">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Tool result renderer ──────────────────────────────────────────────────────
+
+function ToolResultRenderer({ toolName, resultText }) {
+  const [expanded, setExpanded] = useState(false);
+
+  let richCard = null;
+  try {
+    const data = JSON.parse(resultText);
+
+    if (toolName === 'lookup_employee' && Array.isArray(data)) {
+      richCard = (
+        <div className="space-y-2">
+          {data.length === 0
+            ? <p className="text-xs text-[#9CA3AF] italic">No employees found.</p>
+            : data.map(e => <EmployeeCard key={e.id || e.email} emp={e} />)
+          }
+        </div>
+      );
+    } else if (toolName === 'check_pto_balance' && data.ptoBalance !== undefined) {
+      richCard = <PtoBalanceCard data={data} />;
+    } else if (toolName === 'submit_time_off_request' && data.requestId) {
+      richCard = <RequestConfirmedCard data={data} />;
+    } else if (toolName === 'search_policies' && Array.isArray(data)) {
+      richCard = (
+        <div className="space-y-2">
+          {data.length === 0
+            ? <p className="text-xs text-[#9CA3AF] italic">No policies matched.</p>
+            : data.map(p => <PolicyResultCard key={p.id} policy={p} />)
+          }
+        </div>
+      );
+    } else if (toolName === 'get_direct_reports' && data.manager) {
+      richCard = <DirectReportsCard manager={data.manager} reports={data.directReports || []} />;
+    }
+  } catch {}
+
+  if (!richCard) {
+    return (
+      <pre className="text-[11px] font-mono text-[#1E3A5F] bg-white/60 rounded-lg p-2 overflow-auto max-h-40 whitespace-pre-wrap">
+        {resultText?.length > 400 ? resultText.slice(0, 400) + '…' : resultText}
+      </pre>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-1">
+      {richCard}
+      <button onClick={() => setExpanded(o => !o)}
+        className="flex items-center gap-1 text-[10px] text-[#6B7280] hover:text-[#374151] transition-colors mt-1">
+        {expanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+        {expanded ? 'Hide' : 'Show'} raw JSON
+      </button>
+      {expanded && (
+        <pre className="text-[10px] font-mono text-[#374151] bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg p-2 overflow-auto max-h-40 whitespace-pre-wrap">
+          {resultText}
+        </pre>
+      )}
+    </div>
+  );
 }
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
@@ -92,7 +423,6 @@ function ConnectTab({ session, onConnect, onDisconnect }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Auth failed');
 
-      // Verify the MCP server responds to initialize
       const init = await mcpCall('initialize', {
         protocolVersion: '2025-03-26',
         capabilities: {},
@@ -230,9 +560,7 @@ function ExplorerTab({ session }) {
 
   return (
     <div className="flex h-full min-h-0">
-      {/* Left list */}
       <div className="w-64 border-r border-[#E5E7EB] overflow-y-auto shrink-0">
-        {/* Resources */}
         <div className="p-3 border-b border-[#F3F4F6]">
           <div className="flex items-center gap-1.5 mb-2">
             <BookOpen size={13} className="text-[#7C3AED]" />
@@ -249,7 +577,6 @@ function ExplorerTab({ session }) {
           ))}
         </div>
 
-        {/* Tools */}
         <div className="p-3 border-b border-[#F3F4F6]">
           <div className="flex items-center gap-1.5 mb-2">
             <Wrench size={13} className="text-[#2563EB]" />
@@ -265,7 +592,6 @@ function ExplorerTab({ session }) {
           ))}
         </div>
 
-        {/* Prompts */}
         <div className="p-3">
           <div className="flex items-center gap-1.5 mb-2">
             <MessageSquare size={13} className="text-[#059669]" />
@@ -282,7 +608,6 @@ function ExplorerTab({ session }) {
         </div>
       </div>
 
-      {/* Right detail */}
       <div className="flex-1 overflow-y-auto p-4">
         {!selected && (
           <div className="h-full flex flex-col items-center justify-center text-center gap-2">
@@ -360,18 +685,17 @@ function ChatTab({ session }) {
   const [sending, setSending] = useState(false);
   const [tools, setTools] = useState(null);
   const bottomRef = useRef(null);
+  const formResolverRef = useRef(null);
   const token = session?.token;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Load tools once connected
   useEffect(() => {
     if (!token || tools) return;
     mcpCall('tools/list', {}, token).then(res => {
       const t = res.result?.tools || [];
-      // Convert MCP tool schema to OpenAI function format
       setTools(t.map(tool => ({
         type: 'function',
         function: {
@@ -390,6 +714,26 @@ function ChatTab({ session }) {
     return JSON.stringify(res.result || res.error);
   };
 
+  // Prompt user for PTO form confirmation; resolves with confirmed args or throws on cancel
+  const awaitPtoForm = (args, formId) => new Promise((resolve, reject) => {
+    formResolverRef.current = { resolve, reject, formId };
+    setMessages(m => [...m, { role: 'pto-form', id: formId, suggestedArgs: args }]);
+  });
+
+  const handleFormConfirm = (args) => {
+    const { resolve, formId } = formResolverRef.current || {};
+    formResolverRef.current = null;
+    setMessages(m => m.filter(msg => msg.id !== formId));
+    resolve?.(args);
+  };
+
+  const handleFormCancel = () => {
+    const { reject, formId } = formResolverRef.current || {};
+    formResolverRef.current = null;
+    setMessages(m => m.filter(msg => msg.id !== formId));
+    reject?.(new Error('cancelled'));
+  };
+
   const send = async (userText) => {
     if (!userText.trim() || sending) return;
     setSending(true);
@@ -401,7 +745,6 @@ function ChatTab({ session }) {
 
     try {
       let currentMessages = [...history];
-      // Agentic loop: keep going until no more tool calls
       for (let round = 0; round < 6; round++) {
         const res = await fetch(CHAT_BASE, {
           method: 'POST',
@@ -415,7 +758,7 @@ function ChatTab({ session }) {
           break;
         }
 
-        // Parse SSE stream into a complete message
+        // Parse SSE stream
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -434,7 +777,7 @@ function ChatTab({ session }) {
           }
         }
 
-        // Reconstruct full message from chunks
+        // Reconstruct message from stream chunks
         let fullContent = '';
         const toolCallsMap = {};
 
@@ -444,7 +787,9 @@ function ChatTab({ session }) {
           if (delta.content) fullContent += delta.content;
           if (delta.tool_calls) {
             for (const tc of delta.tool_calls) {
-              if (!toolCallsMap[tc.index]) toolCallsMap[tc.index] = { id: '', type: 'function', function: { name: '', arguments: '' } };
+              if (!toolCallsMap[tc.index]) {
+                toolCallsMap[tc.index] = { id: '', type: 'function', function: { name: '', arguments: '' } };
+              }
               if (tc.id) toolCallsMap[tc.index].id = tc.id;
               if (tc.function?.name) toolCallsMap[tc.index].function.name += tc.function.name;
               if (tc.function?.arguments) toolCallsMap[tc.index].function.arguments += tc.function.arguments;
@@ -455,15 +800,31 @@ function ChatTab({ session }) {
         const toolCalls = Object.values(toolCallsMap);
 
         if (toolCalls.length > 0) {
-          // Append assistant message with tool calls
           const assistantMsg = { role: 'assistant', content: fullContent || null, tool_calls: toolCalls };
           currentMessages = [...currentMessages, assistantMsg];
 
-          // Display tool call bubbles and execute each
           for (const tc of toolCalls) {
             let args = {};
             try { args = JSON.parse(tc.function.arguments); } catch {}
 
+            if (tc.function.name === 'submit_time_off_request') {
+              // Show interactive date form before executing the tool
+              const formId = `form-${tc.id}`;
+              try {
+                const confirmedArgs = await awaitPtoForm(args, formId);
+                args = confirmedArgs;
+              } catch {
+                // User cancelled the form
+                setMessages(m => [...m, {
+                  role: 'assistant',
+                  content: "No problem — your time off request was cancelled. Let me know if you'd like to try again.",
+                }]);
+                setSending(false);
+                return;
+              }
+            }
+
+            // Show tool-call bubble
             setMessages(m => [...m, {
               role: 'tool-call',
               toolName: tc.function.name,
@@ -484,9 +845,7 @@ function ChatTab({ session }) {
               content: result,
             }];
           }
-          // Continue loop to get final response
         } else {
-          // Final text response
           if (fullContent) {
             setMessages(m => [...m, { role: 'assistant', content: fullContent }]);
           }
@@ -511,15 +870,15 @@ function ChatTab({ session }) {
 
   const suggestions = [
     'How much PTO do I have left?',
-    'What is the remote work policy?',
-    "Who reports to Carol Davis?",
-    'I need to take time off next week',
     'Find engineers on the team',
+    'What is the remote work policy?',
+    'Who reports to Carol Davis?',
+    'I want to take next week off',
+    'Search for parental leave info',
   ];
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {messages.length === 0 && (
           <div className="space-y-4 pt-4">
@@ -550,6 +909,7 @@ function ChatTab({ session }) {
                 </div>
               </div>
             )}
+
             {msg.role === 'assistant' && (
               <div className="flex gap-2 items-start">
                 <div className="w-6 h-6 rounded-full bg-[#EDE9FE] grid place-items-center shrink-0 mt-0.5">
@@ -560,13 +920,29 @@ function ChatTab({ session }) {
                 </div>
               </div>
             )}
+
+            {msg.role === 'pto-form' && (
+              <div className="flex gap-2 items-start">
+                <div className="w-6 h-6 rounded-full bg-[#EDE9FE] grid place-items-center shrink-0 mt-0.5">
+                  <Calendar size={12} className="text-[#7C3AED]" />
+                </div>
+                <div className="flex-1 max-w-[90%]">
+                  <PtoRequestForm
+                    suggestedArgs={msg.suggestedArgs}
+                    onConfirm={handleFormConfirm}
+                    onCancel={handleFormCancel}
+                  />
+                </div>
+              </div>
+            )}
+
             {msg.role === 'tool-call' && (
               <div className="flex gap-2 items-start">
                 <div className="w-6 h-6 rounded-full bg-[#EFF6FF] grid place-items-center shrink-0 mt-0.5">
                   <Wrench size={12} className="text-[#2563EB]" />
                 </div>
-                <div className="flex-1 max-w-[85%] p-3 bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl">
-                  <div className="flex items-center gap-2 mb-2">
+                <div className="flex-1 max-w-[90%] p-3 bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl">
+                  <div className="flex items-center gap-2 mb-1">
                     <code className="text-xs font-mono font-bold text-[#1D4ED8]">{msg.toolName}</code>
                     {msg.status === 'running'
                       ? <Loader2 size={11} className="animate-spin text-[#3B82F6]" />
@@ -576,15 +952,13 @@ function ChatTab({ session }) {
                   <JsonViewer data={msg.args} />
                   {msg.result && (
                     <div className="mt-2">
-                      <p className="text-[10px] font-semibold text-[#1D4ED8] uppercase tracking-wide mb-1">Result</p>
-                      <pre className="text-[11px] font-mono text-[#1E3A5F] bg-white/60 rounded-lg p-2 overflow-auto max-h-40 whitespace-pre-wrap">
-                        {msg.result.length > 400 ? msg.result.slice(0, 400) + '…' : msg.result}
-                      </pre>
+                      <ToolResultRenderer toolName={msg.toolName} resultText={msg.result} />
                     </div>
                   )}
                 </div>
               </div>
             )}
+
             {msg.role === 'error' && (
               <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
                 <XCircle size={14} className="shrink-0" />
@@ -596,7 +970,6 @@ function ChatTab({ session }) {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
       <div className="border-t border-[#E5E7EB] p-3">
         <div className="flex gap-2 items-end">
           <textarea
@@ -638,7 +1011,6 @@ export default function MCPDemoStudio({ onBack }) {
 
   return (
     <div className="min-h-screen bg-[#F5F5F7] flex flex-col">
-      {/* Header */}
       <header className="bg-white border-b border-[#E4E4E7] px-6 h-14 flex items-center gap-4 shrink-0">
         <button onClick={onBack} className="flex items-center gap-1.5 text-[#6B7280] hover:text-[#111827] transition-colors text-sm">
           <ArrowLeft size={16} /> Back
@@ -657,9 +1029,7 @@ export default function MCPDemoStudio({ onBack }) {
       </header>
 
       <div className="flex flex-1 min-h-0 max-w-5xl mx-auto w-full gap-6 p-6">
-        {/* Left panel — tabs + content */}
         <div className="flex-1 bg-white rounded-2xl border border-[#E4E4E7] shadow-sm flex flex-col overflow-hidden" style={{ minHeight: '600px' }}>
-          {/* Tab bar */}
           <div className="flex border-b border-[#E5E7EB] shrink-0">
             {tabs.map(t => {
               const Icon = t.icon;
@@ -674,7 +1044,6 @@ export default function MCPDemoStudio({ onBack }) {
             })}
           </div>
 
-          {/* Tab content */}
           <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
             {tab === 'connect' && <ConnectTab session={session} onConnect={setSession} onDisconnect={() => setSession(null)} />}
             {tab === 'explorer' && <ExplorerTab session={session} />}
@@ -682,27 +1051,16 @@ export default function MCPDemoStudio({ onBack }) {
           </div>
         </div>
 
-        {/* Right panel — server info */}
         <div className="w-64 shrink-0 space-y-4">
           <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-sm p-4 space-y-3">
             <p className="text-xs font-bold uppercase tracking-wide text-[#6B7280]">Server Info</p>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-[#6B7280]">Name</span>
-                <span className="font-medium text-[#111827]">acme-hr-portal</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#6B7280]">Version</span>
-                <span className="font-medium text-[#111827]">1.0.0</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#6B7280]">Transport</span>
-                <span className="font-medium text-[#111827]">HTTP (stateless)</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#6B7280]">Protocol</span>
-                <span className="font-medium text-[#111827]">2025-03-26</span>
-              </div>
+              {[['Name', 'acme-hr-portal'], ['Version', '1.0.0'], ['Transport', 'HTTP (stateless)'], ['Protocol', '2025-03-26']].map(([k, v]) => (
+                <div key={k} className="flex justify-between">
+                  <span className="text-[#6B7280]">{k}</span>
+                  <span className="font-medium text-[#111827]">{v}</span>
+                </div>
+              ))}
             </div>
           </div>
 
