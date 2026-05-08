@@ -72,7 +72,7 @@ Respond with ONLY valid JSON: { "domains": ["server_id", ...], "reasoning": "one
 
 Rules:
 - Use specific server IDs from the list above
-- Prefer A2A agents for onboarding, new hire setup, or any multi-step employee lifecycle task
+- Only use A2A agents when the request clearly maps to their listed domain keywords (e.g., shift, checklist, store, opening, closing — NOT hr, pto, vacation, or time off)
 - Use MCP servers for ad-hoc queries, lookups, and single-domain questions
 - If the message is a greeting, general question, or "help", use all MCP server IDs
 - For cross-domain queries include both MCP servers`,
