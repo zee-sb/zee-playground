@@ -1,8 +1,9 @@
 import React from 'react'
 import { Routes, Route, useParams, useNavigate, Link } from 'react-router-dom'
-import { Sparkles, BarChart2 } from 'lucide-react'
+import { Sparkles, BarChart2, Plug } from 'lucide-react'
 import AIAssistantStudio from './prototypes/AIAssistant/AIAssistantStudio'
 import NavigatorAnalyticsDashboard from './prototypes/NavigatorAnalytics/NavigatorAnalyticsDashboard'
+import MCPDemoStudio from './prototypes/MCPDemo/MCPDemoStudio'
 
 // ── Registry ──────────────────────────────────────────────────────────
 const PROTOTYPES = [
@@ -23,6 +24,15 @@ const PROTOTYPES = [
     status: "ready",
     icon: BarChart2,
     component: NavigatorAnalyticsDashboard
+  },
+  {
+    id: "mcp-demo",
+    title: "Acme HR Portal — MCP Server",
+    description: "Live MCP server demo with simulated SSO auth, employee resources, HR tools (PTO, org chart, policy search), and an OpenAI-powered chat interface that exercises tool calling.",
+    epic: "Navigator",
+    status: "ready",
+    icon: Plug,
+    component: MCPDemoStudio
   }
 ];
 

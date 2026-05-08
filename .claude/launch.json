@@ -4,7 +4,7 @@
     {
       "name": "zee-playground",
       "runtimeExecutable": "/opt/homebrew/opt/node.js/bin/node",
-      "runtimeArgs": ["/Users/zsherif/projects/zee-playground/node_modules/serve/build/main.js", ".", "-p", "3456"],
+      "runtimeArgs": ["/Users/zsherif/projects/zee-playground/node_modules/serve/build/main.js", "dist", "-p", "3456", "--single"],
       "port": 3456
     }
   ]
