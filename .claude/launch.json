@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "zee-playground",
-      "runtimeExecutable": "/opt/homebrew/opt/node.js/bin/node",
-      "runtimeArgs": ["/Users/zsherif/projects/zee-playground/node_modules/serve/build/main.js", "dist", "-p", "3456", "--single"],
+      "runtimeExecutable": "/opt/homebrew/bin/vercel",
+      "runtimeArgs": ["dev", "--port", "3456", "--yes"],
       "port": 3456
     }
   ]

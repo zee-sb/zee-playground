@@ -2,5 +2,8 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "devCommand": "vite --port $PORT",
-  "framework": "vite"
+  "framework": "vite",
+  "functions": {
+    "api/a2a.mjs": { "maxDuration": 30 }
+  }
 }

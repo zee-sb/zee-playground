@@ -1,9 +1,12 @@
 import React from 'react'
 import { Routes, Route, useParams, useNavigate, Link } from 'react-router-dom'
-import { Sparkles, BarChart2, Plug } from 'lucide-react'
+import { Sparkles, BarChart2, Plug, Network, Bot, ClipboardList } from 'lucide-react'
 import AIAssistantStudio from './prototypes/AIAssistant/AIAssistantStudio'
 import NavigatorAnalyticsDashboard from './prototypes/NavigatorAnalytics/NavigatorAnalyticsDashboard'
 import MCPDemoStudio from './prototypes/MCPDemo/MCPDemoStudio'
+import NavigatorOrchestratorStudio from './prototypes/NavigatorOrchestrator/NavigatorOrchestratorStudio'
+import A2ADemoStudio from './prototypes/A2ADemo/A2ADemoStudio'
+import FrontlineOpsStudio from './prototypes/FrontlineOps/FrontlineOpsStudio'
 
 // ── Registry ──────────────────────────────────────────────────────────
 const PROTOTYPES = [
@@ -33,6 +36,33 @@ const PROTOTYPES = [
     status: "ready",
     icon: Plug,
     component: MCPDemoStudio
+  },
+  {
+    id: "navigator-orchestrator",
+    title: "Navigator Orchestrator — Multi-MCP Brain",
+    description: "Navigator acting as the routing brain across multiple MCP servers (HR + IT). Intent classification, tool namespacing, cross-domain queries, and live routing trace.",
+    epic: "Navigator",
+    status: "ready",
+    icon: Network,
+    component: NavigatorOrchestratorStudio
+  },
+  {
+    id: "frontline-ops",
+    title: "Shift Ready — Frontline Ops",
+    description: "Role-based shift checklists for frontline workers. Branch Manager, Line Cook, Cleaner, Supervisor each get their own opening/mid-shift/closing tasks with photo proof and shift handover.",
+    epic: "Navigator",
+    status: "ready",
+    icon: ClipboardList,
+    component: FrontlineOpsStudio
+  },
+  {
+    id: "a2a-demo",
+    title: "Acme Store Operations Agent — A2A Protocol",
+    description: "Google's Agent-to-Agent (A2A) protocol demo. Discover agent capabilities via Agent Card, delegate shift checklist requests with streaming status updates, and compare A2A delegation vs MCP tool calling.",
+    epic: "Navigator",
+    status: "ready",
+    icon: Bot,
+    component: A2ADemoStudio
   }
 ];
 

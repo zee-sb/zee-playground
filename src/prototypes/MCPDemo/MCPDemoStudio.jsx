@@ -743,29 +743,24 @@ function ChatTab({ session }) {
     setMessages(history);
     setInput('');
 
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const nextMonday = (() => {
-        const d = new Date(); d.setDate(d.getDate() + (8 - d.getDay()) % 7 || 7); return d.toISOString().split('T')[0];
-      })();
-      const systemMessage = {
-        role: 'system',
-        content: `You are a helpful HR assistant for Acme Corp with access to HR tools. Keep responses concise and conversational.
+    const today = new Date().toISOString().split('T')[0];
+    const nextMonday = (() => {
+      const d = new Date(); d.setDate(d.getDate() + (8 - d.getDay()) % 7 || 7); return d.toISOString().split('T')[0];
+    })();
 
+    const systemMessage = {
+      role: 'system',
+      content: `You are a helpful HR assistant for Acme Corp with access to HR tools.
 Rules:
 - Always call tools immediately without asking clarifying questions.
 - For time-off requests: interpret relative dates ("next week", "Friday", "tomorrow") and call submit_time_off_request right away with calculated dates. The user will see a confirmation form to review and adjust before anything is submitted, so never ask them to confirm dates first.
 - For employee lookups: call lookup_employee immediately with whatever name/dept/role was mentioned.
 - For PTO balance checks: call check_pto_balance immediately.
 - Today's date: ${today}. Next Monday: ${nextMonday}.
-- Authenticated user: ${session?.user?.name} (${session?.user?.title}, ${session?.user?.department}).
+- Authenticated user: ${session?.user?.name} (${session?.user?.title}, ${session?.user?.department}).`,
+    };
 
-After completing any task, always end with a short, natural follow-up — either a relevant suggestion or a brief "What else can I help you with?" Keep it to one sentence. Examples:
-- After a PTO request: "Would you like to check your remaining balance after this?"
-- After a PTO balance check: "Want to request some time off or look up a colleague?"
-- After an employee lookup: "Would you like to see their direct reports or check a policy?"
-- After a policy search: "Any questions about what you found, or anything else I can help with?"`,
-      };
+    try {
       let currentMessages = [systemMessage, ...history];
       for (let round = 0; round < 6; round++) {
         const res = await fetch(CHAT_BASE, {
