@@ -1,23 +1,37 @@
 import React from 'react'
 import { Routes, Route, useParams, useNavigate, Link } from 'react-router-dom'
-import { Sparkles, BarChart2, Plug, Network, Bot, ClipboardList } from 'lucide-react'
-import AIAssistantStudio from './prototypes/AIAssistant/AIAssistantStudio'
+import { Sparkles, BarChart2, Plug, Bot, ClipboardList, MessageCircle } from 'lucide-react'
+import NavigatorStudio from './prototypes/Navigator/NavigatorStudio'
+import NavigatorOrchestratorStudio from './prototypes/NavigatorOrchestrator/NavigatorOrchestratorStudio'
 import NavigatorAnalyticsDashboard from './prototypes/NavigatorAnalytics/NavigatorAnalyticsDashboard'
 import MCPDemoStudio from './prototypes/MCPDemo/MCPDemoStudio'
-import NavigatorOrchestratorStudio from './prototypes/NavigatorOrchestrator/NavigatorOrchestratorStudio'
 import A2ADemoStudio from './prototypes/A2ADemo/A2ADemoStudio'
 import FrontlineOpsStudio from './prototypes/FrontlineOps/FrontlineOpsStudio'
 
 // ── Registry ──────────────────────────────────────────────────────────
+// Navigator is two linked prototypes sharing one localStorage config blob:
+//   /navigator-studio   — admin configures assistants, MCPs, agents, knowledge
+//   /navigator-employee — orchestrator chat (real LLM, streaming SSE,
+//                          intent trace, tool-call cards). Reflects whatever
+//                          the Studio has wired up.
 const PROTOTYPES = [
   {
-    id: "ai-assistant-studio",
-    title: "AI Assistant Studio (Premium)",
-    description: "Complete Staffbase Studio experience for configuring Identity, Knowledge, Assistants, Connectors, Flows, and Settings.",
+    id: "navigator-studio",
+    title: "Navigator — Studio (Admin)",
+    description: "Admin configuration: assistants with sub-agent links, MCP connectors, external/A2A agents, and knowledge bases. Live preview reflects every change.",
     epic: "Navigator",
     status: "ready",
     icon: Sparkles,
-    component: AIAssistantStudio
+    component: NavigatorStudio
+  },
+  {
+    id: "navigator-employee",
+    title: "Navigator — Employee",
+    description: "What an end-user sees. Real LLM-backed chat with streaming SSE, intent classification trace, and tool-call result cards. The orchestrator only sees MCPs and agents the Studio has connected and assigned to active assistants.",
+    epic: "Navigator",
+    status: "ready",
+    icon: MessageCircle,
+    component: NavigatorOrchestratorStudio
   },
   {
     id: "navigator-analytics-dashboard",
@@ -36,15 +50,6 @@ const PROTOTYPES = [
     status: "ready",
     icon: Plug,
     component: MCPDemoStudio
-  },
-  {
-    id: "navigator-orchestrator",
-    title: "Navigator Orchestrator — Multi-MCP Brain",
-    description: "Navigator acting as the routing brain across multiple MCP servers (HR + IT). Intent classification, tool namespacing, cross-domain queries, and live routing trace.",
-    epic: "Navigator",
-    status: "ready",
-    icon: Network,
-    component: NavigatorOrchestratorStudio
   },
   {
     id: "frontline-ops",

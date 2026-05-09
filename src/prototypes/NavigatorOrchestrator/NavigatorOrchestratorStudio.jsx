@@ -1,12 +1,16 @@
-import React, { useState, useRef, useEffect, useContext, createContext } from 'react';
+import React, { useState, useRef, useEffect, useContext, createContext, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Users, Monitor, Zap, ChevronDown, ChevronRight,
   Send, LogOut, CheckCircle, Loader2, AlertCircle, Wifi,
   Calendar, MapPin, Mail, Clock, Building2, X, FileText, Wrench,
   ThumbsUp, ThumbsDown, Copy, Check, Globe,
   UserPlus, Share2, Bot, Circle, ClipboardList, Camera, RotateCcw, Database,
+  Settings,
 } from 'lucide-react';
 import { STRINGS, SUPPORTED_LANGS, LANG_META, t as tBase, loadLang, saveLang } from './i18n';
+import { useConfigStore } from '../AIAssistant/useConfigStore';
+import { deriveLiveOrchestrator } from '../AIAssistant/configStore';
 
 // ── Language context ─────────────────────────────────────────────────────────
 const LangContext = createContext('en');
@@ -18,7 +22,14 @@ const useT = () => {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const REGISTRY = [
+// Default catalog of MCP servers and A2A agents the orchestrator backend supports.
+// Each entry is keyed by the literal id the backend recognizes (`/api/orchestrate`
+// uses `hr_portal`, `it_helpdesk`, `store_ops_agent`).
+//
+// At runtime the live registry is intersected with the studio config — only
+// servers/agents that are connected AND referenced by an active assistant in
+// `configStore` appear in the login screen, sidebar, and routing trace.
+const DEFAULT_REGISTRY = [
   {
     id: 'hr_portal', name: 'Acme HR Portal',
     description: 'Employee directory, PTO, policies, org chart',
@@ -33,7 +44,7 @@ const REGISTRY = [
   },
 ];
 
-const A2A_AGENTS = [
+const DEFAULT_A2A_AGENTS = [
   {
     id: 'store_ops_agent', name: 'Store Operations Agent',
     description: 'Role-aware shift checklists for Acme store locations',
@@ -42,6 +53,11 @@ const A2A_AGENTS = [
     isA2A: true,
   },
 ];
+
+// Lookup unions — used by `serverConfig()` to render trace cards / sources.
+// These never shrink; only the runtime registry derived from config does.
+const REGISTRY = DEFAULT_REGISTRY;
+const A2A_AGENTS = DEFAULT_A2A_AGENTS;
 
 const INITIAL_SUGGESTIONS = [
   "What's my PTO balance?",
@@ -1284,7 +1300,7 @@ function AppHeader({ user, onLogout, onClear, hasMessages, lang, onLangChange })
 
 // ── Login screen ──────────────────────────────────────────────────────────────
 
-function LoginScreen({ onConnect, lang, onLangChange }) {
+function LoginScreen({ onConnect, lang, onLangChange, registry = DEFAULT_REGISTRY, a2aAgents = DEFAULT_A2A_AGENTS }) {
   const t = useT();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1306,7 +1322,22 @@ function LoginScreen({ onConnect, lang, onLangChange }) {
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, position: 'relative' }}>
-      <div style={{ position: 'absolute', top: 24, right: 24 }}>
+      <div style={{ position: 'absolute', top: 24, right: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <Link
+          to="/prototypes/navigator-studio"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '8px 14px', borderRadius: 10,
+            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+            color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 600,
+            textDecoration: 'none', transition: 'all 0.15s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)'; e.currentTarget.style.color = 'white'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'rgba(255,255,255,0.85)'; }}
+        >
+          <Settings size={13} />
+          Open Studio
+        </Link>
         <LanguagePicker lang={lang} onChange={onLangChange} />
       </div>
       <div style={{ background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)', borderRadius: 24, padding: 40, width: '100%', maxWidth: 460, border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 24px 64px rgba(0,0,0,0.5)' }}>
@@ -1319,23 +1350,39 @@ function LoginScreen({ onConnect, lang, onLangChange }) {
           <p style={{ color: 'rgba(255,255,255,0.5)', marginTop: 6, fontSize: 14, lineHeight: 1.5 }}>{t('loginSubtitle')}</p>
         </div>
 
-        {/* Connected systems */}
-        <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>Connected systems</div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          {REGISTRY.map(s => (
-            <div key={s.id} style={{ flex: 1, background: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: '10px 12px', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 26, height: 26, borderRadius: 7, background: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <s.Icon size={13} color="white" />
-              </div>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'white' }}>{s.name.split(' ').slice(0, 2).join(' ')}</div>
-                <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)', fontWeight: 500 }}>MCP · tool calls</div>
-              </div>
-            </div>
-          ))}
+        {/* Connected systems — driven by Studio config */}
+        <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>Connected systems</span>
+          <Link
+            to="/prototypes/navigator-studio"
+            style={{ color: 'rgba(255,255,255,0.55)', textDecoration: 'none', textTransform: 'none', letterSpacing: 0, fontSize: 10, fontWeight: 600 }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'white'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.55)'; }}
+          >
+            Configure →
+          </Link>
         </div>
-        {/* A2A Agent card */}
-        {A2A_AGENTS.map(s => (
+        {registry.length === 0 ? (
+          <div style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.25)', borderRadius: 12, padding: '12px 14px', marginBottom: 8, fontSize: 11, color: 'rgba(252,165,165,0.95)', lineHeight: 1.5 }}>
+            <strong>No MCP servers wired up.</strong> Open Studio and connect at least one MCP, then assign it to an active assistant.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            {registry.map(s => (
+              <div key={s.id} style={{ flex: '1 1 calc(50% - 4px)', minWidth: 0, background: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: '10px 12px', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 26, height: 26, borderRadius: 7, background: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <s.Icon size={13} color="white" />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name.split(' ').slice(0, 2).join(' ')}</div>
+                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)', fontWeight: 500 }}>MCP · tool calls</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {/* A2A Agent cards */}
+        {a2aAgents.map(s => (
           <div key={s.id} style={{ background: 'rgba(5,150,105,0.1)', borderRadius: 12, padding: '10px 14px', border: '1px solid rgba(5,150,105,0.25)', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
             <div style={{ width: 26, height: 26, borderRadius: 7, background: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <s.Icon size={13} color="white" />
@@ -1385,6 +1432,22 @@ export default function NavigatorOrchestratorStudio() {
   const setLang = (l) => { setLangState(l); saveLang(l); };
   const [openSources, setOpenSources] = useState(null); // toolResults array or null
 
+  // Live registry — what THIS deployment of Navigator is configured to route to.
+  // Sourced from the Studio config (localStorage). An MCP only appears here when
+  // it's connected AND at least one active assistant references it. Same for A2A.
+  // The defaults are the union of "what the backend can serve"; filtering yields
+  // "what THIS admin actually wired up".
+  const { config } = useConfigStore();
+  const { liveRegistry, liveA2AAgents } = useMemo(() => {
+    const live = deriveLiveOrchestrator(config);
+    const liveMcpIds = new Set(live.mcps.map(m => m.id));
+    const liveAgentIds = new Set(live.agents.map(a => a.id));
+    return {
+      liveRegistry: DEFAULT_REGISTRY.filter(s => liveMcpIds.has(s.id)),
+      liveA2AAgents: DEFAULT_A2A_AGENTS.filter(s => liveAgentIds.has(s.id)),
+    };
+  }, [config]);
+
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -1396,8 +1459,10 @@ export default function NavigatorOrchestratorStudio() {
     setToken(newToken);
     setUser(newUser);
     const counts = {};
+    // Only query MCPs the studio has actually wired up. If everything's been
+    // disabled in Studio, this loop runs zero times and the chat starts toolless.
     await Promise.all(
-      REGISTRY.map(async (s) => {
+      liveRegistry.map(async (s) => {
         try {
           const endpoint = s.id === 'hr_portal' ? '/api/mcp' : '/api/mcp-it';
           const res = await fetch(endpoint, {
@@ -1558,7 +1623,13 @@ export default function NavigatorOrchestratorStudio() {
 
   if (!user) return (
     <LangContext.Provider value={lang}>
-      <LoginScreen onConnect={connect} lang={lang} onLangChange={setLang} />
+      <LoginScreen
+        onConnect={connect}
+        lang={lang}
+        onLangChange={setLang}
+        registry={liveRegistry}
+        a2aAgents={liveA2AAgents}
+      />
     </LangContext.Provider>
   );
 
@@ -1575,8 +1646,23 @@ export default function NavigatorOrchestratorStudio() {
     }}>
       {/* ── Left panel ─────────────────────────────────────────────── */}
       <div style={{ width: 240, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 14, alignSelf: 'center' }}>
-        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 2 }}>{tt('mcpNetwork')}</div>
-        {REGISTRY.map(s => {
+        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>{tt('mcpNetwork')}</span>
+          <Link
+            to="/prototypes/navigator-studio"
+            style={{ color: 'rgba(255,255,255,0.5)', textDecoration: 'none', textTransform: 'none', letterSpacing: 0, fontSize: 10, fontWeight: 600 }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'white'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.5)'; }}
+          >
+            Studio →
+          </Link>
+        </div>
+        {liveRegistry.length === 0 && (
+          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: 14, padding: '12px 14px', fontSize: 11, color: 'rgba(255,255,255,0.55)', lineHeight: 1.5 }}>
+            No MCPs configured. Wire one up in Studio.
+          </div>
+        )}
+        {liveRegistry.map(s => {
           const active = serverTools[s.id] != null;
           return (
             <div key={s.id} style={{ background: active ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)', border: `1px solid ${active ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.06)'}`, borderRadius: 14, padding: '12px 14px', transition: 'all 0.3s' }}>
@@ -1600,8 +1686,10 @@ export default function NavigatorOrchestratorStudio() {
           );
         })}
 
-        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 2, marginTop: 6 }}>A2A Agents</div>
-        {A2A_AGENTS.map(s => (
+        {liveA2AAgents.length > 0 && (
+          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 2, marginTop: 6 }}>A2A Agents</div>
+        )}
+        {liveA2AAgents.map(s => (
           <div key={s.id} style={{ background: 'rgba(5,150,105,0.12)', border: '1px solid rgba(5,150,105,0.25)', borderRadius: 14, padding: '12px 14px', transition: 'all 0.3s' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 8 }}>
               <div style={{ width: 32, height: 32, borderRadius: 9, background: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 4px 12px ${s.color}50`, flexShrink: 0 }}>

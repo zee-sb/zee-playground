@@ -406,20 +406,28 @@ export const defaultScenarios = [
 
 export function matchScenario(text, scenarios, enabledActions = []) {
   const lower = text.toLowerCase()
+  // A scenario gated by `requiredAction` only matches when that action is enabled.
+  // This is the seam that lets admin connect/disconnect drive the chat experience.
+  const isAvailable = (scenario) =>
+    !scenario.requiredAction || enabledActions.includes(scenario.requiredAction)
+
   for (const scenario of scenarios) {
     if (scenario.fallback) continue
-    
+    if (!isAvailable(scenario)) continue
+
     if (scenario.trigger.some(kw => lower.includes(kw))) {
       return scenario
     }
   }
-  
+
   // also allow exact matching on the 'id' for direct assistant invocation
   for (const scenario of scenarios) {
-    if (!scenario.fallback && scenario.agentSwitch && text.toLowerCase().includes(scenario.agentSwitch.name.toLowerCase())) {
+    if (scenario.fallback) continue
+    if (!isAvailable(scenario)) continue
+    if (scenario.agentSwitch && text.toLowerCase().includes(scenario.agentSwitch.name.toLowerCase())) {
         return scenario
     }
   }
-  
+
   return scenarios.find(s => s.fallback) || null
 }
