@@ -6,7 +6,7 @@ import {
   Calendar, MapPin, Mail, Clock, Building2, X, FileText, Wrench,
   ThumbsUp, ThumbsDown, Copy, Check, Globe,
   UserPlus, Share2, Bot, Circle, ClipboardList, Camera, RotateCcw, Database,
-  Settings,
+  Settings, Newspaper, Thermometer, Hash, ShieldOff, Sparkles,
 } from 'lucide-react';
 import { STRINGS, SUPPORTED_LANGS, LANG_META, t as tBase, loadLang, saveLang } from './i18n';
 import { useConfigStore } from '../AIAssistant/useConfigStore';
@@ -34,13 +34,22 @@ const DEFAULT_REGISTRY = [
     id: 'hr_portal', name: 'Acme HR Portal',
     description: 'Employee directory, PTO, policies, org chart',
     domains: ['hr', 'pto', 'employees', 'policies'],
+    endpoint: '/api/mcp',
     color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE', Icon: Users,
   },
   {
     id: 'it_helpdesk', name: 'IT Helpdesk',
     description: 'Tickets, equipment, software access',
     domains: ['it', 'tickets', 'equipment', 'access'],
+    endpoint: '/api/mcp-it',
     color: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE', Icon: Monitor,
+  },
+  {
+    id: 'intranet', name: 'Acme Intranet',
+    description: 'Leadership memos, product launches, team wikis, events, ERG pages, employee spotlights',
+    domains: ['intranet', 'news', 'leadership', 'wiki', 'event', 'spotlight', 'erg', 'announcement'],
+    endpoint: '/api/mcp-intranet',
+    color: '#0EA5E9', bg: '#F0F9FF', border: '#BAE6FD', Icon: Newspaper,
   },
 ];
 
@@ -281,6 +290,52 @@ function PolicyResultCard({ policy }) {
   );
 }
 
+// ── Intranet article cards ────────────────────────────────────────────────────
+
+const INTRANET_CATEGORY_STYLE = {
+  leadership: { color: '#0369A1', bg: '#E0F2FE', label: 'Leadership' },
+  product:    { color: '#7C3AED', bg: '#F5F3FF', label: 'Product' },
+  team_wiki:  { color: '#059669', bg: '#ECFDF5', label: 'Team Wiki' },
+  event:      { color: '#D97706', bg: '#FFFBEB', label: 'Event' },
+  erg:        { color: '#DB2777', bg: '#FDF2F8', label: 'Culture' },
+  spotlight:  { color: '#EA580C', bg: '#FFF7ED', label: 'Spotlight' },
+  default:    { color: '#0EA5E9', bg: '#F0F9FF', label: 'Intranet' },
+};
+
+function IntranetArticleCard({ article }) {
+  const style = INTRANET_CATEGORY_STYLE[article.category] || INTRANET_CATEGORY_STYLE.default;
+  return (
+    <div style={{ padding: '10px 12px', background: 'white', border: '1px solid #E5E7EB', borderLeft: `3px solid ${style.color}`, borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <Newspaper size={13} color={style.color} style={{ marginTop: 1, flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
+            <span style={{ fontWeight: 700, fontSize: 12, color: '#111827' }}>{article.title}</span>
+            <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8, background: style.bg, color: style.color }}>
+              {article.categoryLabel || style.label}
+            </span>
+          </div>
+          <div style={{ fontSize: 10, color: '#9CA3AF', marginBottom: 4 }}>
+            {article.author}{article.authorTitle ? ` · ${article.authorTitle}` : ''} · {article.publishedAt}
+          </div>
+          {(article.summary || article.excerpt) && (
+            <div style={{ fontSize: 11, color: '#6B7280', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+              {(article.summary || article.excerpt).replace(/^#.*\n/, '').replace(/\*\*/g, '').trim()}
+            </div>
+          )}
+          {article.tags?.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+              {article.tags.slice(0, 4).map(tag => (
+                <span key={tag} style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 8, background: '#F3F4F6', color: '#6B7280' }}>#{tag}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DirectReportsCard({ manager, reports }) {
   const t = useT();
   const color = deptColor(manager?.department);
@@ -486,6 +541,16 @@ function RichCards({ toolResults }) {
         const data = typeof result === 'object' ? result : JSON.parse(result);
         if (data?.requestId) cards.push(<SoftwareRequestCard key="sar" data={data} />);
       }
+      // Intranet tools
+      else if (toolName === 'search_articles' || toolName === 'list_recent') {
+        const data = typeof result === 'string' ? JSON.parse(result) : result;
+        if (Array.isArray(data)) {
+          cards.push(...data.slice(0, 4).map((a, i) => <IntranetArticleCard key={`art-${a.id || i}`} article={a} />));
+        }
+      } else if (toolName === 'get_article') {
+        const data = typeof result === 'string' ? JSON.parse(result) : result;
+        if (data?.id) cards.push(<IntranetArticleCard key={`art-${data.id}`} article={data} />);
+      }
     } catch { /* skip malformed results */ }
   }
 
@@ -553,6 +618,10 @@ function SourcesBottomSheet({ toolResults, onClose }) {
         cards.push(<EquipmentCard key="equip" data={data} />);
       } else if (toolName === 'request_software_access' && data?.requestId) {
         cards.push(<SoftwareRequestCard key="sar" data={data} />);
+      } else if ((toolName === 'search_articles' || toolName === 'list_recent') && Array.isArray(data)) {
+        cards.push(...data.map((a, i) => <IntranetArticleCard key={`art-${a.id || i}`} article={a} />));
+      } else if (toolName === 'get_article' && data?.id) {
+        cards.push(<IntranetArticleCard key={`art-${data.id}`} article={data} />);
       }
     } catch { /* skip */ }
   }
@@ -871,24 +940,88 @@ const PHASE_EMOJI = { opening: '🌅', midshift: '☀️', closing: '🌙' };
 const PHASE_LABEL = { opening: 'Opening', midshift: 'Mid-Shift', closing: 'Closing' };
 const ROLE_COLOR  = { manager: '#7C3AED', supervisor: '#2563EB', cook: '#D97706', cleaner: '#059669' };
 
-function A2ADelegationCard({ artifact }) {
+// Interactive shift-checklist card. Operations agent emits per-task directives
+// (`inputType: check | photo | temp_log | count`); this card renders the right
+// control for each row and tracks completion state locally. When all critical
+// tasks are done the user can submit a shift handover, which posts a synthetic
+// follow-up message into the chat (handled via onSubmit prop).
+function A2ADelegationCard({ artifact, onSubmit, disabled }) {
   const data = artifact?.parts?.[0]?.data;
+  // Local completion + per-input-type capture state. Hooks must stay above any
+  // early-return to keep ordering stable across renders.
+  const [doneIds, setDoneIds] = useState(() => new Set());
+  const [photoIds, setPhotoIds] = useState(() => new Set());
+  const [values, setValues] = useState({}); // { [taskId]: string }
+  const [submitted, setSubmitted] = useState(false);
+
   if (!data) return null;
-  const { user, location, phase, tasks, summary } = data;
+  const { user, location, phase, tasks, summary, directives } = data;
   const roleColor = ROLE_COLOR[user?.role] || '#F59E0B';
 
+  const isReady = (t) => {
+    if (t.inputType === 'photo') return doneIds.has(t.id) && photoIds.has(t.id);
+    if (t.inputType === 'temp_log' || t.inputType === 'count') {
+      return doneIds.has(t.id) && values[t.id]?.trim().length > 0;
+    }
+    return doneIds.has(t.id);
+  };
+
+  const completedCount = (tasks || []).filter(isReady).length;
+  const total = tasks?.length || 0;
+  const pct = total ? Math.round((completedCount / total) * 100) : 0;
+  const criticalDone = (tasks || []).filter(t => t.critical).every(isReady);
+  const allCritical = (tasks || []).filter(t => t.critical).length;
+  const canSubmit = total > 0 && criticalDone && !submitted && !disabled;
+
+  const toggleDone = (t) => {
+    setDoneIds(prev => {
+      const next = new Set(prev);
+      if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
+      return next;
+    });
+  };
+
+  const togglePhoto = (t) => {
+    setPhotoIds(prev => {
+      const next = new Set(prev);
+      if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
+      return next;
+    });
+  };
+
+  const handleSubmit = () => {
+    if (!canSubmit) return;
+    setSubmitted(true);
+    const prompt = directives?.submitPrompt
+      || `All ${PHASE_LABEL[phase] || phase} tasks complete — submit shift handover for ${user?.name || 'me'}.`;
+    onSubmit?.(prompt);
+  };
+
+  const headerColor = criticalDone ? '#059669' : '#92400E';
+  const headerBg = criticalDone ? '#ECFDF5' : '#FFFBEB';
+  const headerBorder = criticalDone ? '#A7F3D0' : '#FDE68A';
+
   return (
-    <div style={{ padding: '10px 12px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12, marginTop: 6 }}>
+    <div style={{ padding: '12px 12px', background: headerBg, border: `1px solid ${headerBorder}`, borderRadius: 12, marginTop: 6 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-        <ClipboardList size={13} color="#D97706" />
-        <span style={{ fontWeight: 700, fontSize: 12, color: '#92400E' }}>
+        <ClipboardList size={13} color={criticalDone ? '#059669' : '#D97706'} />
+        <span style={{ fontWeight: 700, fontSize: 12, color: headerColor, flex: 1 }}>
           {PHASE_EMOJI[phase]} {PHASE_LABEL[phase]} Shift Checklist
         </span>
+        <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: criticalDone ? '#D1FAE5' : '#FEF3C7', color: headerColor }}>
+          {completedCount}/{total}
+        </span>
       </div>
+
+      {/* Progress bar */}
+      <div style={{ height: 4, background: 'rgba(0,0,0,0.06)', borderRadius: 2, overflow: 'hidden', marginBottom: 10 }}>
+        <div style={{ height: '100%', width: `${pct}%`, background: criticalDone ? '#10B981' : '#F59E0B', borderRadius: 2, transition: 'width 0.3s ease' }} />
+      </div>
+
       {/* User row */}
       {user && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
           <div style={{ width: 26, height: 26, borderRadius: '50%', background: roleColor, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 800, flexShrink: 0 }}>
             {(user.name || '').split(' ').map(n => n[0]).join('').toUpperCase()}
           </div>
@@ -898,27 +1031,140 @@ function A2ADelegationCard({ artifact }) {
           </div>
         </div>
       )}
-      {/* Task preview */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 7 }}>
-        {(tasks || []).slice(0, 4).map((t, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Circle size={9} color={t.critical ? '#EF4444' : '#D1D5DB'} />
-            <span style={{ fontSize: 11, color: '#374151', flex: 1 }}>{t.title}</span>
-            {t.photo && <Camera size={9} color="#9CA3AF" />}
-          </div>
-        ))}
-        {(tasks?.length ?? 0) > 4 && (
-          <div style={{ fontSize: 10, color: '#9CA3AF', paddingLeft: 15 }}>+{tasks.length - 4} more tasks</div>
-        )}
+
+      {/* Interactive task list */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+        {(tasks || []).map((t) => {
+          const checked = doneIds.has(t.id);
+          const ready = isReady(t);
+          const baseRow = {
+            display: 'flex', flexDirection: 'column', gap: 6,
+            padding: '8px 10px',
+            background: ready ? 'rgba(16,185,129,0.08)' : 'white',
+            border: `1px solid ${ready ? '#A7F3D0' : t.critical ? '#FCA5A5' : '#E5E7EB'}`,
+            borderRadius: 10,
+          };
+          return (
+            <div key={t.id} style={baseRow}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <button
+                  onClick={() => toggleDone(t)}
+                  aria-label={checked ? 'Mark incomplete' : 'Mark complete'}
+                  style={{
+                    width: 18, height: 18, borderRadius: 5, marginTop: 1,
+                    border: `1.5px solid ${checked ? '#10B981' : t.critical ? '#EF4444' : '#9CA3AF'}`,
+                    background: checked ? '#10B981' : 'white',
+                    cursor: 'pointer', flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: 0,
+                  }}
+                >
+                  {checked && <Check size={11} color="white" />}
+                </button>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#111827', textDecoration: ready ? 'line-through' : 'none' }}>
+                      {t.title}
+                    </span>
+                    {t.critical && (
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 6, background: '#FEE2E2', color: '#991B1B' }}>
+                        Required
+                      </span>
+                    )}
+                    {t.inputType === 'photo' && (
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 6, background: '#F3F4F6', color: '#374151', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Camera size={9} /> Photo
+                      </span>
+                    )}
+                    {t.inputType === 'temp_log' && (
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 6, background: '#FEF3C7', color: '#92400E', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Thermometer size={9} /> Temp
+                      </span>
+                    )}
+                    {t.inputType === 'count' && (
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 6, background: '#EDE9FE', color: '#5B21B6', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Hash size={9} /> Count
+                      </span>
+                    )}
+                  </div>
+                  {t.desc && <div style={{ fontSize: 10, color: '#6B7280', marginTop: 2 }}>{t.desc}</div>}
+                </div>
+              </div>
+
+              {/* Per-task input controls (shown when checked) */}
+              {checked && t.inputType === 'photo' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 26 }}>
+                  <button
+                    onClick={() => togglePhoto(t)}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '4px 8px', borderRadius: 6,
+                      border: `1px solid ${photoIds.has(t.id) ? '#A7F3D0' : '#D1D5DB'}`,
+                      background: photoIds.has(t.id) ? '#ECFDF5' : 'white',
+                      color: photoIds.has(t.id) ? '#065F46' : '#374151',
+                      fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >
+                    {photoIds.has(t.id) ? <Check size={10} /> : <Camera size={10} />}
+                    {photoIds.has(t.id) ? 'Photo captured' : 'Capture photo'}
+                  </button>
+                  {!photoIds.has(t.id) && (
+                    <span style={{ fontSize: 9, color: '#9CA3AF' }}>Required to complete</span>
+                  )}
+                </div>
+              )}
+              {checked && (t.inputType === 'temp_log' || t.inputType === 'count') && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 26 }}>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={values[t.id] || ''}
+                    onChange={e => setValues(v => ({ ...v, [t.id]: e.target.value }))}
+                    placeholder={t.inputType === 'temp_log' ? 'e.g. 4' : 'count'}
+                    style={{
+                      width: 70, padding: '3px 6px', fontSize: 11,
+                      border: '1px solid #D1D5DB', borderRadius: 6, outline: 'none',
+                    }}
+                  />
+                  <span style={{ fontSize: 10, color: '#6B7280' }}>
+                    {t.inputType === 'temp_log' ? '°C' : 'units'}
+                  </span>
+                  {!values[t.id]?.trim() && (
+                    <span style={{ fontSize: 9, color: '#9CA3AF' }}>Required to complete</span>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
+
       {/* Summary badges */}
       {summary && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
           <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8, background: '#FEF3C7', color: '#92400E' }}>{summary.total} tasks</span>
           {summary.critical > 0 && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8, background: '#FEE2E2', color: '#991B1B' }}>{summary.critical} required</span>}
           {summary.photos > 0 && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8, background: '#F3F4F6', color: '#6B7280' }}>{summary.photos} need photo</span>}
         </div>
       )}
+
+      {/* Submit handover */}
+      <button
+        onClick={handleSubmit}
+        disabled={!canSubmit}
+        style={{
+          width: '100%', padding: '8px 10px', borderRadius: 8,
+          border: 'none', cursor: canSubmit ? 'pointer' : 'not-allowed',
+          background: submitted ? '#D1FAE5' : canSubmit ? 'linear-gradient(135deg, #10B981, #059669)' : '#F3F4F6',
+          color: submitted ? '#065F46' : canSubmit ? 'white' : '#9CA3AF',
+          fontSize: 12, fontWeight: 700,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        }}
+      >
+        {submitted ? <><Check size={12} /> Handover submitted</>
+          : canSubmit ? <><Send size={12} /> {directives?.submitLabel || `Submit ${PHASE_LABEL[phase] || ''} shift report`}</>
+          : <>Complete {allCritical} required {allCritical === 1 ? 'task' : 'tasks'} to submit</>}
+      </button>
     </div>
   );
 }
@@ -928,12 +1174,37 @@ function A2ADelegationCard({ artifact }) {
 function CompactTrace({ trace }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  if (!trace || (!trace.domains?.length && !trace.streaming && !trace.isA2ADelegation)) return null;
+  if (!trace || (!trace.domains?.length && !trace.streaming && !trace.isA2ADelegation && !trace.outOfScope)) return null;
+
+  // Out-of-scope refusal variant — shown when the orchestrator short-circuits.
+  if (trace.outOfScope) {
+    return (
+      <div style={{ marginBottom: 6 }}>
+        <div
+          style={{
+            display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px',
+            background: 'rgba(243,244,246,0.95)', border: '1px solid #E5E7EB',
+            borderRadius: 8, fontSize: 11, color: '#374151',
+            width: '100%', textAlign: 'left',
+          }}
+        >
+          <ShieldOff size={10} color="#6B7280" />
+          <span style={{ fontWeight: 600, fontSize: 10, color: '#374151', flex: 1 }}>
+            Outside enterprise scope
+          </span>
+          <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 10, background: '#F3F4F6', color: '#6B7280', border: '1px solid #E5E7EB' }}>
+            Refused
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   // A2A delegation variant
   if (trace.isA2ADelegation) {
     const steps = trace.a2aSteps || [];
-    const allDone = trace.streaming === false;
+    const lastStep = steps[steps.length - 1];
+    const awaitingInput = trace.streaming && lastStep?.directive?.awaitsInput;
     return (
       <div style={{ marginBottom: 6 }}>
         <button
@@ -951,6 +1222,11 @@ function CompactTrace({ trace }) {
           <span style={{ fontWeight: 600, fontSize: 10, color: '#78350F', flex: 1 }}>
             {trace.streaming ? `Delegating to ${trace.agentName || 'Store Operations Agent'}…` : `Delegated to ${trace.agentName || 'Store Operations Agent'}`}
           </span>
+          {awaitingInput && (
+            <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 10, background: '#DBEAFE', color: '#1E40AF', border: '1px solid #BFDBFE', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <Sparkles size={9} /> awaiting you
+            </span>
+          )}
           <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 10, background: '#FEF3C7', color: '#D97706', border: '1px solid #FCD34D' }}>A2A</span>
           {!trace.streaming && (open ? <ChevronDown size={10} color="#F59E0B" /> : <ChevronRight size={10} color="#F59E0B" />)}
         </button>
@@ -959,7 +1235,10 @@ function CompactTrace({ trace }) {
             {steps.map((s, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
                 <CheckCircle size={9} color="#F59E0B" style={{ flexShrink: 0 }} />
-                <span style={{ fontSize: 10, color: '#374151' }}>{s.label}</span>
+                <span style={{ fontSize: 10, color: '#374151', flex: 1 }}>{s.label}</span>
+                {s.directive?.inputType === 'photo' && <Camera size={9} color="#9CA3AF" />}
+                {s.directive?.inputType === 'temp_log' && <Thermometer size={9} color="#D97706" />}
+                {s.directive?.inputType === 'count' && <Hash size={9} color="#5B21B6" />}
               </div>
             ))}
           </div>
@@ -1028,7 +1307,7 @@ function CompactTrace({ trace }) {
 
 // ── Chat message ──────────────────────────────────────────────────────────────
 
-function ChatMessage({ msg, onSuggestionSelect, onOpenSources, loading }) {
+function ChatMessage({ msg, onSuggestionSelect, onOpenSources, loading, onA2ASubmit }) {
   const t = useT();
   if (msg.role === 'user') {
     return (
@@ -1080,7 +1359,7 @@ function ChatMessage({ msg, onSuggestionSelect, onOpenSources, loading }) {
           {/* Sources badge — opens bottom sheet */}
           <SourcesBadge toolResults={msg.toolResults} onOpen={() => onOpenSources?.(msg.toolResults)} />
           {/* A2A delegation artifact card */}
-          {msg.a2aArtifact && <A2ADelegationCard artifact={msg.a2aArtifact} />}
+          {msg.a2aArtifact && <A2ADelegationCard artifact={msg.a2aArtifact} onSubmit={onA2ASubmit} disabled={loading} />}
           {/* Feedback buttons only on completed messages */}
           {msg.content && !loading && <FeedbackButtons />}
           {msg.suggestions?.length > 0 && (
@@ -1464,7 +1743,7 @@ export default function NavigatorOrchestratorStudio() {
     await Promise.all(
       liveRegistry.map(async (s) => {
         try {
-          const endpoint = s.id === 'hr_portal' ? '/api/mcp' : '/api/mcp-it';
+          const endpoint = s.endpoint || (s.id === 'hr_portal' ? '/api/mcp' : '/api/mcp-it');
           const res = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream', Authorization: `Bearer ${newToken}` },
@@ -1535,7 +1814,9 @@ export default function NavigatorOrchestratorStudio() {
           try { event = JSON.parse(line); } catch { continue; }
 
           if (event.type === 'trace_intent') {
-            currentTrace = { ...currentTrace, domains: event.domains, reasoning: event.reasoning };
+            currentTrace = { ...currentTrace, domains: event.domains, reasoning: event.reasoning, inScope: event.inScope !== false };
+          } else if (event.type === 'refusal') {
+            currentTrace = { ...currentTrace, outOfScope: true, refusalReason: event.reasoning };
           } else if (event.type === 'trace_tools') {
             currentTrace = { ...currentTrace, serversQueried: event.serversQueried, toolCount: event.toolCount };
           } else if (event.type === 'tool_start') {
@@ -1547,7 +1828,7 @@ export default function NavigatorOrchestratorStudio() {
           } else if (event.type === 'a2a_delegate') {
             currentTrace = { ...currentTrace, isA2ADelegation: true, agentId: event.agentId, agentName: event.agentName, taskId: event.taskId, a2aSteps: [] };
           } else if (event.type === 'a2a_update') {
-            const newStep = { step: event.step, label: event.label, done: false };
+            const newStep = { step: event.step, label: event.label, done: false, directive: event.directive };
             currentTrace = { ...currentTrace, a2aSteps: [...(currentTrace.a2aSteps || []), newStep] };
           } else if (event.type === 'a2a_done') {
             currentTrace = { ...currentTrace, a2aArtifact: event.artifact };
@@ -1818,7 +2099,7 @@ export default function NavigatorOrchestratorStudio() {
           )}
 
           {messages.map((msg, i) => (
-            <ChatMessage key={i} msg={msg} onSuggestionSelect={sendMessage} onOpenSources={setOpenSources} loading={loading} />
+            <ChatMessage key={i} msg={msg} onSuggestionSelect={sendMessage} onOpenSources={setOpenSources} loading={loading} onA2ASubmit={(prompt) => sendMessage(prompt, { skipFormCheck: true })} />
           ))}
           <div ref={chatEndRef} />
         </div>

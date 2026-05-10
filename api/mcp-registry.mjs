@@ -43,4 +43,21 @@ export const MCP_REGISTRY = [
     icon: 'monitor',
     authType: 'bearer',
   },
+  {
+    id: 'intranet',
+    name: 'Acme Intranet',
+    description: 'Leadership memos, product launches, team wikis, events, ERG pages, employee spotlights — RAG over the company’s intranet content.',
+    endpoint: '/api/mcp-intranet',
+    domains: [
+      'intranet', 'news', 'announcement', 'memo', 'spotlight',
+      'erg', 'culture', 'leadership', 'town hall', 'all-hands',
+      'event', 'offsite', 'summit',
+      'wiki', 'team wiki', 'playbook', 'runbook',
+      'article', 'launch', 'release', 'roadmap',
+      'company news', 'ceo', 'cfo', 'recap',
+    ],
+    color: '#0EA5E9',
+    icon: 'newspaper',
+    authType: 'bearer',
+  },
 ];

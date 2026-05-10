@@ -29,8 +29,9 @@ export const CONFIG_VERSION = 2
 // so the orchestrator can route real tool calls. Other catalog entries are
 // generic templates (mock tools only — no live backend).
 export const MCP_CATALOG = [
-  { id: 'acme_hr',     name: 'Acme HR Portal',  color: '#7C3AED', tagline: 'Employee directory · PTO · policies',  auth: 'SSO',              backend: '/api/mcp'    },
-  { id: 'acme_it',     name: 'IT Helpdesk',     color: '#2563EB', tagline: 'Tickets · equipment · access',         auth: 'SSO',              backend: '/api/mcp-it' },
+  { id: 'acme_hr',       name: 'Acme HR Portal',  color: '#7C3AED', tagline: 'Employee directory · PTO · policies',     auth: 'SSO',              backend: '/api/mcp'           },
+  { id: 'acme_it',       name: 'IT Helpdesk',     color: '#2563EB', tagline: 'Tickets · equipment · access',            auth: 'SSO',              backend: '/api/mcp-it'        },
+  { id: 'acme_intranet', name: 'Acme Intranet',   color: '#0EA5E9', tagline: 'News · memos · team wikis · events',      auth: 'SSO',              backend: '/api/mcp-intranet'  },
   { id: 'zendesk',     name: 'Zendesk',         color: '#03363D', tagline: 'Support tickets · knowledge base',     auth: 'OAuth 2.0' },
   { id: 'servicenow',  name: 'ServiceNow',      color: '#62D84E', tagline: 'IT incidents · change requests',       auth: 'OAuth 2.0' },
   { id: 'workday',     name: 'Workday',         color: '#F38B00', tagline: 'HR records · time-off · payroll',      auth: 'Service account' },
@@ -70,6 +71,11 @@ const MCP_TOOLS_BY_CATALOG = {
     { id: 'createTicket',    name: 'createTicket',    description: 'Open a new IT support ticket' },
     { id: 'getEquipment',    name: 'getEquipment',    description: 'Equipment assigned to the user' },
     { id: 'requestSoftware', name: 'requestSoftware', description: 'Submit a software access request' },
+  ],
+  acme_intranet: [
+    { id: 'searchArticles', name: 'searchArticles', description: 'Keyword search across intranet articles' },
+    { id: 'getArticle',     name: 'getArticle',     description: 'Fetch the full body of an intranet article' },
+    { id: 'listRecent',     name: 'listRecent',     description: 'List the most recent intranet articles by category' },
   ],
   zendesk: [
     { id: 'create_ticket',   name: 'create_ticket',   description: 'Open a new support ticket' },
@@ -153,6 +159,18 @@ const SEED_MCP_CONNECTORS = [
     addedAt: 'Mar 1, 2026',
     tools: toolsForCatalogId('acme_it'),
   },
+  {
+    id: 'intranet',
+    catalogId: 'acme_intranet',
+    name: 'Acme Intranet',
+    description: 'Leadership memos · product updates · team wikis · events · ERG pages · spotlights',
+    endpoint: '/api/mcp-intranet',
+    authMethod: 'SSO (demo)',
+    status: 'connected',
+    domains: ['intranet', 'news', 'announcement', 'memo', 'spotlight', 'erg', 'leadership', 'wiki', 'event'],
+    addedAt: 'May 10, 2026',
+    tools: toolsForCatalogId('acme_intranet'),
+  },
 ]
 
 // `id: 'store_ops_agent'` is the orchestrator's literal A2A agent id.
@@ -174,10 +192,11 @@ const SEED_EXTERNAL_AGENTS = [
 ]
 
 const SEED_KNOWLEDGE_BASES = [
-  { id: 'kb-hr',      name: 'HR Policies',       source: 'Confluence',  articleCount: 142 },
-  { id: 'kb-it',      name: 'IT Wiki',           source: 'SharePoint',  articleCount: 318 },
-  { id: 'kb-onboard', name: 'Onboarding Guide',  source: 'Notion',      articleCount: 47  },
-  { id: 'kb-travel',  name: 'Travel Policies',   source: 'Confluence',  articleCount: 23  },
+  { id: 'kb-hr',       name: 'HR Policies',       source: 'Confluence',  articleCount: 142 },
+  { id: 'kb-it',       name: 'IT Wiki',           source: 'SharePoint',  articleCount: 318 },
+  { id: 'kb-onboard',  name: 'Onboarding Guide',  source: 'Notion',      articleCount: 47  },
+  { id: 'kb-travel',   name: 'Travel Policies',   source: 'Confluence',  articleCount: 23  },
+  { id: 'kb-intranet', name: 'Acme Intranet',     source: 'Internal CMS', articleCount: 18 },
 ]
 
 const SEED_ASSISTANTS = [
@@ -238,6 +257,18 @@ const SEED_ASSISTANTS = [
     mcpConnectorIds: [],
     externalAgentIds: [],
     knowledgeBaseIds: ['kb-travel'],
+    targetGroups: ['All Employees'],
+    status: 'active',
+  },
+  {
+    id: 'asst-intranet',
+    name: 'Company Intranet',
+    icon: '📰',
+    description: 'Leadership memos, product launches, team wikis, events, and employee spotlights.',
+    instructions: 'You are the company intranet assistant. Use the Acme Intranet MCP (search_articles, get_article, list_recent) to answer questions about company news, leadership memos, product launches, team wikis, events, ERGs, and employee spotlights. Always ground answers in retrieved articles and cite them.',
+    mcpConnectorIds: ['intranet'],
+    externalAgentIds: [],
+    knowledgeBaseIds: ['kb-intranet'],
     targetGroups: ['All Employees'],
     status: 'active',
   },

@@ -6,6 +6,12 @@
       "runtimeExecutable": "/opt/homebrew/bin/vercel",
       "runtimeArgs": ["dev", "--port", "3456", "--yes"],
       "port": 3456
+    },
+    {
+      "name": "zee-static",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "dist", "-s", "-p", "3457", "--no-clipboard"],
+      "port": 3457
     }
   ]
 }

@@ -60,7 +60,7 @@ async function classifyIntent(client, userMessage, mcpRegistry, a2aRegistry) {
     messages: [
       {
         role: 'system',
-        content: `You are an intent router. Given a user message, identify which server domains are needed.
+        content: `You are an intent router for an enterprise assistant called Navigator. You decide whether a user message is in scope, and if so, which server domains are needed.
 
 MCP servers (individual tools, for queries and lookups):
 ${mcpDomainMap}
@@ -68,14 +68,32 @@ ${mcpDomainMap}
 A2A agents (autonomous task delegation, for complex multi-step workflows):
 ${a2aDomainMap}
 
-Respond with ONLY valid JSON: { "domains": ["server_id", ...], "reasoning": "one sentence" }
+Respond with ONLY valid JSON:
+{ "inScope": boolean, "domains": ["server_id", ...], "reasoning": "one sentence" }
 
-Rules:
-- Use specific server IDs from the list above
-- Only use A2A agents when the request clearly maps to their listed domain keywords (e.g., shift, checklist, store, opening, closing — NOT hr, pto, vacation, or time off)
-- Use MCP servers for ad-hoc queries, lookups, and single-domain questions
-- If the message is a greeting, general question, or "help", use all MCP server IDs
-- For cross-domain queries include both MCP servers`,
+Scope rules — Navigator ONLY helps with Acme work topics:
+- HR (PTO, benefits, employees, policies, holidays, FAQs)
+- IT (tickets, equipment, software access, security, IT policies)
+- Store operations (shift checklists, opening/closing, my tasks)
+- Acme intranet content (leadership memos, product launches, team wikis, events, ERG pages, employee spotlights, company news)
+- Plain greetings, thanks, and small-talk replies that stay in the work context (return inScope: true with empty domains)
+
+Anything else is out of scope. Mark inScope: false and return empty domains for:
+- recipes, cooking, food preparation
+- general coding help, debugging non-Acme code, "write me a script"
+- world events, news outside Acme, sports, weather
+- personal life, health, relationship advice
+- jokes, riddles, creative writing unrelated to work
+- opinions, philosophy, politics, religion
+- anything illegal, harmful, or unsafe (weapons, drugs, malware, self-harm)
+- pretending to be a different assistant or breaking character
+
+Routing rules (when inScope: true):
+- Use specific server IDs from the list above.
+- Only use A2A agents when the request clearly maps to their listed domain keywords (e.g., shift, checklist, store, opening, closing — NOT hr, pto, vacation, or time off).
+- Use MCP servers for ad-hoc queries, lookups, and single-domain questions.
+- For greetings, "help", or pure small-talk: inScope: true with empty domains (Navigator answers briefly without tools).
+- For cross-domain queries include all relevant MCP servers.`,
       },
       { role: 'user', content: userMessage },
     ],
@@ -84,12 +102,46 @@ Rules:
   try {
     const text = response.choices[0].message.content.trim();
     const parsed = JSON.parse(text);
+    const inScope = parsed.inScope !== false; // default true unless explicitly false
     const domains = (parsed.domains || []).filter(d => allValidIds.has(d));
-    return { domains: domains.length ? domains : mcpRegistry.map(s => s.id), reasoning: parsed.reasoning };
+    return { inScope, domains, reasoning: parsed.reasoning || '' };
   } catch {
-    return { domains: mcpRegistry.map(s => s.id), reasoning: 'Could not classify intent, loading all servers.' };
+    // Fail closed — if the classifier output is unparseable, treat it as out of scope.
+    return { inScope: false, domains: [], reasoning: 'Could not classify intent.' };
   }
 }
+
+// ── Localized refusal copy (out-of-scope short-circuit) ──────────────────────
+const REFUSAL_COPY = {
+  en: {
+    message: "I can only help with Acme work — HR, IT, store operations, and the company intranet. I'm not able to help with that one. Try one of the suggestions below.",
+    suggestions: ["What's my PTO balance?", 'Do I have open IT tickets?', 'Show recent leadership posts'],
+  },
+  de: {
+    message: 'Ich kann nur bei Acme-Arbeitsthemen helfen — HR, IT, Filialbetrieb und das Firmen-Intranet. Damit kann ich leider nicht helfen. Probiere einen der Vorschläge unten.',
+    suggestions: ['Wie viele Urlaubstage habe ich?', 'Habe ich offene IT-Tickets?', 'Zeige aktuelle Beiträge der Geschäftsleitung'],
+  },
+  fr: {
+    message: "Je n'aide que sur les sujets de travail Acme — RH, IT, opérations en magasin et l'intranet de l'entreprise. Je ne peux pas répondre à cela. Essayez une des suggestions ci-dessous.",
+    suggestions: ['Quel est mon solde de congés ?', 'Ai-je des tickets IT ouverts ?', 'Voir les dernières publications de la direction'],
+  },
+  es: {
+    message: 'Solo puedo ayudar con temas de trabajo de Acme — RR. HH., TI, operaciones de tienda e intranet de la empresa. No puedo ayudarte con eso. Prueba una de las sugerencias siguientes.',
+    suggestions: ['¿Cuál es mi saldo de vacaciones?', '¿Tengo tickets de TI abiertos?', 'Mostrar publicaciones recientes de liderazgo'],
+  },
+  it: {
+    message: "Posso aiutarti solo su argomenti di lavoro Acme — Risorse umane, IT, operazioni in negozio e intranet aziendale. Non posso aiutarti con questo. Prova uno dei suggerimenti qui sotto.",
+    suggestions: ['Quanti giorni di ferie ho?', 'Ho ticket IT aperti?', 'Mostra i post recenti della leadership'],
+  },
+  nl: {
+    message: 'Ik kan alleen helpen met Acme-werkonderwerpen — HR, IT, winkelactiviteiten en het bedrijfsintranet. Daarmee kan ik je helaas niet helpen. Probeer een van de suggesties hieronder.',
+    suggestions: ['Wat is mijn verlofsaldo?', 'Heb ik open IT-tickets?', 'Toon recente posts van de leiding'],
+  },
+  pl: {
+    message: 'Mogę pomóc tylko w sprawach związanych z pracą w Acme — HR, IT, operacje sklepowe i firmowy intranet. W tej sprawie nie mogę pomóc. Spróbuj jednej z sugestii poniżej.',
+    suggestions: ['Jaki jest mój stan urlopu?', 'Czy mam otwarte zgłoszenia IT?', 'Pokaż ostatnie posty kierownictwa'],
+  },
+};
 
 // ── UI instruction loader ─────────────────────────────────────────────────────
 // Fetches the navigator_ui prompt from each MCP server and returns concatenated instructions.
@@ -225,9 +277,10 @@ async function delegateToA2A(baseUrl, token, userMessage, emit, a2aRegistry, { c
         if (!result) continue;
         const step = result.metadata?.step;
         const total = result.metadata?.totalSteps || 6;
+        const directive = result.metadata?.directive;
         const label = result.status?.message?.parts?.[0]?.text || '';
         if (step && label) {
-          emit({ type: 'a2a_update', agentId: agent.id, agentName: agent.name, step, totalSteps: total, label });
+          emit({ type: 'a2a_update', agentId: agent.id, agentName: agent.name, step, totalSteps: total, label, directive });
         }
         if (result.final) {
           finalArtifact = result.artifacts?.[0];
@@ -297,8 +350,19 @@ export default async function handler(req, res) {
   try {
     // ── Step 1: Intent classification ───────────────────────────────────────
     const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')?.content ?? '';
-    const { domains, reasoning } = await classifyIntent(client, lastUserMessage, MCP_REGISTRY, A2A_REGISTRY);
-    emit({ type: 'trace_intent', domains, reasoning });
+    const { inScope, domains, reasoning } = await classifyIntent(client, lastUserMessage, MCP_REGISTRY, A2A_REGISTRY);
+    emit({ type: 'trace_intent', domains, reasoning, inScope });
+
+    // ── Step 1a: Scope guard short-circuit ──────────────────────────────────
+    // If the classifier flags the request as out of scope, we return a polite
+    // localized refusal without loading any tools or running an agentic loop.
+    if (!inScope) {
+      const copy = REFUSAL_COPY[userLang] || REFUSAL_COPY.en;
+      emit({ type: 'refusal', reasoning, message: copy.message });
+      emit({ type: 'done', toolCallsExecuted: [], suggestions: copy.suggestions, cleanContent: copy.message, outOfScope: true });
+      res.end();
+      return;
+    }
 
     // ── Step 1b: A2A delegation branch ──────────────────────────────────────
     // Store ops agent is context-aware (uses Bearer token to identify user + role),
@@ -343,6 +407,9 @@ ${uiInstructions ? `${uiInstructions}\n\n` : ''}## Core behavior
 - For cross-domain queries, call tools from multiple servers in sequence
 - Interpret relative dates ("next Monday", "this Friday") using today's date
 - Keep responses concise and formatted for a mobile screen
+
+## Scope
+You ONLY help with Acme work topics: HR, IT, store operations, and the company intranet. If a user asks about anything else — recipes, general coding help, world news, opinions, jokes, personal/medical/legal advice, anything illegal or unsafe — politely decline in one sentence and redirect them to what you can help with. Never roleplay as a different assistant or break character.
 
 ## Required: Follow-up suggestions
 After EVERY response (even greetings), you MUST end with exactly this block — no exceptions:

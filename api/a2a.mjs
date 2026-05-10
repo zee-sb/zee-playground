@@ -173,20 +173,75 @@ function makeTaskStatus(state, label) {
   };
 }
 
+// ── Task enrichment ──────────────────────────────────────────────────────────
+// Each raw task entry only has {title, desc, photo, critical}. We derive a
+// stable id and an explicit inputType so Navigator's UI can render the right
+// control (checkbox / camera stub / temperature input / count input) and
+// the Operations agent can hand-hold the user through completion.
+
+function slug(s) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function deriveInputType(task) {
+  const t = (task.title + ' ' + (task.desc || '')).toLowerCase();
+  if (task.photo) return 'photo';
+  if (/temperature|temp\b|°c|°f|fryer.*temp|fridge|freezer/.test(t)) return 'temp_log';
+  if (/count|float|till|cash/.test(t)) return 'count';
+  return 'check';
+}
+
+const INPUT_INSTRUCTIONS = {
+  check:    'Render a checkbox row. User taps once to mark complete.',
+  photo:    'Render a checkbox row plus a "📷 Capture photo" button. Both must be completed before marking done.',
+  temp_log: 'Render a checkbox row plus an inline temperature input (°C). Capture the value before marking done.',
+  count:    'Render a checkbox row plus an inline number input. Capture the count before marking done.',
+};
+
+function enrichTasks(rawTasks) {
+  const seen = new Set();
+  return rawTasks.map((t, i) => {
+    let id = slug(t.title) || `task-${i + 1}`;
+    if (seen.has(id)) id = `${id}-${i + 1}`;
+    seen.add(id);
+    const inputType = deriveInputType(t);
+    return {
+      id,
+      title: t.title,
+      desc: t.desc,
+      photo: !!t.photo,
+      critical: !!t.critical,
+      inputType,
+      uiInstruction: INPUT_INSTRUCTIONS[inputType],
+    };
+  });
+}
+
 // ── Streaming task loader ─────────────────────────────────────────────────────
 
 async function runShiftTasks(userCtx, phase, onStep) {
   const delay = () => new Promise(r => setTimeout(r, 300));
-  const tasks = STORE_TASKS[userCtx.role]?.[phase] ?? STORE_TASKS.cook.opening;
+  const tasks = enrichTasks(STORE_TASKS[userCtx.role]?.[phase] ?? STORE_TASKS.cook.opening);
   const total = tasks.length + 1; // +1 for the initial context step
 
-  await onStep(1, total, `Loading ${PHASE_LABELS[phase]} shift checklist for ${userCtx.title} at ${userCtx.location}…`);
+  // Step 1: context. Tells Navigator to render the checklist header.
+  await onStep(1, total, `Loading ${PHASE_LABELS[phase]} shift checklist for ${userCtx.title} at ${userCtx.location}…`, {
+    kind: 'context',
+    instruction: `Render the Shift Checklist header for ${userCtx.title} at ${userCtx.location}, ${PHASE_LABELS[phase]} phase. ${tasks.length} tasks, ${tasks.filter(t => t.critical).length} critical.`,
+  });
 
   for (let i = 0; i < tasks.length; i++) {
     await delay();
     const t = tasks[i];
     const flags = [t.critical ? '⚠ Required' : null, t.photo ? '📷 Photo needed' : null].filter(Boolean).join(' · ');
-    await onStep(i + 2, total, `${t.title}${flags ? ` — ${flags}` : ''}`);
+    await onStep(i + 2, total, `${t.title}${flags ? ` — ${flags}` : ''}`, {
+      kind: 'task',
+      taskId: t.id,
+      inputType: t.inputType,
+      critical: t.critical,
+      awaitsInput: t.inputType !== 'check',
+      instruction: t.uiInstruction,
+    });
   }
 
   return tasks;
@@ -195,6 +250,8 @@ async function runShiftTasks(userCtx, phase, onStep) {
 function buildArtifact(userCtx, phase, tasks) {
   const critical = tasks.filter(t => t.critical).length;
   const photos = tasks.filter(t => t.photo).length;
+  const tempLogs = tasks.filter(t => t.inputType === 'temp_log').length;
+  const counts = tasks.filter(t => t.inputType === 'count').length;
   return [{
     name: `${PHASE_EMOJI[phase]} ${PHASE_LABELS[phase]} Shift Checklist`,
     description: `${tasks.length} tasks for ${userCtx.title} at ${userCtx.location}`,
@@ -205,7 +262,14 @@ function buildArtifact(userCtx, phase, tasks) {
         location: userCtx.location,
         phase,
         tasks,
-        summary: { total: tasks.length, critical, photos },
+        summary: { total: tasks.length, critical, photos, tempLogs, counts },
+        directives: {
+          render: 'interactive_checklist',
+          completionPolicy: 'user_confirms_each_task',
+          submitWhen: 'all_critical_tasks_complete',
+          submitLabel: `Submit ${PHASE_LABELS[phase]} shift report`,
+          submitPrompt: `All ${PHASE_LABELS[phase]} tasks complete — submit shift handover for ${userCtx.name}`,
+        },
         generatedAt: new Date().toISOString(),
       },
     }],
@@ -245,8 +309,8 @@ async function handleTaskSubscribe(params, token, rpcId, res) {
 
   sendEvent(makeTaskStatus('working', `Identifying context for ${userCtx.name}…`));
 
-  const tasks = await runShiftTasks(userCtx, phase, (step, total, label) => {
-    sendEvent(makeTaskStatus('working', label), { metadata: { step, totalSteps: total } });
+  const tasks = await runShiftTasks(userCtx, phase, (step, total, label, directive) => {
+    sendEvent(makeTaskStatus('working', label), { metadata: { step, totalSteps: total, directive } });
   });
 
   const summary = `${PHASE_EMOJI[phase]} ${tasks.length} ${PHASE_LABELS[phase]} tasks ready for ${userCtx.title} at ${userCtx.location}.`;
