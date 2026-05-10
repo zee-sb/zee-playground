@@ -20,6 +20,45 @@ const useT = () => {
   return (key) => tBase(lang, key);
 };
 
+// ── Responsive hook ──────────────────────────────────────────────────────────
+// Returns true when the viewport is phone-sized (≤768px). Drives the mobile
+// layout switch: full-bleed chat with no phone-mock, no sidebars, and a
+// keyboard-aware input bar.
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const handler = e => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isMobile;
+}
+
+// Mirrors window.visualViewport.height into a state value. iOS Safari does not
+// honor `interactive-widget=resizes-content`, so we use this to size the chat
+// shell when the soft keyboard is open. Falls back to null on browsers that
+// don't expose visualViewport.
+function useVisualViewportHeight() {
+  const [height, setHeight] = useState(() =>
+    typeof window !== 'undefined' && window.visualViewport ? window.visualViewport.height : null
+  );
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setHeight(vv.height);
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
+  return height;
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 // Default catalog of MCP servers and A2A agents the orchestrator backend supports.
@@ -638,7 +677,7 @@ function SourcesBadge({ toolResults, onOpen }) {
 
 // ── Sources bottom sheet (rendered at phone-frame level) ──────────────────────
 
-function SourcesBottomSheet({ toolResults, onClose }) {
+function SourcesBottomSheet({ toolResults, onClose, fullScreen = false }) {
   const cards = [];
   for (const tr of (toolResults || [])) {
     try {
@@ -678,13 +717,23 @@ function SourcesBottomSheet({ toolResults, onClose }) {
       {/* Backdrop */}
       <div
         onClick={onClose}
-        style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 40, borderRadius: 40 }}
+        style={{
+          position: fullScreen ? 'fixed' : 'absolute',
+          inset: 0,
+          background: 'rgba(0,0,0,0.35)',
+          zIndex: 40,
+          borderRadius: fullScreen ? 0 : 40,
+        }}
       />
       {/* Sheet */}
       <div style={{
-        position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 50,
-        background: 'white', borderRadius: '24px 24px 40px 40px',
-        maxHeight: '72%', display: 'flex', flexDirection: 'column',
+        position: fullScreen ? 'fixed' : 'absolute',
+        bottom: 0, left: 0, right: 0, zIndex: 50,
+        background: 'white',
+        borderRadius: fullScreen ? '24px 24px 0 0' : '24px 24px 40px 40px',
+        maxHeight: fullScreen ? '85dvh' : '72%',
+        paddingBottom: fullScreen ? 'env(safe-area-inset-bottom, 0px)' : 0,
+        display: 'flex', flexDirection: 'column',
         boxShadow: '0 -8px 32px rgba(0,0,0,0.18)',
         animation: 'slideUp 0.22s ease-out',
       }}>
@@ -1691,6 +1740,7 @@ function LoginScreen({ onConnect, lang, onLangChange, registry = DEFAULT_REGISTR
   const t = useT();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const isMobile = useIsMobile();
 
   async function connect(email) {
     setLoading(true);
@@ -1708,8 +1758,29 @@ function LoginScreen({ onConnect, lang, onLangChange, registry = DEFAULT_REGISTR
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, position: 'relative' }}>
-      <div style={{ position: 'absolute', top: 24, right: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
+    <div style={{
+      minHeight: '100dvh',
+      background: 'linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%)',
+      display: 'flex',
+      flexDirection: isMobile ? 'column' : 'row',
+      alignItems: 'center',
+      justifyContent: isMobile ? 'flex-start' : 'center',
+      padding: isMobile ? 0 : 24,
+      position: 'relative',
+    }}>
+      <div style={{
+        position: isMobile ? 'static' : 'absolute',
+        top: isMobile ? undefined : 24,
+        right: isMobile ? undefined : 24,
+        width: isMobile ? '100%' : 'auto',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        gap: 12,
+        padding: isMobile ? 'calc(env(safe-area-inset-top, 0px) + 12px) 16px 8px' : 0,
+        zIndex: 5,
+        flexShrink: 0,
+      }}>
         <Link
           to="/prototypes/navigator-studio"
           style={{
@@ -1727,7 +1798,12 @@ function LoginScreen({ onConnect, lang, onLangChange, registry = DEFAULT_REGISTR
         </Link>
         <LanguagePicker lang={lang} onChange={onLangChange} />
       </div>
-      <div style={{ background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)', borderRadius: 24, padding: 40, width: '100%', maxWidth: 460, border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 24px 64px rgba(0,0,0,0.5)' }}>
+      <div style={isMobile ? {
+        width: '100%',
+        padding: '8px 20px calc(env(safe-area-inset-bottom, 0px) + 24px)',
+      } : {
+        background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)', borderRadius: 24, padding: 40, width: '100%', maxWidth: 460, border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+      }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{ width: 60, height: 60, borderRadius: 18, margin: '0 auto 16px', background: 'linear-gradient(135deg, #7C3AED, #2563EB)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(124,58,237,0.4)' }}>
@@ -1867,6 +1943,8 @@ export default function NavigatorOrchestratorStudio() {
   const [lang, setLangState] = useState(() => loadLang());
   const setLang = (l) => { setLangState(l); saveLang(l); };
   const [openSources, setOpenSources] = useState(null); // toolResults array or null
+  const isMobile = useIsMobile();
+  const visualViewportHeight = useVisualViewportHeight();
 
   // Persist messages whenever they change (per-user). We don't persist on every
   // streaming delta — only when role is user/assistant — but the simplest
@@ -2108,6 +2186,224 @@ export default function NavigatorOrchestratorStudio() {
   const userDemo = DEMO_USERS.find(u => u.email === user.email) ?? DEMO_USERS[0];
   const tt = (key) => tBase(lang, key);
 
+  // The chat shell — header, messages, input, sources sheet — is shared
+  // between the desktop phone-mock and the full-bleed mobile layout. We render
+  // it once into `chatBody` and place it inside the appropriate wrapper below.
+  const chatBody = (
+    <>
+      <AppHeader user={user} onLogout={logout} onClear={resetSession} hasMessages={messages.length > 0} lang={lang} onLangChange={setLang} />
+
+      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', background: 'transparent', position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', padding: '12px 12px 0' }}>
+        {/* Empty state */}
+        {messages.length === 0 && (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px 16px 12px' }}>
+            {/* Hero section */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', paddingBottom: 16 }}>
+              {/* Avatar with glow */}
+              <div style={{ position: 'relative', marginBottom: 16 }}>
+                <div style={{ position: 'absolute', inset: -14, background: `radial-gradient(circle, ${userDemo.color}33 0%, transparent 70%)`, borderRadius: '50%' }} />
+                <div style={{ width: 58, height: 58, borderRadius: '50%', background: userDemo.color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 800, position: 'relative', boxShadow: `0 6px 24px ${userDemo.color}55` }}>
+                  {userDemo.avatar}
+                </div>
+              </div>
+              {/* Name + role + location */}
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#111827', letterSpacing: '-0.4px', lineHeight: 1.2 }}>
+                Hi, {user.name.split(' ')[0]}
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: userDemo.color, marginTop: 4, marginBottom: 3 }}>
+                {userDemo.storeRole}
+              </div>
+              <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <MapPin size={10} />
+                {userDemo.location}
+              </div>
+              <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.55, maxWidth: 250 }}>
+                {ROLE_SUBTITLES[userDemo.storeRole] || tt('appSubtitle')}
+              </div>
+            </div>
+
+            {/* Role-specific chips */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(() => {
+                const capabilityIds = new Set([
+                  ...liveRegistry.map(s => s.id),
+                  ...liveA2AAgents.map(s => s.id),
+                ]);
+                const chips = pickRoleChips({
+                  role: userDemo.storeRole,
+                  capabilities: capabilityIds,
+                  now: new Date(),
+                });
+                const labelMap = CHIP_LABEL_I18N[lang] ?? CHIP_LABEL_I18N.en;
+                const isShiftFirst = chips[0]?.kind === 'shift';
+                const shiftChip = isShiftFirst ? chips[0] : null;
+                const rest = isShiftFirst ? chips.slice(1) : chips;
+                return (
+                  <>{shiftChip && (
+                    <button
+                      onClick={() => sendMessage(shiftChip.full)}
+                      disabled={loading}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '11px 14px', borderRadius: 14,
+                        background: 'rgba(245,158,11,0.1)', backdropFilter: 'blur(10px)',
+                        border: '1px solid rgba(245,158,11,0.35)',
+                        cursor: 'pointer', transition: 'all 0.15s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.2)'; e.currentTarget.style.borderColor = 'rgba(245,158,11,0.5)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.1)'; e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)'; }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                        <div style={{ width: 26, height: 26, borderRadius: 7, background: '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <ClipboardList size={12} color="white" />
+                        </div>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#78350F' }}>{labelMap[shiftChip.label] ?? shiftChip.label}</span>
+                      </div>
+                      <span style={{ fontSize: 9, fontWeight: 800, color: '#D97706', background: 'rgba(245,158,11,0.15)', padding: '2px 7px', borderRadius: 8, border: '1px solid rgba(245,158,11,0.3)', letterSpacing: '0.05em' }}>A2A</span>
+                    </button>
+                  )}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, justifyContent: 'center' }}>
+                      {rest.map((chip, i) => (
+                        <button key={i} onClick={() => !loading && sendMessage(chip.full)} disabled={loading}
+                          style={{
+                            padding: '8px 13px', borderRadius: 20,
+                            background: 'rgba(255,255,255,0.82)', backdropFilter: 'blur(10px)',
+                            border: '1px solid rgba(255,255,255,0.7)',
+                            color: '#111827', fontSize: 12, fontWeight: 500,
+                            cursor: 'pointer', whiteSpace: 'nowrap',
+                            boxShadow: '0 1px 5px rgba(0,0,0,0.07)',
+                            transition: 'all 0.15s',
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = userDemo.color; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.82)'; e.currentTarget.style.color = '#111827'; }}
+                        >
+                          {labelMap[chip.label] ?? chip.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
+        {messages.map((msg, i) => (
+          <ChatMessage
+            key={i}
+            msg={msg}
+            onSuggestionSelect={sendMessage}
+            onOpenSources={setOpenSources}
+            loading={loading}
+            onA2ASubmit={(prompt) => sendMessage(prompt, { skipFormCheck: true })}
+            onChecklistStateChange={(nextState) => setMessages(prev => {
+              const updated = [...prev];
+              if (updated[i]) updated[i] = { ...updated[i], checklistState: nextState };
+              return updated;
+            })}
+          />
+        ))}
+        <div ref={chatEndRef} />
+      </div>
+
+      {/* Input bar */}
+      <div style={{
+        flexShrink: 0, position: 'relative', zIndex: 1,
+        padding: isMobile
+          ? '8px 12px calc(env(safe-area-inset-bottom, 0px) + 6px)'
+          : '8px 12px 4px',
+      }}>
+        <div style={{
+          display: 'flex', gap: 8, alignItems: 'center',
+          background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(16px)',
+          borderRadius: 28, padding: '0 6px 0 18px',
+          border: '1px solid rgba(255,255,255,0.7)',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.1)',
+          minHeight: 48,
+        }}>
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); }}}
+            onFocus={() => {
+              if (!isMobile) return;
+              // iOS Safari animates the keyboard in over ~250ms. After it
+              // settles, scroll the latest message + input bar back into view
+              // — the textarea blur-out will already have moved the layout.
+              setTimeout(() => {
+                chatEndRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+              }, 280);
+            }}
+            placeholder={tt('inputPlaceholder')}
+            disabled={loading}
+            rows={1}
+            style={{
+              flex: 1, border: 'none', background: 'none', resize: 'none', outline: 'none',
+              fontSize: isMobile ? 16 : 14, color: '#111827', lineHeight: 1.5, fontFamily: 'inherit',
+              maxHeight: 80, padding: '13px 0', margin: 0, display: 'block',
+            }}
+          />
+          <button
+            onClick={() => sendMessage(input)}
+            disabled={!input.trim() || loading}
+            style={{
+              width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+              background: input.trim() && !loading ? '#7C3AED' : 'rgba(124,58,237,0.25)',
+              border: 'none', cursor: input.trim() && !loading ? 'pointer' : 'not-allowed',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
+              boxShadow: input.trim() && !loading ? '0 2px 8px rgba(124,58,237,0.5)' : 'none',
+            }}
+          >
+            {loading
+              ? <Loader2 size={15} color="white" style={{ animation: 'spin 1s linear infinite' }} />
+              : <Send size={15} color="white" />}
+          </button>
+        </div>
+        <div style={{ textAlign: 'center', fontSize: 10, color: 'rgba(255,255,255,0.8)', marginTop: 5, marginBottom: 3, fontWeight: 500 }}>
+          {tt('aiDisclaimer')}
+        </div>
+      </div>
+
+      {/* Sources bottom sheet */}
+      {openSources && (
+        <SourcesBottomSheet toolResults={openSources} onClose={() => setOpenSources(null)} fullScreen={isMobile} />
+      )}
+    </>
+  );
+
+  // ── Mobile: full-bleed chat, no phone-mock, no sidebars ────────────────────
+  if (isMobile) {
+    return (
+      <LangContext.Provider value={lang}>
+        <div style={{
+          // visualViewport.height shrinks when the iOS keyboard opens; falling
+          // back to 100dvh so Chrome/Android (which honor
+          // interactive-widget=resizes-content) get the same behavior.
+          height: visualViewportHeight ? `${visualViewportHeight}px` : '100dvh',
+          width: '100%',
+          position: 'fixed', top: 0, left: 0, right: 0,
+          display: 'flex', flexDirection: 'column',
+          background: 'white',
+          overflow: 'hidden',
+          fontFamily: 'inherit',
+        }}>
+          {/* Same purple ambient gradient that lives inside the desktop phone */}
+          <div style={{
+            position: 'absolute', bottom: 0, left: 0, right: 0, height: '45%',
+            background: 'radial-gradient(ellipse 140% 100% at 50% 110%, #7C3AED 0%, rgba(124,58,237,0.55) 35%, rgba(124,58,237,0.15) 60%, transparent 80%)',
+            pointerEvents: 'none', zIndex: 0,
+          }} />
+          {chatBody}
+          <style>{`
+            @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+            @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+          `}</style>
+        </div>
+      </LangContext.Provider>
+    );
+  }
+
   return (
     <LangContext.Provider value={lang}>
     <div style={{
@@ -2202,176 +2498,11 @@ export default function NavigatorOrchestratorStudio() {
       {/* ── Phone frame ────────────────────────────────────────────── */}
       <PhoneFrame>
         <StatusBar />
-        <AppHeader user={user} onLogout={logout} onClear={resetSession} hasMessages={messages.length > 0} lang={lang} onLangChange={setLang} />
-
-        <div style={{ flex: 1, overflowY: 'auto', background: 'transparent', position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', padding: '12px 12px 0' }}>
-          {/* Empty state */}
-          {messages.length === 0 && (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px 16px 12px' }}>
-              {/* Hero section */}
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', paddingBottom: 16 }}>
-                {/* Avatar with glow */}
-                <div style={{ position: 'relative', marginBottom: 16 }}>
-                  <div style={{ position: 'absolute', inset: -14, background: `radial-gradient(circle, ${userDemo.color}33 0%, transparent 70%)`, borderRadius: '50%' }} />
-                  <div style={{ width: 58, height: 58, borderRadius: '50%', background: userDemo.color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 800, position: 'relative', boxShadow: `0 6px 24px ${userDemo.color}55` }}>
-                    {userDemo.avatar}
-                  </div>
-                </div>
-                {/* Name + role + location */}
-                <div style={{ fontSize: 18, fontWeight: 800, color: '#111827', letterSpacing: '-0.4px', lineHeight: 1.2 }}>
-                  Hi, {user.name.split(' ')[0]}
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: userDemo.color, marginTop: 4, marginBottom: 3 }}>
-                  {userDemo.storeRole}
-                </div>
-                <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <MapPin size={10} />
-                  {userDemo.location}
-                </div>
-                <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.55, maxWidth: 250 }}>
-                  {ROLE_SUBTITLES[userDemo.storeRole] || tt('appSubtitle')}
-                </div>
-              </div>
-
-              {/* Role-specific chips */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {/* Shift checklist — A2A chip, always first when Store Ops is connected.
-                    Otherwise the launchpad falls through to the role + capability +
-                    time-of-day filtered chip set. */}
-                {(() => {
-                  const capabilityIds = new Set([
-                    ...liveRegistry.map(s => s.id),
-                    ...liveA2AAgents.map(s => s.id),
-                  ]);
-                  const chips = pickRoleChips({
-                    role: userDemo.storeRole,
-                    capabilities: capabilityIds,
-                    now: new Date(),
-                  });
-                  const labelMap = CHIP_LABEL_I18N[lang] ?? CHIP_LABEL_I18N.en;
-                  const isShiftFirst = chips[0]?.kind === 'shift';
-                  const shiftChip = isShiftFirst ? chips[0] : null;
-                  const rest = isShiftFirst ? chips.slice(1) : chips;
-                  return (
-                    <>{shiftChip && (
-                      <button
-                        onClick={() => sendMessage(shiftChip.full)}
-                        disabled={loading}
-                        style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          padding: '11px 14px', borderRadius: 14,
-                          background: 'rgba(245,158,11,0.1)', backdropFilter: 'blur(10px)',
-                          border: '1px solid rgba(245,158,11,0.35)',
-                          cursor: 'pointer', transition: 'all 0.15s',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.2)'; e.currentTarget.style.borderColor = 'rgba(245,158,11,0.5)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.1)'; e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)'; }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                          <div style={{ width: 26, height: 26, borderRadius: 7, background: '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <ClipboardList size={12} color="white" />
-                          </div>
-                          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#78350F' }}>{labelMap[shiftChip.label] ?? shiftChip.label}</span>
-                        </div>
-                        <span style={{ fontSize: 9, fontWeight: 800, color: '#D97706', background: 'rgba(245,158,11,0.15)', padding: '2px 7px', borderRadius: 8, border: '1px solid rgba(245,158,11,0.3)', letterSpacing: '0.05em' }}>A2A</span>
-                      </button>
-                    )}
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, justifyContent: 'center' }}>
-                        {rest.map((chip, i) => (
-                          <button key={i} onClick={() => !loading && sendMessage(chip.full)} disabled={loading}
-                            style={{
-                              padding: '8px 13px', borderRadius: 20,
-                              background: 'rgba(255,255,255,0.82)', backdropFilter: 'blur(10px)',
-                              border: '1px solid rgba(255,255,255,0.7)',
-                              color: '#111827', fontSize: 12, fontWeight: 500,
-                              cursor: 'pointer', whiteSpace: 'nowrap',
-                              boxShadow: '0 1px 5px rgba(0,0,0,0.07)',
-                              transition: 'all 0.15s',
-                            }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = userDemo.color; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.82)'; e.currentTarget.style.color = '#111827'; }}
-                          >
-                            {labelMap[chip.label] ?? chip.label}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-          )}
-
-          {messages.map((msg, i) => (
-            <ChatMessage
-              key={i}
-              msg={msg}
-              onSuggestionSelect={sendMessage}
-              onOpenSources={setOpenSources}
-              loading={loading}
-              onA2ASubmit={(prompt) => sendMessage(prompt, { skipFormCheck: true })}
-              onChecklistStateChange={(nextState) => setMessages(prev => {
-                const updated = [...prev];
-                if (updated[i]) updated[i] = { ...updated[i], checklistState: nextState };
-                return updated;
-              })}
-            />
-          ))}
-          <div ref={chatEndRef} />
-        </div>
-
-        {/* Input bar */}
-        <div style={{ flexShrink: 0, position: 'relative', zIndex: 1, padding: '8px 12px 4px' }}>
-          <div style={{
-            display: 'flex', gap: 8, alignItems: 'center',
-            background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(16px)',
-            borderRadius: 28, padding: '0 6px 0 18px',
-            border: '1px solid rgba(255,255,255,0.7)',
-            boxShadow: '0 2px 12px rgba(0,0,0,0.1)',
-            minHeight: 48,
-          }}>
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); }}}
-              placeholder={tt('inputPlaceholder')}
-              disabled={loading}
-              rows={1}
-              style={{
-                flex: 1, border: 'none', background: 'none', resize: 'none', outline: 'none',
-                fontSize: 14, color: '#111827', lineHeight: 1.5, fontFamily: 'inherit',
-                maxHeight: 80, padding: '13px 0', margin: 0, display: 'block',
-              }}
-            />
-            <button
-              onClick={() => sendMessage(input)}
-              disabled={!input.trim() || loading}
-              style={{
-                width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-                background: input.trim() && !loading ? '#7C3AED' : 'rgba(124,58,237,0.25)',
-                border: 'none', cursor: input.trim() && !loading ? 'pointer' : 'not-allowed',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
-                boxShadow: input.trim() && !loading ? '0 2px 8px rgba(124,58,237,0.5)' : 'none',
-              }}
-            >
-              {loading
-                ? <Loader2 size={15} color="white" style={{ animation: 'spin 1s linear infinite' }} />
-                : <Send size={15} color="white" />}
-            </button>
-          </div>
-          <div style={{ textAlign: 'center', fontSize: 10, color: 'rgba(255,255,255,0.8)', marginTop: 5, marginBottom: 3, fontWeight: 500 }}>
-            {tt('aiDisclaimer')}
-          </div>
-        </div>
+        {chatBody}
         {/* Home indicator */}
         <div style={{ display: 'flex', justifyContent: 'center', paddingBottom: 8, position: 'relative', zIndex: 1 }}>
           <div style={{ width: 120, height: 4, background: 'rgba(255,255,255,0.4)', borderRadius: 2 }} />
         </div>
-        {/* Sources bottom sheet */}
-        {openSources && (
-          <SourcesBottomSheet toolResults={openSources} onClose={() => setOpenSources(null)} />
-        )}
       </PhoneFrame>
 
       {/* ── Right panel ─────────────────────────────────────────────── */}
