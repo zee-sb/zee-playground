@@ -33,18 +33,37 @@ function getUserContext(token) {
   }
 }
 
-// ── Shift phase detection ─────────────────────────────────────────────────────
+// ── Intent + phase detection ─────────────────────────────────────────────────
 
-function detectPhase(text) {
-  const t = text.toLowerCase();
+// "Submit / handover / all done" phrases mean: the user is reporting completion,
+// not asking for a fresh checklist. We branch to a different artifact.
+function isHandoverSubmission(text) {
+  const t = (text || '').toLowerCase();
+  if (/all .* tasks complete|all tasks complete/.test(t)) return true;
+  if (/submit (the )?(shift )?(handover|hand[- ]?off|report)/.test(t)) return true;
+  if (/i'?m done with (my )?(shift|tasks|checklist)/.test(t)) return true;
+  if (/sign off (the )?(shift|checklist)/.test(t)) return true;
+  return false;
+}
+
+function detectPhase(text, clientHour) {
+  const t = (text || '').toLowerCase();
   if (/closing|close|end of day|night|evening/.test(t)) return 'closing';
   if (/mid[- ]?shift|midday|afternoon|lunch/.test(t)) return 'midshift';
   if (/opening|open|morning|start of day|first thing/.test(t)) return 'opening';
-  // Default by server time
-  const hour = new Date().getHours();
+  // Default by client-supplied hour (server time is unreliable on serverless).
+  const hour = Number.isInteger(clientHour) ? clientHour : new Date().getHours();
   if (hour >= 18) return 'closing';
   if (hour >= 12) return 'midshift';
   return 'opening';
+}
+
+function getClientHour(params) {
+  const iso = params?.metadata?.clientTime;
+  if (typeof iso !== 'string') return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.getHours();
 }
 
 const PHASE_LABELS = { opening: 'Opening', midshift: 'Mid-Shift', closing: 'Closing' };
@@ -282,7 +301,17 @@ async function handleTaskSend(params, token) {
   const taskId = params.id || `task-${Date.now()}`;
   const text = params.message?.parts?.find(p => p.type === 'text')?.text || '';
   const userCtx = getUserContext(token);
-  const phase = detectPhase(text);
+  const clientHour = getClientHour(params);
+  const phase = detectPhase(text, clientHour);
+  if (isHandoverSubmission(text)) {
+    return {
+      id: taskId,
+      status: makeTaskStatus('completed', `Shift handover acknowledged for ${userCtx.title} at ${userCtx.location}.`),
+      artifacts: buildHandoverReceipt(userCtx, phase, params?.metadata?.clientTime),
+      metadata: { kind: 'handover_receipt', user: userCtx, phase },
+      final: true,
+    };
+  }
   const tasks = await runShiftTasks(userCtx, phase, () => {});
   const summary = `${PHASE_EMOJI[phase]} ${tasks.length} ${PHASE_LABELS[phase]} tasks loaded for ${userCtx.title} at ${userCtx.location}.`;
 
@@ -297,15 +326,55 @@ async function handleTaskSend(params, token) {
 
 // ── tasks/sendSubscribe (streaming SSE) ──────────────────────────────────────
 
+function buildHandoverReceipt(userCtx, phase, clientIso) {
+  const generatedAt = clientIso || new Date().toISOString();
+  return [{
+    name: `✅ ${PHASE_LABELS[phase]} Shift Handover`,
+    description: `Handover acknowledged for ${userCtx.title} at ${userCtx.location}`,
+    parts: [{
+      type: 'data',
+      data: {
+        kind: 'handover_receipt',
+        user: { name: userCtx.name, role: userCtx.role, title: userCtx.title },
+        location: userCtx.location,
+        phase,
+        generatedAt,
+        receiptId: `SHO-${Date.now().toString(36).toUpperCase()}`,
+        message: `Shift handover received. Have a good rest, ${userCtx.name.split(' ')[0]}.`,
+      },
+    }],
+  }];
+}
+
 async function handleTaskSubscribe(params, token, rpcId, res) {
   const taskId = params.id || `task-${Date.now()}`;
   const text = params.message?.parts?.find(p => p.type === 'text')?.text || '';
   const userCtx = getUserContext(token);
-  const phase = detectPhase(text);
+  const clientHour = getClientHour(params);
+  const phase = detectPhase(text, clientHour);
 
   const sendEvent = (taskStatus, extra = {}) => {
     res.write(`data: ${JSON.stringify({ jsonrpc: '2.0', id: rpcId, result: { id: taskId, status: taskStatus, ...extra } })}\n\n`);
   };
+
+  // Handover-submit branch: don't generate a fresh checklist. Acknowledge.
+  if (isHandoverSubmission(text)) {
+    sendEvent(makeTaskStatus('working', `Receiving ${PHASE_LABELS[phase]} shift handover from ${userCtx.name}…`),
+      { metadata: { step: 1, totalSteps: 2, directive: { kind: 'handover_ack', instruction: 'Render a handover-receipt card.' } } });
+    const summary = `✅ Shift handover acknowledged for ${userCtx.title} at ${userCtx.location}.`;
+    res.write(`data: ${JSON.stringify({
+      jsonrpc: '2.0', id: rpcId,
+      result: {
+        id: taskId,
+        status: makeTaskStatus('completed', summary),
+        artifacts: buildHandoverReceipt(userCtx, phase, params?.metadata?.clientTime),
+        metadata: { step: 2, totalSteps: 2, kind: 'handover_receipt', user: userCtx, phase },
+        final: true,
+      },
+    })}\n\n`);
+    res.end();
+    return;
+  }
 
   sendEvent(makeTaskStatus('working', `Identifying context for ${userCtx.name}…`));
 

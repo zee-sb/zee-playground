@@ -117,32 +117,76 @@ const ROLE_SUBTITLES = {
   'Cleaning Staff':  'I can load your task list, check cleaning protocols, and submit supply requests.',
 };
 
-const ROLE_CHIPS = {
-  'Branch Manager': [
-    { label: "My opening tasks",    full: "What are my opening tasks for today?" },
-    { label: "Team attendance",     full: "Who is on shift today and who is absent?" },
-    { label: "PTO balance",         full: "What's my PTO balance?" },
-    { label: "Open IT tickets",     full: "Do I have any open IT tickets?" },
-  ],
-  'Line Cook': [
-    { label: "My opening tasks",    full: "What are my opening tasks for today?" },
-    { label: "Food safety policy",  full: "What's the food safety policy?" },
-    { label: "Closing checklist",   full: "Show me my closing checklist" },
-    { label: "Report equipment",    full: "I need to report a fryer equipment issue" },
-  ],
-  'Shift Supervisor': [
-    { label: "My opening tasks",    full: "What are my opening tasks for today?" },
-    { label: "Team org chart",      full: "Show me the team org chart" },
-    { label: "Mid-shift tasks",     full: "What's on my mid-shift list?" },
-    { label: "Request access",      full: "Request access to the reporting dashboard" },
-  ],
-  'Cleaning Staff': [
-    { label: "My opening tasks",    full: "What are my opening tasks for today?" },
-    { label: "Closing checklist",   full: "What are my closing tasks?" },
-    { label: "Safety policy",       full: "What's the workplace health and safety policy?" },
-    { label: "Supply request",      full: "I need to submit a cleaning supplies request" },
-  ],
+// ── Chip catalogue (no role/time logic — that lives in pickRoleChips) ────────
+// `requires` lists the server ids needed for the chip to be useful. Chips with
+// missing capabilities are filtered out before rendering. `kind: 'shift'` is
+// the leading A2A chip; phase swaps based on time of day.
+
+const SHIFT_CHIPS = {
+  opening:  { label: 'My opening tasks',  full: 'What are my opening tasks for today?',  requires: ['store_ops_agent'], kind: 'shift' },
+  midshift: { label: 'Mid-shift tasks',   full: "What's on my mid-shift list?",           requires: ['store_ops_agent'], kind: 'shift' },
+  closing:  { label: 'My closing tasks',  full: 'What are my closing tasks for tonight?', requires: ['store_ops_agent'], kind: 'shift' },
 };
+
+const COMMON_CHIPS = {
+  pto_balance:        { label: 'PTO balance',         full: "What's my PTO balance?",                            requires: ['hr_portal'] },
+  open_tickets:       { label: 'Open IT tickets',     full: 'Do I have any open IT tickets?',                    requires: ['it_helpdesk'] },
+  food_safety:        { label: 'Food safety policy',  full: "What's the food safety policy?",                    requires: ['hr_portal'] },
+  team_attendance:    { label: 'Team attendance',     full: 'Who is on shift today and who is absent?',          requires: ['hr_portal'] },
+  team_org:           { label: 'Team org chart',      full: 'Show me the team org chart',                        requires: ['hr_portal'] },
+  request_access:     { label: 'Request access',      full: 'Request access to the reporting dashboard',         requires: ['it_helpdesk'] },
+  supply_request:     { label: 'Supply request',      full: 'I need to submit a cleaning supplies request',      requires: ['it_helpdesk'] },
+  safety_policy:      { label: 'Safety policy',       full: "What's the workplace health and safety policy?",    requires: ['hr_portal'] },
+  report_equipment:   { label: 'Report equipment',    full: 'I need to report a fryer equipment issue',          requires: ['it_helpdesk'] },
+  // Intranet chips — vary the message per day of week so it doesn't feel canned.
+  latest_leadership:  { label: 'Latest leadership',   full: 'Show me the latest leadership post',                requires: ['intranet'] },
+  q2_priorities:      { label: 'Q2 priorities',       full: 'What are the Q2 priorities from the CEO?',          requires: ['intranet'] },
+  whats_new:          { label: "What's new",          full: "What's new on the company intranet this week?",      requires: ['intranet'] },
+  team_wiki:          { label: 'My team wiki',        full: 'Open my team wiki',                                  requires: ['intranet'] },
+};
+
+const ROLE_FOLLOWUPS = {
+  'Branch Manager':   ['team_attendance', 'pto_balance', 'open_tickets',      'whats_new'],
+  'Line Cook':        ['food_safety',     'report_equipment', 'pto_balance',  'latest_leadership'],
+  'Shift Supervisor': ['team_org',        'request_access',   'pto_balance',  'whats_new'],
+  'Cleaning Staff':   ['safety_policy',   'supply_request',   'pto_balance',  'latest_leadership'],
+};
+
+function shiftPhaseFor(now = new Date()) {
+  const h = now.getHours();
+  if (h >= 18 || h < 5) return 'closing';
+  if (h >= 12) return 'midshift';
+  return 'opening';
+}
+
+// Build the chips for the empty-state launchpad. Combines:
+// - role (which followups make sense)
+// - time of day (which shift phase chip leads)
+// - available capabilities (drop chips routing to nothing)
+// - day of week (swap one chip on Mon/Tue mornings)
+function pickRoleChips({ role, capabilities, now }) {
+  const phase = shiftPhaseFor(now);
+  const day = now.getDay();           // 0 Sun … 6 Sat
+  const hour = now.getHours();
+  const has = (id) => !id || capabilities.has(id);
+  const canUse = (chip) => (chip.requires || []).every(has);
+
+  const out = [];
+  // 1) leading shift chip — only if Store Ops is connected.
+  const shiftChip = SHIFT_CHIPS[phase];
+  if (canUse(shiftChip)) out.push(shiftChip);
+
+  // 2) role-specific followups, capability-filtered, deduped.
+  const ids = ROLE_FOLLOWUPS[role] || ROLE_FOLLOWUPS['Branch Manager'];
+  // Monday/Tuesday morning bias toward leadership news.
+  const biased = (day === 1 || day === 2) && hour < 12 ? ['latest_leadership', ...ids] : ids;
+  for (const id of biased) {
+    const chip = COMMON_CHIPS[id];
+    if (chip && canUse(chip) && !out.includes(chip)) out.push(chip);
+    if (out.length >= 4) break;
+  }
+  return out;
+}
 
 // Translated display labels for ROLE_CHIPS (full message stays English for reliable intent classification)
 const CHIP_LABEL_I18N = {
@@ -153,6 +197,9 @@ const CHIP_LABEL_I18N = {
     'Report equipment': 'Report equipment', 'Team org chart': 'Team org chart',
     'Mid-shift tasks': 'Mid-shift tasks', 'Request access': 'Request access',
     'Safety policy': 'Safety policy', 'Supply request': 'Supply request',
+    'My closing tasks': 'My closing tasks',
+    'Latest leadership': 'Latest leadership', 'Q2 priorities': 'Q2 priorities',
+    "What's new": "What's new", 'My team wiki': 'My team wiki',
   },
   de: {
     'My opening tasks': 'Öffnungsaufgaben', 'Team attendance': 'Teamanwesenheit',
@@ -940,23 +987,68 @@ const PHASE_EMOJI = { opening: '🌅', midshift: '☀️', closing: '🌙' };
 const PHASE_LABEL = { opening: 'Opening', midshift: 'Mid-Shift', closing: 'Closing' };
 const ROLE_COLOR  = { manager: '#7C3AED', supervisor: '#2563EB', cook: '#D97706', cleaner: '#059669' };
 
+function HandoverReceiptCard({ artifact }) {
+  const data = artifact?.parts?.[0]?.data;
+  if (!data) return null;
+  const { user, location, phase, generatedAt, receiptId, message } = data;
+  const time = generatedAt ? new Date(generatedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  return (
+    <div style={{ padding: '12px 14px', background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: 12, marginTop: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+        <CheckCircle size={14} color="#059669" />
+        <span style={{ fontWeight: 700, fontSize: 13, color: '#065F46' }}>
+          {PHASE_EMOJI[phase] || '✅'} {PHASE_LABEL[phase] || ''} Shift Handover Submitted
+        </span>
+        {receiptId && (
+          <code style={{ marginLeft: 'auto', fontSize: 10, background: '#D1FAE5', color: '#065F46', padding: '1px 6px', borderRadius: 8, fontFamily: 'monospace' }}>{receiptId}</code>
+        )}
+      </div>
+      {user && (
+        <div style={{ fontSize: 11, color: '#065F46', marginBottom: 6 }}>
+          {user.name} · {ROLE_TITLE[user.role] || user.title} · {location}
+        </div>
+      )}
+      {time && (
+        <div style={{ fontSize: 10, color: '#047857', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Clock size={10} /> {time}
+        </div>
+      )}
+      {message && (
+        <div style={{ fontSize: 11, color: '#065F46', lineHeight: 1.5 }}>{message}</div>
+      )}
+    </div>
+  );
+}
+
 // Interactive shift-checklist card. Operations agent emits per-task directives
 // (`inputType: check | photo | temp_log | count`); this card renders the right
-// control for each row and tracks completion state locally. When all critical
-// tasks are done the user can submit a shift handover, which posts a synthetic
-// follow-up message into the chat (handled via onSubmit prop).
-function A2ADelegationCard({ artifact, onSubmit, disabled }) {
+// control for each row and tracks completion state in the parent message so it
+// survives re-renders, persistence, and rehydration. When all critical tasks
+// are done the user can submit a shift handover, which posts a synthetic
+// follow-up message (handled via onSubmit prop) and locks the card.
+function A2ADelegationCard({ artifact, state, onStateChange, onSubmit, disabled }) {
   const data = artifact?.parts?.[0]?.data;
-  // Local completion + per-input-type capture state. Hooks must stay above any
-  // early-return to keep ordering stable across renders.
-  const [doneIds, setDoneIds] = useState(() => new Set());
-  const [photoIds, setPhotoIds] = useState(() => new Set());
-  const [values, setValues] = useState({}); // { [taskId]: string }
-  const [submitted, setSubmitted] = useState(false);
+  // State lives in the message (`msg.checklistState`); local hooks just mirror
+  // it for fast updates. Hooks stay above the early-return for stable ordering.
+  const doneIds = useMemo(() => new Set(state?.doneIds || []), [state]);
+  const photoIds = useMemo(() => new Set(state?.photoIds || []), [state]);
+  const values = state?.values || {};
+  const submitted = !!state?.submitted;
+
+  const update = (patch) => {
+    onStateChange?.({
+      doneIds: [...doneIds],
+      photoIds: [...photoIds],
+      values: { ...values },
+      submitted,
+      ...patch,
+    });
+  };
 
   if (!data) return null;
   const { user, location, phase, tasks, summary, directives } = data;
   const roleColor = ROLE_COLOR[user?.role] || '#F59E0B';
+  const locked = submitted || disabled;
 
   const isReady = (t) => {
     if (t.inputType === 'photo') return doneIds.has(t.id) && photoIds.has(t.id);
@@ -974,24 +1066,27 @@ function A2ADelegationCard({ artifact, onSubmit, disabled }) {
   const canSubmit = total > 0 && criticalDone && !submitted && !disabled;
 
   const toggleDone = (t) => {
-    setDoneIds(prev => {
-      const next = new Set(prev);
-      if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
-      return next;
-    });
+    if (locked) return;
+    const next = new Set(doneIds);
+    if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
+    update({ doneIds: [...next] });
   };
 
   const togglePhoto = (t) => {
-    setPhotoIds(prev => {
-      const next = new Set(prev);
-      if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
-      return next;
-    });
+    if (locked) return;
+    const next = new Set(photoIds);
+    if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
+    update({ photoIds: [...next] });
+  };
+
+  const setValue = (taskId, v) => {
+    if (locked) return;
+    update({ values: { ...values, [taskId]: v } });
   };
 
   const handleSubmit = () => {
     if (!canSubmit) return;
-    setSubmitted(true);
+    update({ submitted: true });
     const prompt = directives?.submitPrompt
       || `All ${PHASE_LABEL[phase] || phase} tasks complete — submit shift handover for ${user?.name || 'me'}.`;
     onSubmit?.(prompt);
@@ -1119,17 +1214,19 @@ function A2ADelegationCard({ artifact, onSubmit, disabled }) {
                     type="number"
                     inputMode="decimal"
                     value={values[t.id] || ''}
-                    onChange={e => setValues(v => ({ ...v, [t.id]: e.target.value }))}
+                    onChange={e => setValue(t.id, e.target.value)}
+                    disabled={locked}
                     placeholder={t.inputType === 'temp_log' ? 'e.g. 4' : 'count'}
                     style={{
                       width: 70, padding: '3px 6px', fontSize: 11,
                       border: '1px solid #D1D5DB', borderRadius: 6, outline: 'none',
+                      background: locked ? '#F9FAFB' : 'white',
                     }}
                   />
                   <span style={{ fontSize: 10, color: '#6B7280' }}>
                     {t.inputType === 'temp_log' ? '°C' : 'units'}
                   </span>
-                  {!values[t.id]?.trim() && (
+                  {!values[t.id]?.toString().trim() && (
                     <span style={{ fontSize: 9, color: '#9CA3AF' }}>Required to complete</span>
                   )}
                 </div>
@@ -1307,7 +1404,7 @@ function CompactTrace({ trace }) {
 
 // ── Chat message ──────────────────────────────────────────────────────────────
 
-function ChatMessage({ msg, onSuggestionSelect, onOpenSources, loading, onA2ASubmit }) {
+function ChatMessage({ msg, onSuggestionSelect, onOpenSources, loading, onA2ASubmit, onChecklistStateChange }) {
   const t = useT();
   if (msg.role === 'user') {
     return (
@@ -1359,7 +1456,17 @@ function ChatMessage({ msg, onSuggestionSelect, onOpenSources, loading, onA2ASub
           {/* Sources badge — opens bottom sheet */}
           <SourcesBadge toolResults={msg.toolResults} onOpen={() => onOpenSources?.(msg.toolResults)} />
           {/* A2A delegation artifact card */}
-          {msg.a2aArtifact && <A2ADelegationCard artifact={msg.a2aArtifact} onSubmit={onA2ASubmit} disabled={loading} />}
+          {msg.a2aArtifact && (
+            (msg.a2aArtifact?.parts?.[0]?.data?.kind === 'handover_receipt')
+              ? <HandoverReceiptCard artifact={msg.a2aArtifact} />
+              : <A2ADelegationCard
+                  artifact={msg.a2aArtifact}
+                  state={msg.checklistState}
+                  onStateChange={onChecklistStateChange}
+                  onSubmit={onA2ASubmit}
+                  disabled={loading}
+                />
+          )}
           {/* Feedback buttons only on completed messages */}
           {msg.content && !loading && <FeedbackButtons />}
           {msg.suggestions?.length > 0 && (
@@ -1559,12 +1666,13 @@ function AppHeader({ user, onLogout, onClear, hasMessages, lang, onLangChange })
         {hasMessages && (
           <button
             onClick={onClear}
-            title="Start over"
-            style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 20, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+            title="Reset demo (clears chat and saved checklists)"
+            style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 20, padding: '4px 10px', height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, cursor: 'pointer', flexShrink: 0, color: 'white', fontSize: 11, fontWeight: 600 }}
             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.25)'; }}
             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; }}
           >
-            <RotateCcw size={13} color="white" />
+            <RotateCcw size={12} color="white" />
+            Reset
           </button>
         )}
         <LanguagePicker lang={lang} onChange={onLangChange} />
@@ -1698,6 +1806,55 @@ function LoginScreen({ onConnect, lang, onLangChange, registry = DEFAULT_REGISTR
   );
 }
 
+// ── Session persistence (per-user chat history + checklist state) ────────────
+// Stored in localStorage so the demo survives reloads. We strip transient bits
+// (form-message callback fns, sources sheet) and only persist the role-safe
+// data on each message. Rehydrated on connect; cleared by the Reset button.
+
+const SESSION_PREFIX = 'staffbase.navigator.session.';
+
+function sessionKeyFor(emailOrId) {
+  return `${SESSION_PREFIX}${(emailOrId || 'anon').toLowerCase()}`;
+}
+
+function persistableMessages(messages) {
+  return (messages || [])
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .map(m => ({
+      role: m.role,
+      content: m.content,
+      trace: m.trace ? { ...m.trace, streaming: false } : undefined,
+      suggestions: m.suggestions,
+      toolResults: m.toolResults,
+      a2aArtifact: m.a2aArtifact,
+      checklistState: m.checklistState,
+    }));
+}
+
+function loadSession(userId) {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(sessionKeyFor(userId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSession(userId, messages) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(sessionKeyFor(userId), JSON.stringify(persistableMessages(messages)));
+  } catch { /* quota / serialization */ }
+}
+
+function clearSession(userId) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(sessionKeyFor(userId));
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function NavigatorOrchestratorStudio() {
@@ -1710,6 +1867,13 @@ export default function NavigatorOrchestratorStudio() {
   const [lang, setLangState] = useState(() => loadLang());
   const setLang = (l) => { setLangState(l); saveLang(l); };
   const [openSources, setOpenSources] = useState(null); // toolResults array or null
+
+  // Persist messages whenever they change (per-user). We don't persist on every
+  // streaming delta — only when role is user/assistant — but the simplest
+  // correct version is to write on each setMessages call. Tiny payloads.
+  useEffect(() => {
+    if (user?.email) saveSession(user.email, messages);
+  }, [messages, user?.email]);
 
   // Live registry — what THIS deployment of Navigator is configured to route to.
   // Sourced from the Studio config (localStorage). An MCP only appears here when
@@ -1737,6 +1901,8 @@ export default function NavigatorOrchestratorStudio() {
   async function connect(newToken, newUser) {
     setToken(newToken);
     setUser(newUser);
+    // Rehydrate prior chat history for this user (if any).
+    setMessages(loadSession(newUser.email));
     const counts = {};
     // Only query MCPs the studio has actually wired up. If everything's been
     // disabled in Studio, this loop runs zero times and the chat starts toolless.
@@ -1785,12 +1951,30 @@ export default function NavigatorOrchestratorStudio() {
     setMessages(prev => [...prev.filter(m => m.role !== 'pto-form' && m.role !== 'ticket-form'), { role: 'assistant', content: '', trace: emptyTrace, suggestions: [], toolResults: [] }]);
 
     const history = newMessages.map(m => ({ role: m.role, content: m.content }));
+    // Recent topics — last few user messages, trimmed. Lets the orchestrator
+    // vary follow-up suggestions and avoid recommending things just asked.
+    const recentTopics = newMessages
+      .filter(m => m.role === 'user')
+      .slice(-4, -1)              // exclude the message we're about to send
+      .map(m => (m.content || '').trim().slice(0, 80));
+    const clientNow = new Date();
+    const clientTz = (() => {
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
+      catch { return 'UTC'; }
+    })();
 
     try {
       const res = await fetch('/api/orchestrate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history, token, lang }),
+        body: JSON.stringify({
+          messages: history,
+          token,
+          lang,
+          clientTime: clientNow.toISOString(),
+          clientTz,
+          recentTopics,
+        }),
       });
 
       const reader = res.body.getReader();
@@ -1899,6 +2083,13 @@ export default function NavigatorOrchestratorStudio() {
   }
 
   function clearMessages() {
+    setMessages([]); setInput(''); setOpenSources(null);
+  }
+
+  // Reset the demo for the current user — wipes persisted chat + checklist
+  // state. Keeps the user signed in so they can immediately try a fresh flow.
+  function resetSession() {
+    if (user?.email) clearSession(user.email);
     setMessages([]); setInput(''); setOpenSources(null);
   }
 
@@ -2011,7 +2202,7 @@ export default function NavigatorOrchestratorStudio() {
       {/* ── Phone frame ────────────────────────────────────────────── */}
       <PhoneFrame>
         <StatusBar />
-        <AppHeader user={user} onLogout={logout} onClear={clearMessages} hasMessages={messages.length > 0} lang={lang} onLangChange={setLang} />
+        <AppHeader user={user} onLogout={logout} onClear={resetSession} hasMessages={messages.length > 0} lang={lang} onLangChange={setLang} />
 
         <div style={{ flex: 1, overflowY: 'auto', background: 'transparent', position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', padding: '12px 12px 0' }}>
           {/* Empty state */}
@@ -2044,13 +2235,25 @@ export default function NavigatorOrchestratorStudio() {
 
               {/* Role-specific chips */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {/* Shift checklist — A2A chip, always first */}
+                {/* Shift checklist — A2A chip, always first when Store Ops is connected.
+                    Otherwise the launchpad falls through to the role + capability +
+                    time-of-day filtered chip set. */}
                 {(() => {
-                  const chips = ROLE_CHIPS[userDemo.storeRole] ?? ROLE_CHIPS['Branch Manager'];
+                  const capabilityIds = new Set([
+                    ...liveRegistry.map(s => s.id),
+                    ...liveA2AAgents.map(s => s.id),
+                  ]);
+                  const chips = pickRoleChips({
+                    role: userDemo.storeRole,
+                    capabilities: capabilityIds,
+                    now: new Date(),
+                  });
                   const labelMap = CHIP_LABEL_I18N[lang] ?? CHIP_LABEL_I18N.en;
-                  const [shiftChip, ...rest] = chips;
+                  const isShiftFirst = chips[0]?.kind === 'shift';
+                  const shiftChip = isShiftFirst ? chips[0] : null;
+                  const rest = isShiftFirst ? chips.slice(1) : chips;
                   return (
-                    <>
+                    <>{shiftChip && (
                       <button
                         onClick={() => sendMessage(shiftChip.full)}
                         disabled={loading}
@@ -2072,6 +2275,7 @@ export default function NavigatorOrchestratorStudio() {
                         </div>
                         <span style={{ fontSize: 9, fontWeight: 800, color: '#D97706', background: 'rgba(245,158,11,0.15)', padding: '2px 7px', borderRadius: 8, border: '1px solid rgba(245,158,11,0.3)', letterSpacing: '0.05em' }}>A2A</span>
                       </button>
+                    )}
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, justifyContent: 'center' }}>
                         {rest.map((chip, i) => (
                           <button key={i} onClick={() => !loading && sendMessage(chip.full)} disabled={loading}
@@ -2099,7 +2303,19 @@ export default function NavigatorOrchestratorStudio() {
           )}
 
           {messages.map((msg, i) => (
-            <ChatMessage key={i} msg={msg} onSuggestionSelect={sendMessage} onOpenSources={setOpenSources} loading={loading} onA2ASubmit={(prompt) => sendMessage(prompt, { skipFormCheck: true })} />
+            <ChatMessage
+              key={i}
+              msg={msg}
+              onSuggestionSelect={sendMessage}
+              onOpenSources={setOpenSources}
+              loading={loading}
+              onA2ASubmit={(prompt) => sendMessage(prompt, { skipFormCheck: true })}
+              onChecklistStateChange={(nextState) => setMessages(prev => {
+                const updated = [...prev];
+                if (updated[i]) updated[i] = { ...updated[i], checklistState: nextState };
+                return updated;
+              })}
+            />
           ))}
           <div ref={chatEndRef} />
         </div>

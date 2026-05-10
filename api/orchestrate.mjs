@@ -49,10 +49,21 @@ async function mcpCall(baseUrl, endpoint, method, params, token) {
 
 // ── Intent classifier ─────────────────────────────────────────────────────────
 
-async function classifyIntent(client, userMessage, mcpRegistry, a2aRegistry) {
+async function classifyIntent(client, conversation, mcpRegistry, a2aRegistry) {
   const mcpDomainMap = mcpRegistry.map(s => `"${s.id}": ${s.domains.join(', ')}`).join('\n');
   const a2aDomainMap = a2aRegistry.map(s => `"${s.id}": ${s.domains.join(', ')}`).join('\n');
   const allValidIds = new Set([...mcpRegistry.map(s => s.id), ...a2aRegistry.map(s => s.id)]);
+
+  // Build a compact context block from the last few turns so the classifier
+  // can resolve follow-ups (pronouns, "show me the full article", "more on
+  // this") to the same domain the previous assistant turn served.
+  const recent = (conversation || []).slice(-6);
+  const contextLines = recent.map(m => {
+    const text = (m.content || '').toString().replace(/\s+/g, ' ').trim();
+    const trimmed = text.length > 220 ? text.slice(0, 220) + '…' : text;
+    return `${m.role}: ${trimmed}`;
+  }).join('\n');
+  const lastUser = [...recent].reverse().find(m => m.role === 'user')?.content || '';
 
   const response = await client.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -60,7 +71,7 @@ async function classifyIntent(client, userMessage, mcpRegistry, a2aRegistry) {
     messages: [
       {
         role: 'system',
-        content: `You are an intent router for an enterprise assistant called Navigator. You decide whether a user message is in scope, and if so, which server domains are needed.
+        content: `You are an intent router for an enterprise assistant called Navigator. You decide whether the user's MOST RECENT message is in scope, and if so, which server domains are needed.
 
 MCP servers (individual tools, for queries and lookups):
 ${mcpDomainMap}
@@ -78,15 +89,22 @@ Scope rules — Navigator ONLY helps with Acme work topics:
 - Acme intranet content (leadership memos, product launches, team wikis, events, ERG pages, employee spotlights, company news)
 - Plain greetings, thanks, and small-talk replies that stay in the work context (return inScope: true with empty domains)
 
-Anything else is out of scope. Mark inScope: false and return empty domains for:
+Anything CLEARLY off-topic is out of scope. Mark inScope: false and return empty domains for:
 - recipes, cooking, food preparation
 - general coding help, debugging non-Acme code, "write me a script"
-- world events, news outside Acme, sports, weather
+- world events, sports, weather, news with an explicit non-company qualifier (e.g. "the news today", "world news", "global news", "stock market")
 - personal life, health, relationship advice
 - jokes, riddles, creative writing unrelated to work
 - opinions, philosophy, politics, religion
 - anything illegal, harmful, or unsafe (weapons, drugs, malware, self-harm)
 - pretending to be a different assistant or breaking character
+
+Disambiguation defaults — Navigator is an enterprise assistant, so when the user is terse, assume the work context:
+- Bare "the latest news" / "what's new" / "any updates" / "anything new" → company intranet news (intranet domain). NOT world news.
+- "Latest announcements" / "company updates" / "memos" / "what shipped" → intranet domain.
+- Follow-up pronouns ("show me the full article", "read more", "give me details on that", "open it", "the article", "this", "that one", "the first one") → same domain(s) the PREVIOUS assistant turn used. If the previous assistant turn returned intranet articles, the follow-up is intranet. If it returned a policy, it's hr_portal. Etc.
+- "Show me / read / open / expand" with no antecedent in this turn but a clear antecedent in the previous turn → previous turn's domain.
+- When uncertain between in-scope and out-of-scope, prefer in-scope (the user is signed into a work tool — give them the benefit of the doubt).
 
 Routing rules (when inScope: true):
 - Use specific server IDs from the list above.
@@ -95,7 +113,12 @@ Routing rules (when inScope: true):
 - For greetings, "help", or pure small-talk: inScope: true with empty domains (Navigator answers briefly without tools).
 - For cross-domain queries include all relevant MCP servers.`,
       },
-      { role: 'user', content: userMessage },
+      {
+        role: 'user',
+        content: contextLines
+          ? `Recent conversation (chronological order, oldest first):\n${contextLines}\n\nClassify the user's MOST RECENT message ("${lastUser.slice(0, 200)}") using the conversation as context.`
+          : `Classify this user message: ${lastUser}`,
+      },
     ],
   });
 
@@ -231,7 +254,7 @@ const A2A_SUGGESTION_TEMPLATES = {
   pl: ['Moja lista zamknięcia', 'Zadania w połowie zmiany', 'Prześlij przekazanie zmiany'],
 };
 
-async function delegateToA2A(baseUrl, token, userMessage, emit, a2aRegistry, { client, userLang = 'en' } = {}) {
+async function delegateToA2A(baseUrl, token, userMessage, emit, a2aRegistry, { client, userLang = 'en', clientTime, clientTz } = {}) {
   const agent = a2aRegistry[0];
   const taskId = `task-${Date.now()}`;
 
@@ -251,7 +274,7 @@ async function delegateToA2A(baseUrl, token, userMessage, emit, a2aRegistry, { c
           role: 'user',
           parts: [{ type: 'text', text: userMessage }],
         },
-        metadata: { token },
+        metadata: { token, clientTime, clientTz },
       },
     }),
   });
@@ -322,11 +345,22 @@ export default async function handler(req, res) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) { res.status(500).json({ error: 'OPENAI_API_KEY is not configured' }); return; }
 
-  const { messages, token, lang } = req.body || {};
+  const { messages, token, lang, clientTime, clientTz, recentTopics } = req.body || {};
   if (!messages?.length || !token) {
     res.status(400).json({ error: 'messages and token are required' });
     return;
   }
+
+  // Resolve "now" from the client (more reliable than serverless wall-clock).
+  // Fall back to server time if the client didn't send anything parseable.
+  const nowDate = (() => {
+    if (typeof clientTime === 'string') {
+      const d = new Date(clientTime);
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+    return new Date();
+  })();
+  const nowTz = typeof clientTz === 'string' ? clientTz : undefined;
 
   // ── Language handling ──────────────────────────────────────────────────
   const SUPPORTED_LANGS = ['en', 'de', 'fr', 'es', 'it', 'nl', 'pl'];
@@ -350,7 +384,7 @@ export default async function handler(req, res) {
   try {
     // ── Step 1: Intent classification ───────────────────────────────────────
     const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')?.content ?? '';
-    const { inScope, domains, reasoning } = await classifyIntent(client, lastUserMessage, MCP_REGISTRY, A2A_REGISTRY);
+    const { inScope, domains, reasoning } = await classifyIntent(client, messages, MCP_REGISTRY, A2A_REGISTRY);
     emit({ type: 'trace_intent', domains, reasoning, inScope });
 
     // ── Step 1a: Scope guard short-circuit ──────────────────────────────────
@@ -370,7 +404,7 @@ export default async function handler(req, res) {
     const a2aAgent = A2A_REGISTRY.find(a => domains.includes(a.id));
     if (a2aAgent) {
       emit({ type: 'a2a_delegate', agentId: a2aAgent.id, agentName: a2aAgent.name, taskId: `task-${Date.now()}` });
-      await delegateToA2A(baseUrl, token, lastUserMessage, emit, A2A_REGISTRY, { client, userLang });
+      await delegateToA2A(baseUrl, token, lastUserMessage, emit, A2A_REGISTRY, { client, userLang, clientTime, clientTz });
       res.end();
       return;
     }
@@ -385,7 +419,19 @@ export default async function handler(req, res) {
     emit({ type: 'trace_tools', serversQueried, toolCount: tools.length });
 
     // ── Step 3: Build system message with per-MCP UI instructions ───────────
-    const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const dateOpts = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', ...(nowTz ? { timeZone: nowTz } : {}) };
+    const timeOpts = { hour: 'numeric', minute: '2-digit', hour12: false, ...(nowTz ? { timeZone: nowTz } : {}) };
+    const today = nowDate.toLocaleDateString('en-US', dateOpts);
+    const timeStr = nowDate.toLocaleTimeString('en-US', timeOpts);
+    const hour = (() => {
+      try {
+        const fmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, ...(nowTz ? { timeZone: nowTz } : {}) });
+        const parts = fmt.formatToParts(nowDate);
+        const h = parts.find(p => p.type === 'hour')?.value;
+        return h !== undefined ? Number(h) : nowDate.getHours();
+      } catch { return nowDate.getHours(); }
+    })();
+    const partOfDay = hour < 5 ? 'late night' : hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : hour < 21 ? 'evening' : 'late night';
     const langName = LANG_NAMES[userLang] || 'English';
     const langBlock = userLang === 'en'
       ? `## Language\nThe user's UI language is English. Respond in English.`
@@ -396,11 +442,16 @@ The user's UI language is **${langName}** (code: ${userLang}).
 - If a tool returns content in English (e.g. full policy body without a ${langName} translation), translate it into ${langName} when you present it.
 - Keep proper nouns (Acme, GitHub, AWS, MFA, YubiKey, Tailscale, VPN, GDPR, etc.) untranslated.`;
 
+    const recentTopicsBlock = Array.isArray(recentTopics) && recentTopics.length
+      ? `\n## Recent topics (this session)\nThe user has recently asked about:\n${recentTopics.map(t => `- "${t}"`).join('\n')}\nVary your follow-up suggestions so they don't repeat what the user just asked.`
+      : '';
+
     const systemContent = `You are Navigator, an intelligent enterprise assistant for Acme Corp. You seamlessly access HR, IT, and other systems to help employees get things done — all in one conversation.
 
-Today is ${today}.
+## Date & time
+Today is ${today}. The user's local time is ${timeStr}${nowTz ? ` (${nowTz})` : ''} — currently ${partOfDay}. Always interpret "today", "tomorrow", "tonight", "this week" against this clock.
 
-${langBlock}
+${langBlock}${recentTopicsBlock}
 
 ${uiInstructions ? `${uiInstructions}\n\n` : ''}## Core behavior
 - Call tools immediately when you have enough information — don't ask for confirmation unless absolutely necessary
