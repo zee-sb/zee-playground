@@ -24,6 +24,39 @@ const EMPLOYEES = [
   { id: 'frank', name: 'Frank Lee', email: 'frank@acme.com', role: 'employee', department: 'Engineering', title: 'Frontend Engineer', manager: 'eve@acme.com', ptoBalance: 14, location: 'Amsterdam', region: 'NL', startDate: '2023-01-16' },
 ];
 
+// ── Store roster (frontline staff) ──────────────────────────────────────────
+// Distinct from the corporate EMPLOYEES list above — these are shift-floor team
+// members the Branch Manager / Shift Supervisor cares about. Stores are keyed by
+// `store` so a Branch Manager can ask "who's on shift today?" and get THEIR store.
+const STORE_ROSTER = [
+  // Downtown — Alice's store
+  { id: 's-mia',  name: 'Mia Rodriguez', email: 'mia@acme.com',  role: 'Shift Supervisor', store: 'Downtown',        shift: 'Morning', startTime: '06:00', endTime: '14:00', status: 'present' },
+  { id: 's-jake', name: 'Jake Thompson', email: 'jake@acme.com', role: 'Line Cook',         store: 'Downtown',        shift: 'Morning', startTime: '06:00', endTime: '14:00', status: 'present' },
+  { id: 's-priya', name: 'Priya Singh',  email: 'priya@acme.com', role: 'Line Cook',        store: 'Downtown',        shift: 'Morning', startTime: '07:00', endTime: '15:00', status: 'pto', ptoReason: 'Vacation, returns Mon' },
+  { id: 's-noah', name: 'Noah Williams', email: 'noah@acme.com', role: 'Cleaning Staff',    store: 'Downtown',        shift: 'Morning', startTime: '05:00', endTime: '11:00', status: 'present' },
+  { id: 's-ava',  name: 'Ava Kim',       email: 'ava@acme.com',  role: 'Line Cook',         store: 'Downtown',        shift: 'Evening', startTime: '14:00', endTime: '22:00', status: 'sick', ptoReason: 'Out sick today' },
+  { id: 's-leo',  name: 'Leo Martínez',  email: 'leo@acme.com',  role: 'Shift Supervisor',  store: 'Downtown',        shift: 'Evening', startTime: '14:00', endTime: '22:00', status: 'present' },
+  // Airport Terminal — Bob's store
+  { id: 's-zara', name: 'Zara Ahmed',    email: 'zara@acme.com', role: 'Shift Supervisor',  store: 'Airport Terminal',shift: 'Morning', startTime: '05:00', endTime: '13:00', status: 'present' },
+  { id: 's-rico', name: 'Rico Park',     email: 'rico@acme.com', role: 'Cleaning Staff',    store: 'Airport Terminal',shift: 'Morning', startTime: '05:00', endTime: '11:00', status: 'present' },
+  { id: 's-tomas',name: 'Tomas Reyes',   email: 'tomas@acme.com',role: 'Line Cook',         store: 'Airport Terminal',shift: 'Evening', startTime: '13:00', endTime: '21:00', status: 'late', ptoReason: 'Running 30 min late' },
+  // Westfield Mall — Dave's store
+  { id: 's-emma', name: 'Emma Brown',    email: 'emma@acme.com', role: 'Branch Manager',    store: 'Westfield Mall',  shift: 'All day', startTime: '08:00', endTime: '20:00', status: 'present' },
+  { id: 's-felix',name: 'Felix Nguyen',  email: 'felix@acme.com',role: 'Line Cook',         store: 'Westfield Mall',  shift: 'Morning', startTime: '08:00', endTime: '16:00', status: 'present' },
+  { id: 's-sara', name: 'Sara Cohen',    email: 'sara@acme.com', role: 'Cleaning Staff',    store: 'Westfield Mall',  shift: 'Morning', startTime: '07:00', endTime: '13:00', status: 'pto',  ptoReason: 'Personal day' },
+];
+
+// Map a logged-in user (corporate EMPLOYEES) to the store they manage. Alice =
+// Downtown manager, Bob/Carol/Dave map to their store from auth metadata in the
+// Studio config. Fall back to Downtown if no mapping exists.
+const USER_TO_STORE = {
+  'alice@acme.com': 'Downtown',
+  'bob@acme.com':   'Airport Terminal',
+  'carol@acme.com': 'Downtown',
+  'dave@acme.com':  'Westfield Mall',
+  'erin@acme.com':  null, // HQ Office Worker — no specific store
+};
+
 const ANNOUNCEMENTS = [
   { id: '1', title: 'Q2 All-Hands on May 15', body: 'Join us for the Q2 All-Hands meeting on May 15th at 2pm PT. Agenda includes product roadmap updates, Q1 results, and a special guest announcement.', date: '2026-05-05', author: 'Eve Martinez', priority: 'high' },
   { id: '2', title: 'New Parental Leave Policy', body: 'We are excited to announce expanded parental leave: 16 weeks fully paid for primary caregivers starting June 1st.', date: '2026-04-28', author: 'Alice Chen', priority: 'normal' },
@@ -342,6 +375,39 @@ function buildServer(currentUser) {
             manager: { name: manager.name, email: manager.email, title: manager.title, department: manager.department },
             directReports: reports,
             count: reports.length,
+          }, null, 2),
+        }],
+      };
+    }
+  );
+
+  server.tool(
+    'get_team_attendance',
+    'Get the live shift roster for a store: who is on shift today, who is absent, and why. Defaults to the current user\'s store.',
+    {
+      store: z.string().optional().describe('Store name (e.g., "Downtown", "Airport Terminal"). Defaults to the current user\'s store.'),
+    },
+    async ({ store }) => {
+      const targetStore = store || USER_TO_STORE[currentUser?.email || ''] || 'Downtown';
+      const roster = STORE_ROSTER.filter(r => r.store === targetStore);
+      if (roster.length === 0) {
+        return { content: [{ type: 'text', text: `No roster on file for ${targetStore}.` }] };
+      }
+      const present = roster.filter(r => r.status === 'present');
+      const absent  = roster.filter(r => r.status !== 'present');
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            store: targetStore,
+            date: new Date().toISOString().split('T')[0],
+            summary: {
+              total: roster.length,
+              present: present.length,
+              absent: absent.length,
+            },
+            present: present.map(r => ({ name: r.name, role: r.role, shift: r.shift, hours: `${r.startTime} – ${r.endTime}` })),
+            absent: absent.map(r => ({ name: r.name, role: r.role, shift: r.shift, reason: r.ptoReason || r.status })),
           }, null, 2),
         }],
       };

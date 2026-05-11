@@ -8,10 +8,32 @@ import {
   UserPlus, Share2, Bot, Circle, ClipboardList, Camera, RotateCcw, Database,
   Settings, Newspaper, Thermometer, Hash, ShieldOff, Sparkles,
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import { STRINGS, SUPPORTED_LANGS, LANG_META, t as tBase, loadLang, saveLang } from './i18n';
 import { useConfigStore } from '../AIAssistant/useConfigStore';
 import { deriveLiveOrchestrator, deriveLiveOrchestratorFor } from '../AIAssistant/configStore';
 import { pickRoleChips, SHIFT_CHIPS, COMMON_CHIPS, ROLE_FOLLOWUPS, INITIAL_CHIPS, shiftPhaseFor } from './chipRules';
+
+// Chat-bubble flavored markdown. We override the default block elements so the
+// AI's `**bold**`, lists, headings, and code render inline in the bubble without
+// the giant margins react-markdown ships with by default. Links open in a new
+// tab; code gets a subtle pill background; lists tighten up.
+const markdownComponents = {
+  p:      ({ node, ...props }) => <p {...props} style={{ margin: 0, marginBottom: 6 }} />,
+  ul:     ({ node, ...props }) => <ul {...props} style={{ margin: '4px 0', paddingLeft: 18 }} />,
+  ol:     ({ node, ...props }) => <ol {...props} style={{ margin: '4px 0', paddingLeft: 18 }} />,
+  li:     ({ node, ...props }) => <li {...props} style={{ marginBottom: 2 }} />,
+  h1:     ({ node, ...props }) => <div {...props} style={{ fontWeight: 700, fontSize: 15, margin: '6px 0 4px' }} />,
+  h2:     ({ node, ...props }) => <div {...props} style={{ fontWeight: 700, fontSize: 14, margin: '6px 0 4px' }} />,
+  h3:     ({ node, ...props }) => <div {...props} style={{ fontWeight: 700, fontSize: 13, margin: '6px 0 4px' }} />,
+  strong: ({ node, ...props }) => <strong {...props} style={{ fontWeight: 700, color: '#111827' }} />,
+  em:     ({ node, ...props }) => <em {...props} style={{ fontStyle: 'italic' }} />,
+  a:      ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" style={{ color: '#7C3AED', textDecoration: 'underline' }} />,
+  code:   ({ node, inline, ...props }) => inline
+    ? <code {...props} style={{ background: '#F3F4F6', color: '#7C3AED', padding: '1px 5px', borderRadius: 4, fontSize: '0.92em', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }} />
+    : <code {...props} style={{ display: 'block', background: '#F9FAFB', border: '1px solid #E5E7EB', padding: '8px 10px', borderRadius: 8, fontSize: 12, fontFamily: 'ui-monospace, SFMono-Regular, monospace', whiteSpace: 'pre-wrap', margin: '6px 0' }} />,
+  blockquote: ({ node, ...props }) => <blockquote {...props} style={{ margin: '4px 0', paddingLeft: 10, borderLeft: '3px solid #DDD6FE', color: '#4B5563' }} />,
+};
 
 // ── Language context ─────────────────────────────────────────────────────────
 const LangContext = createContext('en');
@@ -38,26 +60,31 @@ function useIsMobile() {
   return isMobile;
 }
 
-// Mirrors window.visualViewport.height into a state value. iOS Safari does not
-// honor `interactive-widget=resizes-content`, so we use this to size the chat
-// shell when the soft keyboard is open. Falls back to null on browsers that
-// don't expose visualViewport.
-function useVisualViewportHeight() {
-  const [height, setHeight] = useState(() =>
-    typeof window !== 'undefined' && window.visualViewport ? window.visualViewport.height : null
+// Mirrors window.visualViewport.height + offsetTop into state. iOS Safari does
+// not honor `interactive-widget=resizes-content`, AND `position: fixed; top: 0`
+// is anchored to the LAYOUT viewport — so when the soft keyboard opens and iOS
+// scrolls the page up to keep the focused input visible, a fixed-top shell
+// scrolls along with it, off-screen. We need both the shrunken height (to size
+// the shell) and the offsetTop (to re-anchor it to the visible viewport top).
+// Falls back to null on browsers that don't expose visualViewport.
+function useVisualViewport() {
+  const [vv, setVv] = useState(() =>
+    typeof window !== 'undefined' && window.visualViewport
+      ? { height: window.visualViewport.height, offsetTop: window.visualViewport.offsetTop }
+      : null
   );
   useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => setHeight(vv.height);
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
+    const v = window.visualViewport;
+    if (!v) return;
+    const update = () => setVv({ height: v.height, offsetTop: v.offsetTop });
+    v.addEventListener('resize', update);
+    v.addEventListener('scroll', update);
     return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
+      v.removeEventListener('resize', update);
+      v.removeEventListener('scroll', update);
     };
   }, []);
-  return height;
+  return vv;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -691,9 +718,12 @@ function PtoRequestForm({ onConfirm, onCancel }) {
   const isValid = start >= today && end >= start;
 
   const inputStyle = (hasError) => ({
-    width: '100%', padding: '7px 10px', border: `1px solid ${hasError ? '#FCA5A5' : '#E5E7EB'}`,
-    borderRadius: 8, fontSize: 12, outline: 'none', boxSizing: 'border-box',
-    background: hasError ? '#FEF2F2' : 'white', color: '#111827',
+    width: '100%', padding: '9px 10px', border: `1px solid ${hasError ? '#FCA5A5' : '#E5E7EB'}`,
+    borderRadius: 8,
+    // iOS Safari auto-zooms when a tapped input has computed font-size < 16px.
+    // Holding the line at 16 keeps the page from zooming when the form opens.
+    fontSize: 16, outline: 'none', boxSizing: 'border-box',
+    background: hasError ? '#FEF2F2' : 'white', color: '#111827', fontFamily: 'inherit',
   });
 
   return (
@@ -786,8 +816,10 @@ function TicketForm({ onConfirm, onCancel }) {
   const isValid = title.trim().length >= 3 && description.trim().length >= 10;
 
   const fieldStyle = {
-    width: '100%', padding: '7px 10px', border: '1px solid #E5E7EB',
-    borderRadius: 8, fontSize: 12, outline: 'none', boxSizing: 'border-box',
+    width: '100%', padding: '9px 10px', border: '1px solid #E5E7EB',
+    borderRadius: 8,
+    // iOS Safari auto-zooms when a tapped input has computed font-size < 16px.
+    fontSize: 16, outline: 'none', boxSizing: 'border-box',
     color: '#111827', fontFamily: 'inherit',
   };
   const labelStyle = {
@@ -1173,9 +1205,11 @@ function A2ADelegationCard({ artifact, state, onStateChange, onSubmit, disabled 
                     disabled={locked}
                     placeholder={t.inputType === 'temp_log' ? 'e.g. 4' : 'count'}
                     style={{
-                      width: 70, padding: '3px 6px', fontSize: 11,
+                      width: 80, padding: '5px 8px',
+                      // 16px keeps iOS from auto-zooming on tap. Viewport meta also locks zoom.
+                      fontSize: 16,
                       border: '1px solid #D1D5DB', borderRadius: 6, outline: 'none',
-                      background: locked ? '#F9FAFB' : 'white',
+                      background: locked ? '#F9FAFB' : 'white', fontFamily: 'inherit',
                     }}
                   />
                   <span style={{ fontSize: 10, color: '#6B7280' }}>
@@ -1394,9 +1428,9 @@ function ChatMessage({ msg, onSuggestionSelect, onOpenSources, loading, onA2ASub
               background: 'white', borderRadius: '4px 18px 18px 18px',
               padding: '10px 14px', fontSize: 13.5, lineHeight: 1.6, color: '#111827',
               boxShadow: '0 1px 3px rgba(0,0,0,0.07)',
-              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              wordBreak: 'break-word',
             }}>
-              {msg.content}
+              <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
             </div>
           ) : (
             <div style={{
@@ -1850,7 +1884,12 @@ export default function NavigatorOrchestratorStudio() {
   const setLang = (l) => { setLangState(l); saveLang(l); };
   const [openSources, setOpenSources] = useState(null); // toolResults array or null
   const isMobile = useIsMobile();
-  const visualViewportHeight = useVisualViewportHeight();
+  const visualViewport = useVisualViewport();
+  // Heuristic: when the keyboard is up, visualViewport.height shrinks by at least
+  // 150px relative to the layout viewport. This is reliable enough on iOS/Android
+  // soft keyboards; rotation alone never shrinks by that much.
+  const keyboardOpen = !!(visualViewport && typeof window !== 'undefined' &&
+    window.innerHeight - visualViewport.height > 150);
 
   // Persist messages whenever they change (per-user). We don't persist on every
   // streaming delta — only when role is user/assistant — but the simplest
@@ -2228,7 +2267,11 @@ export default function NavigatorOrchestratorStudio() {
       <div style={{
         flexShrink: 0, position: 'relative', zIndex: 1,
         padding: isMobile
-          ? '8px 12px calc(env(safe-area-inset-bottom, 0px) + 6px)'
+          // When the keyboard is up, iOS still reports a non-zero safe-area-inset-bottom
+          // (it's based on device geometry, not keyboard state). That leaves an awkward
+          // gap between the input and the keyboard. Zero it when we detect the keyboard
+          // by comparing visualViewport.height against window.innerHeight.
+          ? (keyboardOpen ? '8px 12px 6px' : '8px 12px calc(env(safe-area-inset-bottom, 0px) + 6px)')
           : '8px 12px 4px',
       }}>
         <div style={{
@@ -2292,15 +2335,22 @@ export default function NavigatorOrchestratorStudio() {
 
   // ── Mobile: full-bleed chat, no phone-mock, no sidebars ────────────────────
   if (isMobile) {
+    // visualViewport.height shrinks when the iOS keyboard opens. iOS also
+    // scrolls the layout viewport up so the focused input stays visible — but
+    // `position: fixed` is anchored to the LAYOUT viewport, so the shell would
+    // scroll off-screen with it. Re-anchor via `top: offsetTop` to follow the
+    // visible viewport. Fall back to 100dvh on browsers without visualViewport.
+    const vvHeight = visualViewport?.height;
+    const vvOffsetTop = visualViewport?.offsetTop || 0;
     return (
       <LangContext.Provider value={lang}>
         <div style={{
-          // visualViewport.height shrinks when the iOS keyboard opens; falling
-          // back to 100dvh so Chrome/Android (which honor
-          // interactive-widget=resizes-content) get the same behavior.
-          height: visualViewportHeight ? `${visualViewportHeight}px` : '100dvh',
+          height: vvHeight ? `${vvHeight}px` : '100dvh',
           width: '100%',
-          position: 'fixed', top: 0, left: 0, right: 0,
+          position: 'fixed',
+          top: `${vvOffsetTop}px`,
+          left: 0,
+          right: 0,
           display: 'flex', flexDirection: 'column',
           background: 'white',
           overflow: 'hidden',

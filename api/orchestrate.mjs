@@ -108,10 +108,20 @@ Disambiguation defaults — Navigator is an enterprise assistant, so when the us
 
 Routing rules (when inScope: true):
 - Use specific server IDs from the list above.
-- Only use A2A agents when the request clearly maps to their listed domain keywords (e.g., shift, checklist, store, opening, closing — NOT hr, pto, vacation, or time off).
 - Use MCP servers for ad-hoc queries, lookups, and single-domain questions.
 - For greetings, "help", or pure small-talk: inScope: true with empty domains (Navigator answers briefly without tools).
-- For cross-domain queries include all relevant MCP servers.`,
+- For cross-domain queries include all relevant MCP servers.
+
+A2A vs HR disambiguation — the store_ops_agent is for AUTONOMOUS TASKS the logged-in user performs DURING their shift. It is NOT a lookup. It is NOT for asking ABOUT other people:
+- Route to A2A (store_ops_agent) ONLY when the user is performing/asking about THEIR OWN shift work:
+    "What are my opening tasks?" / "Show my checklist" / "Mid-shift tasks" / "Closing tasks" /
+    "My handover" / "Complete shift procedures" / "What do I need to do this morning?"
+- Route to HR (hr_portal) for questions ABOUT people, attendance, schedules, or the team:
+    "Who is on shift today?" / "Who's working tonight?" / "Who is absent?" / "Team attendance" /
+    "Who's out this week?" / "Show me the schedule" / "Who's covering the front?" / "Show my team"
+- The trigger is intent, not keyword. The word "shift" alone is NOT enough. If the sentence is
+  asking WHO / lookup / status of others → hr_portal. If it's asking what the user themselves
+  should DO right now → store_ops_agent.`,
       },
       {
         role: 'user',
