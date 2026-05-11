@@ -16,6 +16,7 @@ const EMPLOYEES = [
   { id: 'bob',   name: 'Bob Smith',   email: 'bob@acme.com',   department: 'Engineering' },
   { id: 'carol', name: 'Carol Davis', email: 'carol@acme.com', department: 'Product' },
   { id: 'dave',  name: 'Dave Wilson', email: 'dave@acme.com',  department: 'Design' },
+  { id: 'erin',  name: 'Erin Patel',  email: 'erin@acme.com',  department: 'Operations' },
   { id: 'eve',   name: 'Eve Martinez',email: 'eve@acme.com',   department: 'Engineering' },
   { id: 'frank', name: 'Frank Lee',   email: 'frank@acme.com', department: 'Engineering' },
 ];
@@ -47,6 +48,10 @@ const EQUIPMENT = {
     { type: 'laptop',  model: 'MacBook Pro 14" M2',   serialNo: 'FVCK3WT4S1',  assignedDate: '2023-01-20', condition: 'good' },
     { type: 'tablet',  model: 'iPad Pro 12.9"',        serialNo: 'DMPQR8T3N1', assignedDate: '2023-01-20', condition: 'good' },
     { type: 'monitor', model: 'Dell 27" USB-C',        serialNo: 'MNT-7214',   assignedDate: '2023-01-20', condition: 'good' },
+  ],
+  'erin@acme.com': [
+    { type: 'laptop',  model: 'MacBook Air 13" M3',   serialNo: 'FVPK2RT8L5',  assignedDate: '2023-09-01', condition: 'good' },
+    { type: 'monitor', model: 'Dell 27" USB-C',        serialNo: 'MNT-7891',   assignedDate: '2023-09-01', condition: 'good' },
   ],
   'eve@acme.com': [
     { type: 'laptop',  model: 'MacBook Pro 16" M3 Max', serialNo: 'FVLM1XZ9P3', assignedDate: '2022-10-01', condition: 'good' },

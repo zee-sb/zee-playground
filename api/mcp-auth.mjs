@@ -46,6 +46,17 @@ const USERS = {
     ptoBalance: 9,
     avatar: 'DW',
   },
+  'erin@acme.com': {
+    id: 'erin',
+    name: 'Erin Patel',
+    email: 'erin@acme.com',
+    role: 'employee',
+    department: 'Operations',
+    title: 'Office Worker',
+    manager: 'alice@acme.com',
+    ptoBalance: 14,
+    avatar: 'EP',
+  },
 };
 
 const corsHeaders = {
@@ -76,7 +87,7 @@ export default async function handler(req, res) {
 
   const user = USERS[email.toLowerCase()];
   if (!user) {
-    res.status(401).json({ error: 'Unknown user. Try alice@acme.com, bob@acme.com, carol@acme.com, or dave@acme.com' });
+    res.status(401).json({ error: 'Unknown user. Try alice@acme.com, bob@acme.com, carol@acme.com, dave@acme.com, or erin@acme.com' });
     return;
   }
 

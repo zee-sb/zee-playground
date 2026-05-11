@@ -1632,7 +1632,7 @@ function AppHeader({ user, onLogout, onClear, hasMessages, lang, onLangChange, d
         )}
         <LanguagePicker lang={lang} onChange={onLangChange} />
         <button onClick={onLogout} style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 20, padding: '4px 10px', color: 'rgba(255,255,255,0.9)', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-          <div style={{ width: 18, height: 18, borderRadius: '50%', background: userDemoSafe.color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800 }}>{userDemoSafe.avatar}</div>
+          <div style={{ width: 18, height: 18, borderRadius: '50%', background: userDemo.color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800 }}>{userDemo.avatar}</div>
           {user?.name?.split(' ')[0]}
         </button>
       </div>

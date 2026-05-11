@@ -19,6 +19,7 @@ const EMPLOYEES = [
   { id: 'bob', name: 'Bob Smith', email: 'bob@acme.com', role: 'employee', department: 'Engineering', title: 'Software Engineer', manager: 'carol@acme.com', ptoBalance: 12, location: 'New York', region: 'US', startDate: '2021-07-01' },
   { id: 'carol', name: 'Carol Davis', email: 'carol@acme.com', role: 'manager', department: 'Product', title: 'Product Manager', manager: 'eve@acme.com', ptoBalance: 15, location: 'Austin', region: 'US', startDate: '2020-01-20' },
   { id: 'dave', name: 'Dave Wilson', email: 'dave@acme.com', role: 'employee', department: 'Design', title: 'UX Designer', manager: 'carol@acme.com', ptoBalance: 9, location: 'Berlin', region: 'DE', startDate: '2022-04-11' },
+  { id: 'erin', name: 'Erin Patel', email: 'erin@acme.com', role: 'employee', department: 'Operations', title: 'Office Worker', manager: 'alice@acme.com', ptoBalance: 14, location: 'HQ', region: 'US', startDate: '2023-08-22' },
   { id: 'eve', name: 'Eve Martinez', email: 'eve@acme.com', role: 'manager', department: 'Engineering', title: 'Engineering Manager', manager: null, ptoBalance: 20, location: 'San Francisco', region: 'US', startDate: '2017-09-05' },
   { id: 'frank', name: 'Frank Lee', email: 'frank@acme.com', role: 'employee', department: 'Engineering', title: 'Frontend Engineer', manager: 'eve@acme.com', ptoBalance: 14, location: 'Amsterdam', region: 'NL', startDate: '2023-01-16' },
 ];
