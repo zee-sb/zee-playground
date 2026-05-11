@@ -21,7 +21,7 @@ import {
   listChannels,
   searchUsers,
   getUser,
-} from './lib/staffbase.mjs';
+} from '../staffbase.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

@@ -8,8 +8,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 
-import { getAtlassianAccessToken } from './lib/atlassian.mjs';
-import { getConnection } from './lib/connections.mjs';
+import { getAtlassianAccessToken } from '../atlassian.mjs';
+import { getConnection } from '../connections.mjs';
 import {
   listConfluenceSpaces,
   listPagesInSpace,
@@ -23,7 +23,7 @@ import {
   getJiraIssue,
   addJiraComment,
   createJiraIssue,
-} from './lib/atlassian-api.mjs';
+} from '../atlassian-api.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

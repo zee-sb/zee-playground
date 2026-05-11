@@ -7,10 +7,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 
-import { HR_POLICIES, localizePolicy, searchPolicies } from './data/hr-policies.mjs';
-import { HOLIDAYS, REGIONS, getHolidays, nextHoliday } from './data/holidays.mjs';
-import { searchFAQs } from './data/faqs.mjs';
-import { SUPPORTED_LANGS, normalizeLang, pick } from './data/languages.mjs';
+import { HR_POLICIES, localizePolicy, searchPolicies } from '../../data/hr-policies.mjs';
+import { HOLIDAYS, REGIONS, getHolidays, nextHoliday } from '../../data/holidays.mjs';
+import { searchFAQs } from '../../data/faqs.mjs';
+import { SUPPORTED_LANGS, normalizeLang, pick } from '../../data/languages.mjs';
 
 // ── Simulated data ────────────────────────────────────────────────────────────
 

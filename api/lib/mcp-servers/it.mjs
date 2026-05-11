@@ -6,8 +6,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 
-import { IT_POLICIES, localizeITPolicy, searchITPolicies } from './data/it-policies.mjs';
-import { SUPPORTED_LANGS, normalizeLang, pick } from './data/languages.mjs';
+import { IT_POLICIES, localizeITPolicy, searchITPolicies } from '../../data/it-policies.mjs';
+import { SUPPORTED_LANGS, normalizeLang, pick } from '../../data/languages.mjs';
 
 // ── Simulated data ────────────────────────────────────────────────────────────
 

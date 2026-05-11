@@ -16,7 +16,7 @@ import {
   searchArticles,
   getArticle,
   listArticles,
-} from './data/intranet-articles.mjs';
+} from '../../data/intranet-articles.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
