@@ -11,8 +11,8 @@
 //      A2A path streams: a2a_delegate | a2a_update | a2a_done | done
 
 import OpenAI from 'openai';
-import { MCP_REGISTRY } from './mcp-registry.mjs';
-import { A2A_REGISTRY } from './a2a-registry.mjs';
+import { MCP_REGISTRY } from '../lib/mcp-registry.mjs';
+import { A2A_REGISTRY } from '../lib/a2a-registry.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

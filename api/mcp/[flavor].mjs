@@ -9,12 +9,12 @@
 //   /api/mcp-it         → /api/mcp/it
 //   /api/mcp-staffbase  → /api/mcp/staffbase
 
-import hrHandler from '../lib/mcp-servers/hr.mjs';
-import atlassianHandler from '../lib/mcp-servers/atlassian.mjs';
-import authHandler from '../lib/mcp-servers/auth.mjs';
-import intranetHandler from '../lib/mcp-servers/intranet.mjs';
-import itHandler from '../lib/mcp-servers/it.mjs';
-import staffbaseHandler from '../lib/mcp-servers/staffbase.mjs';
+import hrHandler from '../../lib/mcp-servers/hr.mjs';
+import atlassianHandler from '../../lib/mcp-servers/atlassian.mjs';
+import authHandler from '../../lib/mcp-servers/auth.mjs';
+import intranetHandler from '../../lib/mcp-servers/intranet.mjs';
+import itHandler from '../../lib/mcp-servers/it.mjs';
+import staffbaseHandler from '../../lib/mcp-servers/staffbase.mjs';
 
 const HANDLERS = {
   hr: hrHandler,

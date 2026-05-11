@@ -8,10 +8,10 @@
 //   POST /api/companion/confirm                    → resume paused write-tool turn
 
 import OpenAI from 'openai';
-import { getUserFromReq } from '../lib/session.mjs';
-import { sql, dbConfigured } from '../lib/db.mjs';
-import { runOrchestratedTurn } from '../lib/orchestrator.mjs';
-import { CONNECTORS } from '../lib/connector-registry.mjs';
+import { getUserFromReq } from '../../lib/session.mjs';
+import { sql, dbConfigured } from '../../lib/db.mjs';
+import { runOrchestratedTurn } from '../../lib/orchestrator.mjs';
+import { CONNECTORS } from '../../lib/connector-registry.mjs';
 
 function baseUrlOf(req) {
   const proto = req.headers['x-forwarded-proto'] || 'http';

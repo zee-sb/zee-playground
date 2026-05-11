@@ -15,7 +15,7 @@ import {
   isAllowedAccount,
   ALLOWED_HOSTED_DOMAIN,
   buildAuthorizeUrl as buildGoogleAuthorizeUrl,
-} from '../lib/google.mjs';
+} from '../../lib/google.mjs';
 import {
   parseCookies,
   verifyStateJwt,
@@ -27,10 +27,10 @@ import {
   clearSessionCookieHeader,
   getUserFromReq,
   COOKIE_NAMES,
-} from '../lib/session.mjs';
-import { sql, dbConfigured } from '../lib/db.mjs';
-import { resolveStaffbaseIdentity, STAFFBASE_DIRECTORY } from '../lib/staffbase-users.mjs';
-import { listConnectionsForUser } from '../lib/connections.mjs';
+} from '../../lib/session.mjs';
+import { sql, dbConfigured } from '../../lib/db.mjs';
+import { resolveStaffbaseIdentity, STAFFBASE_DIRECTORY } from '../../lib/staffbase-users.mjs';
+import { listConnectionsForUser } from '../../lib/connections.mjs';
 
 function appUrl(req) {
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, '');
