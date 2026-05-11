@@ -13,7 +13,7 @@ import {
   getMe,
   saveAtlassianConnection,
   ATLASSIAN_SCOPES,
-} from '../../lib/atlassian.mjs';
+} from '../lib/atlassian.mjs';
 import {
   parseCookies,
   verifyStateJwt,
@@ -22,9 +22,9 @@ import {
   clearStateCookieHeader,
   getUserFromReq,
   COOKIE_NAMES,
-} from '../../lib/session.mjs';
-import { dbConfigured } from '../../lib/db.mjs';
-import { deleteConnection } from '../../lib/connections.mjs';
+} from '../lib/session.mjs';
+import { dbConfigured } from '../lib/db.mjs';
+import { deleteConnection } from '../lib/connections.mjs';
 
 function appUrl(req) {
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, '');
@@ -34,6 +34,7 @@ function appUrl(req) {
 }
 
 function pathOf(req) {
+  if (req.query?._path) return String(req.query._path);
   return (req.url || '').split('?')[0];
 }
 

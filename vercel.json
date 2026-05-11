@@ -5,13 +5,15 @@
   "framework": "vite",
   "functions": {
     "api/a2a.mjs": { "maxDuration": 30 },
-    "api/companion/[...path].mjs": { "maxDuration": 60 },
-    "api/connections/[...path].mjs": { "maxDuration": 15 }
+    "api/companion.mjs": { "maxDuration": 60 },
+    "api/connections.mjs": { "maxDuration": 15 }
   },
   "rewrites": [
     { "source": "/api/mcp", "destination": "/api/mcp/hr" },
     { "source": "/api/mcp-:flavor", "destination": "/api/mcp/:flavor" },
-    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/api/auth/:rest*", "destination": "/api/auth?_path=/api/auth/:rest*" },
+    { "source": "/api/companion/:rest*", "destination": "/api/companion?_path=/api/companion/:rest*" },
+    { "source": "/api/connections/:rest*", "destination": "/api/connections?_path=/api/connections/:rest*" },
     { "source": "/prototypes/(.*)", "destination": "/index.html" }
   ]
 }
