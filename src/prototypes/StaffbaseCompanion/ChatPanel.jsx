@@ -207,14 +207,28 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           />
         ) : (
           <div className="cw-root" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, '--cw-primary': '#7C3AED', '--cw-primary-dark': '#6D28D9', '--cw-primary-light': '#EDE9FE' }}>
-            {items.map((item, i) => (
-              <Item
-                key={i}
-                item={item}
-                userInitials={userInitials}
-                onSuggestion={send}
-              />
-            ))}
+            {(() => {
+              // Only the most recent assistant message's suggestion chips are
+              // interactive; once the turn has passed they grey out so the
+              // user can't accidentally re-trigger an old prompt.
+              let lastSuggestionIdx = -1;
+              for (let i = items.length - 1; i >= 0; i--) {
+                const it = items[i];
+                if (it.kind === 'msg' && it.role === 'assistant' && it.suggestions?.length > 0 && !it.streaming) {
+                  lastSuggestionIdx = i;
+                  break;
+                }
+              }
+              return items.map((item, i) => (
+                <Item
+                  key={i}
+                  item={item}
+                  userInitials={userInitials}
+                  onSuggestion={send}
+                  suggestionsDisabled={busy || i !== lastSuggestionIdx}
+                />
+              ));
+            })()}
             {busy && (
               <div className="cw-root" style={{ '--cw-primary': '#7C3AED' }}>
                 <TypingIndicator agentAvatar={<Sparkles size={14} color="white" />} />
@@ -415,7 +429,7 @@ function Hero({ user, atlassianLinked, onPick, onConnect }) {
 
 // ── Item renderer ───────────────────────────────────────────────────────────
 
-function Item({ item, userInitials, onSuggestion }) {
+function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false }) {
   if (item.kind === 'trace') return <TraceCard intent={item.intent} connectors={item.connectors} />;
   if (item.kind === 'tool') {
     return <ToolCallCard name={item.name} args={item.args} result={item.result} status={item.status} connector={item.connector} />;
@@ -452,30 +466,34 @@ function Item({ item, userInitials, onSuggestion }) {
         </div>
         {!item.streaming && item.suggestions?.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-            {item.suggestions.map((s, i) => (
-              <button
-                key={i}
-                onClick={() => onSuggestion(typeof s === 'string' ? s : s.label)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 100,
-                  background: 'rgba(255,255,255,0.82)',
-                  backdropFilter: 'blur(10px)',
-                  border: '1px solid rgba(255,255,255,0.7)',
-                  color: '#111827',
-                  fontSize: 12,
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  boxShadow: '0 1px 5px rgba(0,0,0,0.07)',
-                  transition: 'all 0.15s',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = '#7C3AED'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.82)'; e.currentTarget.style.color = '#111827'; }}
-              >
-                {typeof s === 'string' ? s : s.label}
-              </button>
-            ))}
+            {item.suggestions.map((s, i) => {
+              const label = typeof s === 'string' ? s : s.label;
+              return (
+                <button
+                  key={i}
+                  onClick={() => { if (!suggestionsDisabled) onSuggestion(label); }}
+                  disabled={suggestionsDisabled}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 100,
+                    background: suggestionsDisabled ? '#F4F4F5' : 'rgba(255,255,255,0.82)',
+                    backdropFilter: suggestionsDisabled ? 'none' : 'blur(10px)',
+                    border: `1px solid ${suggestionsDisabled ? '#E4E4E7' : 'rgba(255,255,255,0.7)'}`,
+                    color: suggestionsDisabled ? '#A1A1AA' : '#111827',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: suggestionsDisabled ? 'default' : 'pointer',
+                    whiteSpace: 'nowrap',
+                    boxShadow: suggestionsDisabled ? 'none' : '0 1px 5px rgba(0,0,0,0.07)',
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={(e) => { if (!suggestionsDisabled) { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = '#7C3AED'; } }}
+                  onMouseLeave={(e) => { if (!suggestionsDisabled) { e.currentTarget.style.background = 'rgba(255,255,255,0.82)'; e.currentTarget.style.color = '#111827'; } }}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
