@@ -3,9 +3,9 @@
   "configurations": [
     {
       "name": "zee-playground",
-      "runtimeExecutable": "/opt/homebrew/bin/vercel",
-      "runtimeArgs": ["dev", "--port", "3456", "--yes"],
-      "port": 3456
+      "runtimeExecutable": "./scripts/vercel-dev.sh",
+      "runtimeArgs": [],
+      "port": 3000
     },
     {
       "name": "zee-static",

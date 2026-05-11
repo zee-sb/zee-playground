@@ -1,0 +1,573 @@
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Sparkles, Plug, Send, Loader2, MapPin, Zap, LogOut, RotateCcw, Building2, Trophy } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import ToolCallCard from './ToolCallCard.jsx';
+import TraceCard from './TraceCard.jsx';
+import ConfirmWriteModal from './ConfirmWriteModal.jsx';
+import { TypingIndicator } from '../../chat-widget/TypingIndicator.jsx';
+import { streamPost, listMessages } from './api.js';
+import { markdownComponents } from './lib/markdown.jsx';
+import '../../chat-widget/styles.css';
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function safeParse(s) { if (!s) return {}; try { return JSON.parse(s); } catch { return {}; } }
+
+function extractSuggestions(text) {
+  if (!text) return { clean: text, suggestions: [] };
+  const m = text.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
+  if (!m) return { clean: text, suggestions: [] };
+  let suggestions = [];
+  try { suggestions = JSON.parse(m[1]); } catch { /* malformed */ }
+  const clean = text.replace(/<suggestions>[\s\S]*?<\/suggestions>/g, '').trim();
+  return { clean, suggestions };
+}
+
+function reduceMessages(rows) {
+  const out = [];
+  for (const row of rows) {
+    const c = row.content || {};
+    if (row.role === 'user') {
+      out.push({ kind: 'msg', role: 'user', text: typeof c === 'string' ? c : (c.text || '') });
+    } else if (row.role === 'assistant') {
+      const text = c.content;
+      if (text) {
+        const { clean, suggestions } = extractSuggestions(text);
+        out.push({ kind: 'msg', role: 'assistant', text: clean, suggestions });
+      }
+      if (Array.isArray(c.tool_calls)) {
+        for (const tc of c.tool_calls) {
+          const name = tc.function?.name || tc.name || '';
+          const [connector, ...rest] = name.split('__');
+          out.push({
+            kind: 'tool',
+            id: tc.id,
+            name: rest.join('__') || name,
+            connector,
+            args: safeParse(tc.function?.arguments),
+            status: 'done',
+          });
+        }
+      }
+    } else if (row.role === 'tool') {
+      const id = c.tool_call_id;
+      const item = [...out].reverse().find((i) => i.kind === 'tool' && i.id === id);
+      if (item) {
+        try { item.result = JSON.parse(c.content); } catch { item.result = c.content; }
+        item.status = item.result?.error ? 'error' : 'done';
+      }
+    } else if (row.role === 'system') {
+      if (c.pendingConfirmation && Array.isArray(c.toolCalls)) {
+        for (const tc of c.toolCalls) {
+          const item = [...out].reverse().find((i) => i.kind === 'tool' && i.id === tc.id);
+          if (item) item.status = 'pending';
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// ── Main panel ──────────────────────────────────────────────────────────────
+
+export default function ChatPanel({ conversationId, user, connections = [], onNavigateConnections, onSignOut, isMobile = false }) {
+  const [items, setItems] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const endRef = useRef(null);
+  const atlassianLinked = connections.some((c) => c.provider === 'atlassian');
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!conversationId) { setItems([]); return; }
+    (async () => {
+      try {
+        const rows = await listMessages(conversationId);
+        if (cancelled) return;
+        setItems(reduceMessages(rows));
+        const pendingRow = [...rows].reverse().find((r) => r.role === 'system' && r.content?.pendingConfirmation);
+        if (pendingRow) setPendingConfirm({ toolCalls: pendingRow.content.toolCalls });
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [conversationId]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [items, busy]);
+
+  const handleEvent = useCallback((evt) => {
+    setItems((prev) => {
+      const next = [...prev];
+      if (evt.type === 'trace_connectors') {
+        const last = next[next.length - 1];
+        if (last?.kind === 'trace') last.connectors = evt.connectors;
+        else next.push({ kind: 'trace', connectors: evt.connectors });
+      } else if (evt.type === 'trace_intent') {
+        const trace = [...next].reverse().find((i) => i.kind === 'trace');
+        if (trace) trace.intent = { connectors: evt.connectors, reasoning: evt.reasoning };
+        else next.push({ kind: 'trace', intent: { connectors: evt.connectors, reasoning: evt.reasoning } });
+      } else if (evt.type === 'connector_error') {
+        next.push({ kind: 'connector_error', connector: evt.connector, message: evt.message });
+      } else if (evt.type === 'delta') {
+        const last = next[next.length - 1];
+        if (last?.kind === 'msg' && last.role === 'assistant' && last.streaming) {
+          last.text = (last.text || '') + evt.content;
+        } else {
+          next.push({ kind: 'msg', role: 'assistant', text: evt.content, streaming: true });
+        }
+      } else if (evt.type === 'tool_start') {
+        next.push({
+          kind: 'tool',
+          id: evt.toolCallId,
+          name: evt.name,
+          connector: evt.connector,
+          args: evt.args,
+          status: 'running',
+        });
+      } else if (evt.type === 'tool_result') {
+        const item = [...next].reverse().find((i) => i.kind === 'tool' && i.id === evt.toolCallId);
+        if (item) {
+          item.result = evt.result;
+          item.status = evt.result?.error ? 'error' : (evt.result?.cancelled ? 'error' : 'done');
+        }
+      } else if (evt.type === 'tool_call_pending') {
+        for (const tc of evt.toolCalls) {
+          next.push({ kind: 'tool', id: tc.id, name: tc.name, connector: tc.connector || 'atlassian', args: tc.args, status: 'pending' });
+        }
+        setPendingConfirm({ toolCalls: evt.toolCalls });
+      } else if (evt.type === 'done') {
+        const last = next[next.length - 1];
+        if (last?.kind === 'msg' && last.role === 'assistant' && last.streaming) {
+          const { clean, suggestions } = extractSuggestions(last.text);
+          last.text = clean;
+          last.suggestions = suggestions;
+          delete last.streaming;
+        }
+      } else if (evt.type === 'error') {
+        setError(evt.message);
+      } else if (evt.type === 'truncated') {
+        setError(`Truncated: ${evt.reason}`);
+      }
+      return next;
+    });
+  }, []);
+
+  async function send(text) {
+    if (!text.trim() || busy || !conversationId) return;
+    setError(null);
+    setItems((p) => [...p, { kind: 'msg', role: 'user', text }]);
+    setBusy(true);
+    try {
+      await streamPost('/api/companion/chat', { conversationId, message: text }, handleEvent);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function decide(decision) {
+    if (!pendingConfirm) return;
+    setConfirmBusy(true);
+    try {
+      await streamPost('/api/companion/confirm', { conversationId, decision }, handleEvent);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setConfirmBusy(false);
+      setPendingConfirm(null);
+    }
+  }
+
+  const empty = items.length === 0 && !busy;
+  const userInitials = user?.avatarInitials || (user?.displayName || '?').slice(0, 2).toUpperCase();
+  const liveBadges = ['Staffbase'];
+  if (atlassianLinked) liveBadges.push('Atlassian');
+
+  return (
+    <>
+      <AppHeader user={user} connections={connections} onSignOut={onSignOut} />
+
+      <div style={{
+        flex: 1, overflowY: 'auto', position: 'relative', zIndex: 1,
+        WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain',
+        display: 'flex', flexDirection: 'column', padding: '12px 12px 0',
+      }}>
+        {empty ? (
+          <Hero
+            user={user}
+            atlassianLinked={atlassianLinked}
+            onPick={send}
+            onConnect={onNavigateConnections}
+          />
+        ) : (
+          <div className="cw-root" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, '--cw-primary': '#7C3AED', '--cw-primary-dark': '#6D28D9', '--cw-primary-light': '#EDE9FE' }}>
+            {items.map((item, i) => (
+              <Item
+                key={i}
+                item={item}
+                userInitials={userInitials}
+                onSuggestion={send}
+              />
+            ))}
+            {busy && (
+              <div className="cw-root" style={{ '--cw-primary': '#7C3AED' }}>
+                <TypingIndicator agentAvatar={<Sparkles size={14} color="white" />} />
+              </div>
+            )}
+            <div ref={endRef} />
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <div style={{ padding: '6px 14px', background: 'rgba(254,242,242,0.85)', backdropFilter: 'blur(8px)', borderTop: '1px solid #FECACA', color: '#B91C1C', fontSize: 11, position: 'relative', zIndex: 1 }}>
+          {error}
+        </div>
+      )}
+
+      <Composer onSubmit={send} disabled={busy || !conversationId} isMobile={isMobile} />
+
+      {pendingConfirm && (
+        <ConfirmWriteModal
+          toolCalls={pendingConfirm.toolCalls}
+          busy={confirmBusy}
+          onConfirm={() => decide('confirm')}
+          onCancel={() => decide('cancel')}
+        />
+      )}
+    </>
+  );
+}
+
+// ── AppHeader (purple gradient strip that flows up from the status bar) ──────
+
+function AppHeader({ user, connections, onSignOut }) {
+  const initials = user?.avatarInitials || (user?.displayName || '?').slice(0, 2).toUpperCase();
+  const firstName = (user?.displayName || '').split(' ')[0] || 'You';
+  const atlassianLinked = connections?.some((c) => c.provider === 'atlassian');
+  const subtitle = atlassianLinked
+    ? 'HR · IT · Intranet · Atlassian'
+    : 'HR · IT · Intranet';
+
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg, #7C3AED, #4F46E5)',
+      padding: '8px 18px 14px', flexShrink: 0,
+      position: 'relative', zIndex: 2,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid rgba(255,255,255,0.3)' }}>
+          <Zap size={18} color="white" />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ color: 'white', fontWeight: 700, fontSize: 16, lineHeight: 1.2, letterSpacing: '-0.3px' }}>Staffbase Companion</div>
+          <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11, fontWeight: 500 }}>{subtitle}</div>
+        </div>
+        {user && (
+          <button
+            onClick={onSignOut}
+            title="Sign out"
+            style={{
+              background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)',
+              borderRadius: 20, padding: '4px 10px',
+              color: 'rgba(255,255,255,0.95)', fontSize: 11, fontWeight: 600,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.25)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}
+          >
+            <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#7C3AED', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800 }}>
+              {initials}
+            </div>
+            {firstName}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Hero (empty state) ──────────────────────────────────────────────────────
+
+function Hero({ user, atlassianLinked, onPick, onConnect }) {
+  const firstName = (user?.displayName || '').split(' ')[0] || 'there';
+  const initials = user?.avatarInitials || (firstName).slice(0, 2).toUpperCase();
+  const role = user?.title || 'Staffbase teammate';
+  const location = user?.department || 'Staffbase';
+
+  const subtitle = atlassianLinked
+    ? 'I can pull live Staffbase intranet posts, check HR/IT info, and search your Confluence + Jira.'
+    : 'I can pull live Staffbase intranet posts and check HR/IT info. Link Atlassian to add Confluence + Jira.';
+
+  const chips = atlassianLinked ? FULL_SAMPLES : MOCKED_ONLY_SAMPLES;
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px 16px 12px' }}>
+      <div style={{
+        flex: 1, display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', textAlign: 'center', paddingBottom: 16,
+      }}>
+        {/* Avatar with glow */}
+        <div style={{ position: 'relative', marginBottom: 16 }}>
+          <div style={{ position: 'absolute', inset: -14, background: 'radial-gradient(circle, rgba(124,58,237,0.2) 0%, transparent 70%)', borderRadius: '50%' }} />
+          <div style={{
+            width: 58, height: 58, borderRadius: '50%',
+            background: '#7C3AED', color: 'white',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 20, fontWeight: 800, position: 'relative',
+            boxShadow: '0 6px 24px rgba(124,58,237,0.45)',
+          }}>
+            {initials}
+          </div>
+        </div>
+        <div style={{ fontSize: 18, fontWeight: 800, color: '#111827', letterSpacing: '-0.4px', lineHeight: 1.2 }}>
+          Hi, {firstName}
+        </div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#7C3AED', marginTop: 4, marginBottom: 3 }}>
+          {role}
+        </div>
+        <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <MapPin size={10} />
+          {location}
+        </div>
+        <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.55, maxWidth: 260 }}>
+          {subtitle}
+        </div>
+      </div>
+
+      {/* Featured action card(s) + round chips */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {atlassianLinked && (
+          <button
+            onClick={() => onPick("I want to submit my hackathon entry — let's take the quiz!")}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '11px 14px', borderRadius: 14,
+              background: 'rgba(245,158,11,0.10)', backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(245,158,11,0.35)',
+              cursor: 'pointer', transition: 'all 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(245,158,11,0.20)'; e.currentTarget.style.borderColor = 'rgba(245,158,11,0.5)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(245,158,11,0.10)'; e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)'; }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <div style={{ width: 26, height: 26, borderRadius: 7, background: '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Trophy size={12} color="white" />
+              </div>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: '#78350F' }}>Take the AI quiz & submit your entry</span>
+            </div>
+            <span style={{ fontSize: 9, fontWeight: 800, color: '#D97706', background: 'rgba(245,158,11,0.15)', padding: '2px 7px', borderRadius: 8, border: '1px solid rgba(245,158,11,0.3)', letterSpacing: '0.05em' }}>HACKATHON</span>
+          </button>
+        )}
+        {!atlassianLinked && (
+          <button
+            onClick={onConnect}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '11px 14px', borderRadius: 14,
+              background: 'rgba(0,82,204,0.10)', backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(0,82,204,0.35)',
+              cursor: 'pointer', transition: 'all 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0,82,204,0.18)'; e.currentTarget.style.borderColor = 'rgba(0,82,204,0.5)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(0,82,204,0.10)'; e.currentTarget.style.borderColor = 'rgba(0,82,204,0.35)'; }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <div style={{ width: 26, height: 26, borderRadius: 7, background: '#0052CC', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Building2 size={12} color="white" />
+              </div>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: '#003E99' }}>Connect Atlassian (needed for the hackathon)</span>
+            </div>
+            <span style={{ fontSize: 9, fontWeight: 800, color: '#0052CC', background: 'rgba(0,82,204,0.15)', padding: '2px 7px', borderRadius: 8, border: '1px solid rgba(0,82,204,0.3)', letterSpacing: '0.05em' }}>OAUTH</span>
+          </button>
+        )}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, justifyContent: 'center' }}>
+          {chips.map((label) => (
+            <button
+              key={label}
+              onClick={() => onPick(label)}
+              style={{
+                padding: '8px 13px', borderRadius: 20,
+                background: 'rgba(255,255,255,0.82)', backdropFilter: 'blur(10px)',
+                border: '1px solid rgba(255,255,255,0.7)',
+                color: '#111827', fontSize: 12, fontWeight: 500,
+                cursor: 'pointer', whiteSpace: 'nowrap',
+                boxShadow: '0 1px 5px rgba(0,0,0,0.07)',
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = '#7C3AED'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.82)'; e.currentTarget.style.color = '#111827'; }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Item renderer ───────────────────────────────────────────────────────────
+
+function Item({ item, userInitials, onSuggestion }) {
+  if (item.kind === 'trace') return <TraceCard intent={item.intent} connectors={item.connectors} />;
+  if (item.kind === 'tool') {
+    return <ToolCallCard name={item.name} args={item.args} result={item.result} status={item.status} connector={item.connector} />;
+  }
+  if (item.kind === 'connector_error') {
+    return (
+      <div style={{ margin: '8px 0', border: '1px solid #FECACA', background: '#FEF2F2', borderRadius: 8, padding: '8px 10px', fontSize: 12, color: '#B91C1C' }}>
+        Connector <span style={{ fontFamily: 'monospace' }}>{item.connector}</span> failed: {item.message}
+      </div>
+    );
+  }
+  if (item.role === 'user') {
+    return (
+      <div className="cw-msg-row cw-user">
+        <div className="cw-msg-avatar cw-user-avatar" style={{ background: 'linear-gradient(135deg, #18181B, #3F3F46)' }}>
+          <span>{userInitials}</span>
+        </div>
+        <div className="cw-msg-body">
+          <div className="cw-bubble cw-user">{item.text}</div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="cw-msg-row">
+      <div className="cw-msg-avatar" style={{ background: 'linear-gradient(135deg, #7C3AED, #6D28D9)', color: 'white' }}>
+        <span><Sparkles size={14} /></span>
+      </div>
+      <div className="cw-msg-body" style={{ maxWidth: '100%' }}>
+        <div className="cw-bubble cw-ai" style={{ fontSize: 13, lineHeight: 1.5 }}>
+          {item.text ? (
+            <ReactMarkdown components={markdownComponents}>{item.text}</ReactMarkdown>
+          ) : (item.streaming ? <span style={{ color: '#A1A1AA' }}>…</span> : null)}
+        </div>
+        {!item.streaming && item.suggestions?.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            {item.suggestions.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => onSuggestion(typeof s === 'string' ? s : s.label)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 100,
+                  background: 'rgba(255,255,255,0.82)',
+                  backdropFilter: 'blur(10px)',
+                  border: '1px solid rgba(255,255,255,0.7)',
+                  color: '#111827',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 1px 5px rgba(0,0,0,0.07)',
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = '#7C3AED'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.82)'; e.currentTarget.style.color = '#111827'; }}
+              >
+                {typeof s === 'string' ? s : s.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Composer (rounded glass pill + circular send + AI disclaimer) ──────────
+
+function Composer({ onSubmit, disabled, isMobile }) {
+  const [value, setValue] = useState('');
+  const ref = useRef(null);
+
+  function send() {
+    const v = value.trim();
+    if (!v || disabled) return;
+    onSubmit(v);
+    setValue('');
+    if (ref.current) ref.current.style.height = 'auto';
+  }
+  function onKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  }
+  function onInput(e) {
+    setValue(e.target.value);
+    const el = ref.current;
+    if (el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 80) + 'px'; }
+  }
+
+  const canSend = !!value.trim() && !disabled;
+
+  return (
+    <div style={{
+      flexShrink: 0, position: 'relative', zIndex: 1,
+      padding: '8px 12px 4px',
+    }}>
+      <div style={{
+        display: 'flex', gap: 8, alignItems: 'center',
+        background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(16px)',
+        borderRadius: 28, padding: '0 6px 0 18px',
+        border: '1px solid rgba(255,255,255,0.7)',
+        boxShadow: '0 2px 12px rgba(0,0,0,0.1)',
+        minHeight: 48,
+      }}>
+        <textarea
+          ref={ref}
+          value={value}
+          onChange={onInput}
+          onKeyDown={onKey}
+          placeholder="Ask Companion anything…"
+          disabled={disabled}
+          rows={1}
+          style={{
+            flex: 1, border: 'none', background: 'none', resize: 'none', outline: 'none',
+            fontSize: isMobile ? 16 : 14, color: '#111827', lineHeight: 1.5, fontFamily: 'inherit',
+            maxHeight: 80, padding: '13px 0', margin: 0, display: 'block',
+          }}
+        />
+        <button
+          onClick={send}
+          disabled={!canSend}
+          style={{
+            width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+            background: canSend ? '#7C3AED' : 'rgba(124,58,237,0.25)',
+            border: 'none', cursor: canSend ? 'pointer' : 'not-allowed',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
+            boxShadow: canSend ? '0 2px 8px rgba(124,58,237,0.5)' : 'none',
+          }}
+        >
+          {disabled
+            ? <Loader2 size={15} color="white" style={{ animation: 'spin 1s linear infinite' }} />
+            : <Send size={15} color="white" />}
+        </button>
+      </div>
+      <div style={{ textAlign: 'center', fontSize: 10, color: 'rgba(255,255,255,0.85)', marginTop: 5, marginBottom: 3, fontWeight: 500 }}>
+        Responses are AI generated. Check the answers.
+      </div>
+    </div>
+  );
+}
+
+const MOCKED_ONLY_SAMPLES = [
+  'Recent intranet posts',
+  "What's my PTO balance?",
+  'Posts about AI',
+  'Open IT tickets',
+];
+
+const FULL_SAMPLES = [
+  'Recent intranet posts',
+  'My Confluence spaces',
+  'High-priority Jira issues',
+  "PTO balance",
+  'Posts about AI',
+];

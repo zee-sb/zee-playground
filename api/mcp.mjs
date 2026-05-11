@@ -15,6 +15,7 @@ import { SUPPORTED_LANGS, normalizeLang, pick } from './data/languages.mjs';
 // ── Simulated data ────────────────────────────────────────────────────────────
 
 const EMPLOYEES = [
+  { id: 'zee', name: 'Zee Abuzeid', email: 'zyad.abuzeid@staffbase.com', role: 'employee', department: 'Product', title: 'Senior Product Manager', manager: 'carol@acme.com', ptoBalance: 17, location: 'Berlin', region: 'DE', startDate: '2024-02-12' },
   { id: 'alice', name: 'Alice Chen', email: 'alice@acme.com', role: 'hr_admin', department: 'HR', title: 'HR Manager', manager: null, ptoBalance: 18, location: 'San Francisco', region: 'US', startDate: '2019-03-15' },
   { id: 'bob', name: 'Bob Smith', email: 'bob@acme.com', role: 'employee', department: 'Engineering', title: 'Software Engineer', manager: 'carol@acme.com', ptoBalance: 12, location: 'New York', region: 'US', startDate: '2021-07-01' },
   { id: 'carol', name: 'Carol Davis', email: 'carol@acme.com', role: 'manager', department: 'Product', title: 'Product Manager', manager: 'eve@acme.com', ptoBalance: 15, location: 'Austin', region: 'US', startDate: '2020-01-20' },

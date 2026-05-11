@@ -4,7 +4,10 @@
   "devCommand": "vite --port $PORT",
   "framework": "vite",
   "functions": {
-    "api/a2a.mjs": { "maxDuration": 30 }
+    "api/a2a.mjs": { "maxDuration": 30 },
+    "api/companion/chat.mjs": { "maxDuration": 60 },
+    "api/companion/confirm.mjs": { "maxDuration": 60 },
+    "api/connections/atlassian/callback.mjs": { "maxDuration": 15 }
   },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },

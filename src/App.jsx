@@ -1,12 +1,13 @@
 import React from 'react'
 import { Routes, Route, useParams, useNavigate, Link } from 'react-router-dom'
-import { Sparkles, BarChart2, Plug, Bot, ClipboardList, MessageCircle } from 'lucide-react'
+import { Sparkles, BarChart2, Plug, Bot, ClipboardList, MessageCircle, Building2 } from 'lucide-react'
 import NavigatorStudio from './prototypes/Navigator/NavigatorStudio'
 import NavigatorOrchestratorStudio from './prototypes/NavigatorOrchestrator/NavigatorOrchestratorStudio'
 import NavigatorAnalyticsDashboard from './prototypes/NavigatorAnalytics/NavigatorAnalyticsDashboard'
 import MCPDemoStudio from './prototypes/MCPDemo/MCPDemoStudio'
 import A2ADemoStudio from './prototypes/A2ADemo/A2ADemoStudio'
 import FrontlineOpsStudio from './prototypes/FrontlineOps/FrontlineOpsStudio'
+import StaffbaseCompanion from './prototypes/StaffbaseCompanion'
 
 // ── Registry ──────────────────────────────────────────────────────────
 // Navigator is two linked prototypes sharing one localStorage config blob:
@@ -68,6 +69,15 @@ const PROTOTYPES = [
     status: "ready",
     icon: Bot,
     component: A2ADemoStudio
+  },
+  {
+    id: "staffbase-companion",
+    title: "Staffbase Companion — Real Atlassian MCP",
+    description: "Sign in with your real Atlassian account and chat with the assistant against your live Confluence + Jira via the official Atlassian Remote MCP server. Per-user OAuth, RBAC preserved, write actions gated by explicit confirmation.",
+    epic: "Internal",
+    status: "live",
+    icon: Building2,
+    component: StaffbaseCompanion
   }
 ];
 
