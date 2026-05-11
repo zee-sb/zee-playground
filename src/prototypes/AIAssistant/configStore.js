@@ -17,7 +17,34 @@
  */
 
 export const STORAGE_KEY = 'staffbase.navigator.config'
-export const CONFIG_VERSION = 2
+export const CONFIG_VERSION = 3
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tenant — the workspace this Navigator instance is configured for.
+// Roles and locations populate the Audience editor in Studio and gate
+// what each demo user sees in the Employee chat.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SEED_TENANT = {
+  name: 'Acme',
+  brandColor: '#7C3AED',
+  workspace: 'acme.staffbase.com',
+  locations: ['Downtown', 'Airport Terminal', 'Westfield Mall', 'HQ'],
+  roles: ['Branch Manager', 'Line Cook', 'Shift Supervisor', 'Cleaning Staff', 'Office Worker'],
+}
+
+const SEED_DEMO_USERS = [
+  { email: 'alice@acme.com', name: 'Alice Chen',  role: 'Branch Manager',    location: 'Downtown',        avatar: 'AC', color: '#7C3AED',
+    subtitle: 'I can pull up your shift checklist, check team attendance, and handle store management.' },
+  { email: 'bob@acme.com',   name: 'Bob Smith',   role: 'Line Cook',         location: 'Airport Terminal', avatar: 'BS', color: '#D97706',
+    subtitle: 'I can load your task list, look up food safety policies, and log equipment issues.' },
+  { email: 'carol@acme.com', name: 'Carol Davis', role: 'Shift Supervisor',  location: 'Downtown',        avatar: 'CD', color: '#2563EB',
+    subtitle: 'I can fetch your shift checklist, manage team assignments, and prepare handovers.' },
+  { email: 'dave@acme.com',  name: 'Dave Wilson', role: 'Cleaning Staff',    location: 'Westfield Mall',  avatar: 'DW', color: '#059669',
+    subtitle: 'I can load your task list, check cleaning protocols, and submit supply requests.' },
+  { email: 'erin@acme.com',  name: 'Erin Patel',  role: 'Office Worker',     location: 'HQ',              avatar: 'EP', color: '#0EA5E9',
+    subtitle: 'I can help with HR, IT, travel, expenses, and the company intranet from your desk at HQ.' },
+]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Catalogs — read-only menus the admin picks from when adding a connector / agent
@@ -128,6 +155,52 @@ export function toolsForCatalogId(catalogId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MCP fixtures — "what's inside" stats and a canned Test-connector response.
+// Purely cosmetic, keyed by catalogId. Lets Studio show admins a believable
+// snapshot of each connector ("256 employees · 47 policies") rather than a
+// bare endpoint URL. No network calls.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const MCP_FIXTURES = {
+  acme_hr: {
+    stats: [
+      { label: 'Employees',  value: '256' },
+      { label: 'Policies',   value: '47'  },
+      { label: 'Last sync',  value: '3m ago' },
+    ],
+    sample: {
+      tool: 'getPtoBalance',
+      query: '{ "employee": "alice@acme.com" }',
+      result: '{ "employee": "Alice Chen", "ptoBalance": 19, "used": 6, "accrual": 1.66 }',
+    },
+  },
+  acme_it: {
+    stats: [
+      { label: 'Open tickets',   value: '38'   },
+      { label: 'Resolved (Q)',   value: '1,243' },
+      { label: 'SLA',            value: '89%'  },
+    ],
+    sample: {
+      tool: 'listTickets',
+      query: '{ "user": "alice@acme.com" }',
+      result: '[ { "id": "INC-4821", "title": "Printer offline — Downtown", "priority": "medium", "status": "open" } ]',
+    },
+  },
+  acme_intranet: {
+    stats: [
+      { label: 'Articles',  value: '18'      },
+      { label: 'Categories', value: '6'       },
+      { label: 'Last post', value: '12h ago' },
+    ],
+    sample: {
+      tool: 'listRecent',
+      query: '{ "category": "leadership", "limit": 3 }',
+      result: '[ { "id": "art-q2-priorities", "title": "Q2 priorities — Sarah Chen, CEO", "category": "leadership", "publishedAt": "2 days ago" } ]',
+    },
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Seed — what a freshly-installed Navigator looks like
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -209,7 +282,7 @@ const SEED_ASSISTANTS = [
     mcpConnectorIds: ['hr_portal'],
     externalAgentIds: [],
     knowledgeBaseIds: ['kb-hr'],
-    targetGroups: ['All Employees'],
+    audience: { everyone: true, roles: [], locations: [] },
     status: 'active',
   },
   {
@@ -221,7 +294,7 @@ const SEED_ASSISTANTS = [
     mcpConnectorIds: ['it_helpdesk'],
     externalAgentIds: [],
     knowledgeBaseIds: ['kb-it'],
-    targetGroups: ['All Employees'],
+    audience: { everyone: true, roles: [], locations: [] },
     status: 'active',
   },
   {
@@ -233,7 +306,7 @@ const SEED_ASSISTANTS = [
     mcpConnectorIds: [],
     externalAgentIds: ['store_ops_agent'],
     knowledgeBaseIds: [],
-    targetGroups: ['All Employees'],
+    audience: { everyone: false, roles: ['Branch Manager', 'Line Cook', 'Shift Supervisor', 'Cleaning Staff'], locations: [] },
     status: 'active',
   },
   {
@@ -245,7 +318,7 @@ const SEED_ASSISTANTS = [
     mcpConnectorIds: [],
     externalAgentIds: [],
     knowledgeBaseIds: ['kb-onboard'],
-    targetGroups: ['New Joiners'],
+    audience: { everyone: false, roles: ['Office Worker'], locations: [] },
     status: 'active',
   },
   {
@@ -257,7 +330,7 @@ const SEED_ASSISTANTS = [
     mcpConnectorIds: [],
     externalAgentIds: [],
     knowledgeBaseIds: ['kb-travel'],
-    targetGroups: ['All Employees'],
+    audience: { everyone: true, roles: [], locations: [] },
     status: 'active',
   },
   {
@@ -269,7 +342,7 @@ const SEED_ASSISTANTS = [
     mcpConnectorIds: ['intranet'],
     externalAgentIds: [],
     knowledgeBaseIds: ['kb-intranet'],
-    targetGroups: ['All Employees'],
+    audience: { everyone: true, roles: [], locations: [] },
     status: 'active',
   },
 ]
@@ -277,6 +350,12 @@ const SEED_ASSISTANTS = [
 export function buildSeedConfig() {
   return {
     version: CONFIG_VERSION,
+    tenant: {
+      ...SEED_TENANT,
+      locations: [...SEED_TENANT.locations],
+      roles: [...SEED_TENANT.roles],
+    },
+    demoUsers: SEED_DEMO_USERS.map(u => ({ ...u })),
     mcpConnectors: SEED_MCP_CONNECTORS.map(c => ({ ...c, tools: c.tools.map(t => ({ ...t })) })),
     externalAgents: SEED_EXTERNAL_AGENTS.map(a => ({ ...a, capabilities: [...a.capabilities] })),
     assistants: SEED_ASSISTANTS.map(a => ({
@@ -284,9 +363,37 @@ export function buildSeedConfig() {
       mcpConnectorIds: [...a.mcpConnectorIds],
       externalAgentIds: [...a.externalAgentIds],
       knowledgeBaseIds: [...a.knowledgeBaseIds],
-      targetGroups: [...a.targetGroups],
+      audience: {
+        everyone: a.audience?.everyone ?? true,
+        roles: [...(a.audience?.roles || [])],
+        locations: [...(a.audience?.locations || [])],
+      },
     })),
     knowledgeBases: SEED_KNOWLEDGE_BASES.map(kb => ({ ...kb })),
+  }
+}
+
+// v2 → v3: drop `targetGroups`, add `audience` defaulting to {everyone:true},
+// and graft on `tenant` + `demoUsers` so the rest of the app can rely on them.
+// Anyone who customized assistants in v2 keeps their connector/agent/KB links;
+// they just need to re-pick audience explicitly to scope below "everyone".
+function migrateV2toV3(parsed) {
+  if (!parsed || parsed.version !== 2) return null
+  const seed = buildSeedConfig()
+  return {
+    version: CONFIG_VERSION,
+    tenant: parsed.tenant || seed.tenant,
+    demoUsers: parsed.demoUsers || seed.demoUsers,
+    mcpConnectors: parsed.mcpConnectors || seed.mcpConnectors,
+    externalAgents: parsed.externalAgents || seed.externalAgents,
+    knowledgeBases: parsed.knowledgeBases || seed.knowledgeBases,
+    assistants: (parsed.assistants || []).map(a => {
+      const { targetGroups, ...rest } = a
+      return {
+        ...rest,
+        audience: a.audience || { everyone: true, roles: [], locations: [] },
+      }
+    }),
   }
 }
 
@@ -304,8 +411,16 @@ export function loadConfig() {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    if (!parsed || parsed.version !== CONFIG_VERSION) return null
-    return parsed
+    if (!parsed) return null
+    if (parsed.version === CONFIG_VERSION) return parsed
+    if (parsed.version === 2) {
+      const migrated = migrateV2toV3(parsed)
+      if (migrated) {
+        saveConfig(migrated)
+        return migrated
+      }
+    }
+    return null
   } catch (err) {
     console.warn('[configStore] load failed, falling back to seed:', err)
     return null
@@ -367,7 +482,7 @@ export function findAssistantForExternalAgent(config, externalAgentId) {
  * link from every assistant → it disappears from the employee chat.
  */
 export function deriveLiveOrchestrator(config) {
-  if (!config) return { mcps: [], agents: [] }
+  if (!config) return { mcps: [], agents: [], assistants: [] }
   const activeAssistants = (config.assistants || []).filter(a => a.status === 'active')
   const referencedMcps = new Set(activeAssistants.flatMap(a => a.mcpConnectorIds || []))
   const referencedAgents = new Set(activeAssistants.flatMap(a => a.externalAgentIds || []))
@@ -378,5 +493,53 @@ export function deriveLiveOrchestrator(config) {
     agents: (config.externalAgents || []).filter(a =>
       a.status === 'connected' && referencedAgents.has(a.id)
     ),
+    assistants: activeAssistants,
+  }
+}
+
+/**
+ * Audience check — does this assistant reach this user?
+ * `everyone: true` short-circuits true. Otherwise the user matches if their
+ * role is in `roles` OR their location is in `locations`. Empty arrays in both
+ * fall back to true so an admin who flips "everyone" off without picking anything
+ * doesn't lock everyone out by mistake.
+ */
+export function assistantVisibleTo(assistant, user) {
+  if (!assistant) return false
+  const aud = assistant.audience || { everyone: true }
+  if (aud.everyone) return true
+  if (!user) return false
+  const roles = aud.roles || []
+  const locations = aud.locations || []
+  if (roles.length === 0 && locations.length === 0) return true
+  const matchRole = roles.length > 0 && user.role && roles.includes(user.role)
+  const matchLoc = locations.length > 0 && user.location && locations.includes(user.location)
+  return matchRole || matchLoc
+}
+
+/**
+ * Same as `deriveLiveOrchestrator`, but first filters active assistants down
+ * to those whose audience includes `user`. Used by the Employee chat to scope
+ * the live registry per logged-in user, and by Studio's "View as" preview.
+ *
+ * If `user` is null, behaves identically to `deriveLiveOrchestrator` (anonymous
+ * = see workspace-wide capability, useful for pre-login banners).
+ */
+export function deriveLiveOrchestratorFor(config, user) {
+  if (!config) return { mcps: [], agents: [], assistants: [] }
+  if (!user) return deriveLiveOrchestrator(config)
+  const visibleAssistants = (config.assistants || []).filter(
+    a => a.status === 'active' && assistantVisibleTo(a, user)
+  )
+  const referencedMcps = new Set(visibleAssistants.flatMap(a => a.mcpConnectorIds || []))
+  const referencedAgents = new Set(visibleAssistants.flatMap(a => a.externalAgentIds || []))
+  return {
+    mcps: (config.mcpConnectors || []).filter(c =>
+      c.status === 'connected' && referencedMcps.has(c.id)
+    ),
+    agents: (config.externalAgents || []).filter(a =>
+      a.status === 'connected' && referencedAgents.has(a.id)
+    ),
+    assistants: visibleAssistants,
   }
 }

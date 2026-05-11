@@ -1,8 +1,25 @@
 import React, { useState } from 'react'
-import { Plus, Trash2, Bot, ChevronRight } from 'lucide-react'
+import { Plus, Trash2, Bot, ChevronRight, ClipboardList, Camera, Thermometer, Hash, Check } from 'lucide-react'
 import { AGENT_CATALOG } from '../../AIAssistant/configStore'
 import { CatalogGrid, LogoChip, StatusPill } from '../components/Catalog'
 import { CatalogDrawer } from './MCPConnectorsList'
+
+// Per-role × phase checklist task counts. Mirrors the fixtures the Store Ops
+// A2A backend serves to the Employee chat — kept here as a static preview so
+// admins can see what's behind the agent before linking it to an assistant.
+const STORE_OPS_MATRIX = {
+  'Branch Manager':   { opening: { count: 7, types: ['checkbox', 'count', 'photo'] },     midshift: { count: 4, types: ['checkbox', 'photo'] },          closing: { count: 8, types: ['checkbox', 'count', 'photo'] } },
+  'Line Cook':        { opening: { count: 6, types: ['checkbox', 'temp_log', 'photo'] },  midshift: { count: 5, types: ['checkbox', 'temp_log'] },       closing: { count: 7, types: ['checkbox', 'temp_log', 'count'] } },
+  'Shift Supervisor': { opening: { count: 5, types: ['checkbox', 'count'] },               midshift: { count: 3, types: ['checkbox'] },                   closing: { count: 6, types: ['checkbox', 'count', 'photo'] } },
+  'Cleaning Staff':   { opening: { count: 4, types: ['checkbox', 'photo'] },               midshift: { count: 3, types: ['checkbox'] },                   closing: { count: 5, types: ['checkbox', 'photo'] } },
+}
+
+const TASK_TYPE_META = {
+  checkbox: { Icon: Check,        color: '#10B981', label: 'check'  },
+  photo:    { Icon: Camera,       color: '#7C3AED', label: 'photo'  },
+  temp_log: { Icon: Thermometer,  color: '#DC2626', label: 'temp'   },
+  count:    { Icon: Hash,         color: '#F59E0B', label: 'count'  },
+}
 
 /**
  * External Agents page — full conversational agents Navigator can route to.
@@ -174,29 +191,88 @@ export default function ExternalAgentsList({ externalAgents = [], assistants = [
 }
 
 function AgentDetail({ agent }) {
+  const showStoreOpsMatrix = agent.id === 'store_ops_agent' || agent.protocol === 'a2a'
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
-        <div className="text-[11px] font-bold text-[#6B7280] uppercase tracking-widest mb-2">Description</div>
-        <p className="text-[12px] text-[#475569] leading-relaxed">{agent.description}</p>
-      </div>
-      <div>
-        <div className="text-[11px] font-bold text-[#6B7280] uppercase tracking-widest mb-2">Connection</div>
-        <div className="space-y-1 text-[12px]">
-          <div className="flex gap-2">
-            <span className="text-[#94A3B8] w-16 shrink-0">Endpoint</span>
-            <span className="font-mono text-[#475569] truncate">{agent.endpoint}</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-[#94A3B8] w-16 shrink-0">Auth</span>
-            <span className="text-[#475569]">{agent.authMethod}</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-[#94A3B8] w-16 shrink-0">Added</span>
-            <span className="text-[#475569]">{agent.addedAt}</span>
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <div className="text-[11px] font-bold text-[#6B7280] uppercase tracking-widest mb-2">Description</div>
+          <p className="text-[12px] text-[#475569] leading-relaxed">{agent.description}</p>
+        </div>
+        <div>
+          <div className="text-[11px] font-bold text-[#6B7280] uppercase tracking-widest mb-2">Connection</div>
+          <div className="space-y-1 text-[12px]">
+            <div className="flex gap-2">
+              <span className="text-[#94A3B8] w-16 shrink-0">Endpoint</span>
+              <span className="font-mono text-[#475569] truncate">{agent.endpoint}</span>
+            </div>
+            <div className="flex gap-2">
+              <span className="text-[#94A3B8] w-16 shrink-0">Auth</span>
+              <span className="text-[#475569]">{agent.authMethod}</span>
+            </div>
+            <div className="flex gap-2">
+              <span className="text-[#94A3B8] w-16 shrink-0">Added</span>
+              <span className="text-[#475569]">{agent.addedAt}</span>
+            </div>
           </div>
         </div>
       </div>
+
+      {showStoreOpsMatrix && agent.id === 'store_ops_agent' && (
+        <div className="bg-white rounded-lg border border-[#E5E7EB] p-3">
+          <div className="flex items-center gap-2 mb-3">
+            <ClipboardList size={13} className="text-[#F59E0B]" />
+            <div className="text-[11px] font-bold text-[#6B7280] uppercase tracking-widest">Shift checklist matrix</div>
+            <span className="text-[10px] text-[#94A3B8]">— read-only preview of what employees see per role × phase</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="text-left">
+                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">Role</th>
+                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">Opening</th>
+                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">Mid-shift</th>
+                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">Closing</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(STORE_OPS_MATRIX).map(([role, phases]) => (
+                  <tr key={role} className="border-t border-[#F1F5F9]">
+                    <td className="px-2 py-2 font-semibold text-[#111827]">{role}</td>
+                    {['opening', 'midshift', 'closing'].map(phase => (
+                      <td key={phase} className="px-2 py-2">
+                        <PhaseCell data={phases[phase]} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PhaseCell({ data }) {
+  if (!data) return <span className="text-[#94A3B8]">—</span>
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[13px] font-bold text-[#111827]">{data.count}</span>
+      <span className="text-[10px] text-[#6B7280]">tasks</span>
+      <span className="flex items-center gap-0.5">
+        {data.types.map(t => {
+          const meta = TASK_TYPE_META[t]
+          if (!meta) return null
+          const Icon = meta.Icon
+          return (
+            <span key={t} title={meta.label} className="inline-flex items-center justify-center w-5 h-5 rounded" style={{ background: `${meta.color}1A`, color: meta.color }}>
+              <Icon size={10} />
+            </span>
+          )
+        })}
+      </span>
     </div>
   )
 }

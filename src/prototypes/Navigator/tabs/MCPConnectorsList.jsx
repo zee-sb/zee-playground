@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { Plus, Trash2, X, Wrench, ChevronRight } from 'lucide-react'
-import { MCP_CATALOG, toolsForCatalogId } from '../../AIAssistant/configStore'
+import { Plus, Trash2, X, Wrench, ChevronRight, Play, CheckCircle2 } from 'lucide-react'
+import { MCP_CATALOG, toolsForCatalogId, MCP_FIXTURES } from '../../AIAssistant/configStore'
 import { CatalogGrid, LogoChip, StatusPill } from '../components/Catalog'
 
 /**
@@ -174,22 +174,89 @@ export default function MCPConnectorsList({ mcpConnectors = [], assistants = [],
 }
 
 function ToolDetail({ connector }) {
-  if (!connector.tools || connector.tools.length === 0) {
-    return <p className="text-[12px] text-[#94A3B8]">No tools declared. Configure the server endpoint.</p>
-  }
+  const fixture = MCP_FIXTURES[connector.catalogId]
+  const [showTest, setShowTest] = useState(false)
+
   return (
-    <div>
-      <div className="text-[11px] font-bold text-[#6B7280] uppercase tracking-widest mb-2">Tools exposed</div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
-        {connector.tools.map(t => (
-          <div key={t.id} className="flex items-start gap-2 px-3 py-2 bg-white rounded border border-[#E5E7EB]">
-            <Wrench size={12} className="text-[#3B82F6] mt-0.5 shrink-0" />
-            <div className="min-w-0">
-              <div className="text-[12px] font-mono font-semibold text-[#111827]">{t.name}</div>
-              <div className="text-[11px] text-[#6B7280] mt-0.5">{t.description}</div>
-            </div>
+    <div className="space-y-4">
+      {fixture && (
+        <div className="bg-white rounded-lg border border-[#E5E7EB] p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[11px] font-bold text-[#6B7280] uppercase tracking-widest">What's inside</div>
+            <button
+              onClick={() => setShowTest(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-[#7C3AED] hover:bg-[#F5F3FF] rounded-md transition-colors"
+            >
+              <Play size={11} />
+              Test connector
+            </button>
           </div>
-        ))}
+          <div className="grid grid-cols-3 gap-2">
+            {fixture.stats.map(s => (
+              <div key={s.label} className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-md px-3 py-2">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">{s.label}</div>
+                <div className="text-[15px] font-bold text-[#111827] mt-0.5">{s.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(!connector.tools || connector.tools.length === 0) ? (
+        <p className="text-[12px] text-[#94A3B8]">No tools declared. Configure the server endpoint.</p>
+      ) : (
+        <div>
+          <div className="text-[11px] font-bold text-[#6B7280] uppercase tracking-widest mb-2">Tools exposed</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+            {connector.tools.map(t => (
+              <div key={t.id} className="flex items-start gap-2 px-3 py-2 bg-white rounded border border-[#E5E7EB]">
+                <Wrench size={12} className="text-[#3B82F6] mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-[12px] font-mono font-semibold text-[#111827]">{t.name}</div>
+                  <div className="text-[11px] text-[#6B7280] mt-0.5">{t.description}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showTest && fixture && (
+        <TestConnectorModal connector={connector} fixture={fixture} onClose={() => setShowTest(false)} />
+      )}
+    </div>
+  )
+}
+
+function TestConnectorModal({ connector, fixture, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40" />
+      <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-[520px] mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-[#E5E7EB] flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={16} className="text-[#10B981]" />
+            <h3 className="text-[14px] font-bold text-[#111827]">{connector.name} · Test response</h3>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-[#F3F4F6] rounded">
+            <X size={16} className="text-[#6B7280]" />
+          </button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8] mb-1">Tool</div>
+            <code className="text-[12px] font-mono bg-[#F3F4F6] px-2 py-1 rounded text-[#111827]">{fixture.sample.tool}</code>
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8] mb-1">Arguments</div>
+            <pre className="text-[11px] font-mono bg-[#F9FAFB] border border-[#E5E7EB] rounded p-2 overflow-x-auto text-[#111827]">{fixture.sample.query}</pre>
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8] mb-1">Response</div>
+            <pre className="text-[11px] font-mono bg-[#F0FDF4] border border-[#BBF7D0] rounded p-2 overflow-x-auto text-[#065F46]">{fixture.sample.result}</pre>
+          </div>
+          <div className="text-[10px] text-[#94A3B8] italic">Canned response — does not hit the live endpoint.</div>
+        </div>
       </div>
     </div>
   )

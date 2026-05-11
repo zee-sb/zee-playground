@@ -12,6 +12,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["serve", "dist", "-s", "-p", "3457", "--no-clipboard"],
       "port": 3457
+    },
+    {
+      "name": "zee-vite",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3456
     }
   ]
 }

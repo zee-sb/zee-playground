@@ -1,13 +1,12 @@
 import React, { useState } from 'react'
-import { ArrowLeft, Save, Trash2, Wrench, Bot, BookOpen, Users, Check } from 'lucide-react'
-import { MCP_CATALOG, AGENT_CATALOG } from '../../AIAssistant/configStore'
+import { ArrowLeft, Save, Trash2, Wrench, Bot, BookOpen, Users, Check, MapPin, ShieldCheck, Globe } from 'lucide-react'
+import { MCP_CATALOG, AGENT_CATALOG, assistantVisibleTo } from '../../AIAssistant/configStore'
 import { LogoChip, StatusPill } from '../components/Catalog'
-
-const ALL_GROUPS = ['All Employees', 'Managers', 'HR Team', 'IT Team', 'Finance Team', 'Legal Team', 'Support Team', 'New Joiners', 'Executives']
 
 /**
  * Assistant detail editor — name, description, instructions, sub-agent linking,
- * knowledge bases, targeting. Sub-agent linking is the headline feature here.
+ * knowledge bases, audience. Audience is what the Employee chat actually
+ * respects: roles + locations drawn from `tenant`, scoped against demoUsers.
  */
 export default function AssistantDetail({
   assistant,
@@ -15,6 +14,8 @@ export default function AssistantDetail({
   mcpConnectors = [],
   externalAgents = [],
   knowledgeBases = [],
+  tenant = { roles: [], locations: [] },
+  demoUsers = [],
   onBack,
   onSave,
   onDelete,
@@ -26,12 +27,25 @@ export default function AssistantDetail({
   const [mcpConnectorIds, setMcpConnectorIds] = useState(assistant.mcpConnectorIds || [])
   const [externalAgentIds, setExternalAgentIds] = useState(assistant.externalAgentIds || [])
   const [knowledgeBaseIds, setKnowledgeBaseIds] = useState(assistant.knowledgeBaseIds || [])
-  const [targetGroups, setTargetGroups] = useState(assistant.targetGroups || ['All Employees'])
+  const [audience, setAudience] = useState(assistant.audience || { everyone: true, roles: [], locations: [] })
   const [status, setStatus] = useState(assistant.status || 'active')
 
   function toggle(arr, id) {
     return arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id]
   }
+
+  function setEveryone(everyone) {
+    setAudience(prev => ({ ...prev, everyone }))
+  }
+  function toggleRole(r) {
+    setAudience(prev => ({ ...prev, roles: toggle(prev.roles || [], r) }))
+  }
+  function toggleLocation(l) {
+    setAudience(prev => ({ ...prev, locations: toggle(prev.locations || [], l) }))
+  }
+
+  // Live preview — how many demo users would actually see this assistant?
+  const visibleUsers = demoUsers.filter(u => assistantVisibleTo({ audience }, u))
 
   function handleSave() {
     onSave({
@@ -43,7 +57,11 @@ export default function AssistantDetail({
       mcpConnectorIds,
       externalAgentIds,
       knowledgeBaseIds,
-      targetGroups,
+      audience: {
+        everyone: !!audience.everyone,
+        roles: audience.roles || [],
+        locations: audience.locations || [],
+      },
       status,
     })
   }
@@ -217,25 +235,94 @@ export default function AssistantDetail({
           </Section>
 
           <Section
-            title="Targeting"
+            title="Audience"
             icon={<Users size={14} className="text-[#3B82F6]" />}
-            description="Who can use this assistant."
+            description="Who can use this assistant. Excluded users won't see it in their chat."
           >
-            <div className="flex flex-wrap gap-1.5">
-              {ALL_GROUPS.map(g => {
-                const selected = targetGroups.includes(g)
-                return (
-                  <button
-                    key={g}
-                    onClick={() => setTargetGroups(prev => toggle(prev, g))}
-                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
-                      selected ? 'bg-[#111827] text-white' : 'bg-white border border-[#E5E7EB] text-[#475569] hover:border-[#CBD5E1]'
-                    }`}
-                  >
-                    {g}
-                  </button>
-                )
-              })}
+            {/* Everyone toggle */}
+            <div className="flex gap-2 mb-3">
+              <button
+                onClick={() => setEveryone(true)}
+                className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-semibold transition-colors ${
+                  audience.everyone
+                    ? 'bg-[#111827] text-white'
+                    : 'bg-white border border-[#E5E7EB] text-[#475569] hover:bg-[#F9FAFB]'
+                }`}
+              >
+                <Globe size={13} />
+                Everyone in workspace
+              </button>
+              <button
+                onClick={() => setEveryone(false)}
+                className={`flex-1 px-3 py-2 rounded-lg text-[12px] font-semibold transition-colors ${
+                  !audience.everyone
+                    ? 'bg-[#111827] text-white'
+                    : 'bg-white border border-[#E5E7EB] text-[#475569] hover:bg-[#F9FAFB]'
+                }`}
+              >
+                Specific audience
+              </button>
+            </div>
+
+            {/* Role + location checklists, dimmed when "everyone" is on */}
+            <div className={audience.everyone ? 'opacity-40 pointer-events-none' : ''}>
+              <div className="mb-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wide mb-1.5">
+                  <ShieldCheck size={11} className="text-[#7B5CE3]" />
+                  Roles
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(tenant.roles || []).map(r => {
+                    const selected = (audience.roles || []).includes(r)
+                    return (
+                      <button
+                        key={r}
+                        onClick={() => toggleRole(r)}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
+                          selected ? 'bg-[#7C3AED] text-white' : 'bg-white border border-[#E5E7EB] text-[#475569] hover:border-[#CBD5E1]'
+                        }`}
+                      >
+                        {r}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wide mb-1.5">
+                  <MapPin size={11} className="text-[#2563EB]" />
+                  Locations
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(tenant.locations || []).map(l => {
+                    const selected = (audience.locations || []).includes(l)
+                    return (
+                      <button
+                        key={l}
+                        onClick={() => toggleLocation(l)}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
+                          selected ? 'bg-[#2563EB] text-white' : 'bg-white border border-[#E5E7EB] text-[#475569] hover:border-[#CBD5E1]'
+                        }`}
+                      >
+                        {l}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Visibility footer — concrete count of demo users reached */}
+            <div className="mt-3 pt-3 border-t border-[#F1F5F9] text-[11px] text-[#475569]">
+              <div className="font-semibold text-[#111827]">
+                Visible to {visibleUsers.length} of {demoUsers.length} demo users
+              </div>
+              <div className="text-[#6B7280] mt-0.5 truncate">
+                {visibleUsers.length === 0
+                  ? 'No one will see this assistant.'
+                  : visibleUsers.map(u => u.name.split(' ')[0]).join(', ')}
+              </div>
             </div>
           </Section>
         </div>

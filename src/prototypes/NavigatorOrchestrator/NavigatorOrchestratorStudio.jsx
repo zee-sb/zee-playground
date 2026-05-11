@@ -10,7 +10,8 @@ import {
 } from 'lucide-react';
 import { STRINGS, SUPPORTED_LANGS, LANG_META, t as tBase, loadLang, saveLang } from './i18n';
 import { useConfigStore } from '../AIAssistant/useConfigStore';
-import { deriveLiveOrchestrator } from '../AIAssistant/configStore';
+import { deriveLiveOrchestrator, deriveLiveOrchestratorFor } from '../AIAssistant/configStore';
+import { pickRoleChips, SHIFT_CHIPS, COMMON_CHIPS, ROLE_FOLLOWUPS, INITIAL_CHIPS, shiftPhaseFor } from './chipRules';
 
 // ── Language context ─────────────────────────────────────────────────────────
 const LangContext = createContext('en');
@@ -114,16 +115,6 @@ const INITIAL_SUGGESTIONS = [
   "Request access to GitHub",
 ];
 
-const INITIAL_CHIPS = [
-  { label: "PTO balance",        full: "What's my PTO balance?" },
-  { label: "Open IT tickets",    full: "Do I have open IT tickets?" },
-  { label: "Benefits & perks",   full: "What are the company benefits?" },
-  { label: "Remote work policy", full: "What's the remote work policy?" },
-  { label: "Request GitHub",     full: "Request access to GitHub" },
-  { label: "Who's my manager?",  full: "Who is my manager?" },
-  { label: "My opening tasks",   full: "What are my opening tasks for today?" },
-];
-
 // Suggestion chips that should open a form instead of sending as text
 const FORM_TRIGGER_PHRASES = [
   "submit a time off request",
@@ -141,91 +132,6 @@ const TICKET_FORM_TRIGGER_PHRASES = [
   "log a ticket",
   "report an issue",
 ];
-
-const DEMO_USERS = [
-  { email: 'alice@acme.com', name: 'Alice Chen',  storeRole: 'Branch Manager',   location: 'Acme Store — Downtown',        avatar: 'AC', color: '#7C3AED' },
-  { email: 'bob@acme.com',   name: 'Bob Smith',   storeRole: 'Line Cook',         location: 'Acme Store — Airport Terminal', avatar: 'BS', color: '#D97706' },
-  { email: 'carol@acme.com', name: 'Carol Davis', storeRole: 'Shift Supervisor',  location: 'Acme Store — Downtown',        avatar: 'CD', color: '#2563EB' },
-  { email: 'dave@acme.com',  name: 'Dave Wilson', storeRole: 'Cleaning Staff',    location: 'Acme Store — Westfield Mall',  avatar: 'DW', color: '#059669' },
-];
-
-const ROLE_SUBTITLES = {
-  'Branch Manager':  'I can pull up your shift checklist, check team attendance, and handle store management.',
-  'Line Cook':       'I can load your task list, look up food safety policies, and log equipment issues.',
-  'Shift Supervisor':'I can fetch your shift checklist, manage team assignments, and prepare handovers.',
-  'Cleaning Staff':  'I can load your task list, check cleaning protocols, and submit supply requests.',
-};
-
-// ── Chip catalogue (no role/time logic — that lives in pickRoleChips) ────────
-// `requires` lists the server ids needed for the chip to be useful. Chips with
-// missing capabilities are filtered out before rendering. `kind: 'shift'` is
-// the leading A2A chip; phase swaps based on time of day.
-
-const SHIFT_CHIPS = {
-  opening:  { label: 'My opening tasks',  full: 'What are my opening tasks for today?',  requires: ['store_ops_agent'], kind: 'shift' },
-  midshift: { label: 'Mid-shift tasks',   full: "What's on my mid-shift list?",           requires: ['store_ops_agent'], kind: 'shift' },
-  closing:  { label: 'My closing tasks',  full: 'What are my closing tasks for tonight?', requires: ['store_ops_agent'], kind: 'shift' },
-};
-
-const COMMON_CHIPS = {
-  pto_balance:        { label: 'PTO balance',         full: "What's my PTO balance?",                            requires: ['hr_portal'] },
-  open_tickets:       { label: 'Open IT tickets',     full: 'Do I have any open IT tickets?',                    requires: ['it_helpdesk'] },
-  food_safety:        { label: 'Food safety policy',  full: "What's the food safety policy?",                    requires: ['hr_portal'] },
-  team_attendance:    { label: 'Team attendance',     full: 'Who is on shift today and who is absent?',          requires: ['hr_portal'] },
-  team_org:           { label: 'Team org chart',      full: 'Show me the team org chart',                        requires: ['hr_portal'] },
-  request_access:     { label: 'Request access',      full: 'Request access to the reporting dashboard',         requires: ['it_helpdesk'] },
-  supply_request:     { label: 'Supply request',      full: 'I need to submit a cleaning supplies request',      requires: ['it_helpdesk'] },
-  safety_policy:      { label: 'Safety policy',       full: "What's the workplace health and safety policy?",    requires: ['hr_portal'] },
-  report_equipment:   { label: 'Report equipment',    full: 'I need to report a fryer equipment issue',          requires: ['it_helpdesk'] },
-  // Intranet chips — vary the message per day of week so it doesn't feel canned.
-  latest_leadership:  { label: 'Latest leadership',   full: 'Show me the latest leadership post',                requires: ['intranet'] },
-  q2_priorities:      { label: 'Q2 priorities',       full: 'What are the Q2 priorities from the CEO?',          requires: ['intranet'] },
-  whats_new:          { label: "What's new",          full: "What's new on the company intranet this week?",      requires: ['intranet'] },
-  team_wiki:          { label: 'My team wiki',        full: 'Open my team wiki',                                  requires: ['intranet'] },
-};
-
-const ROLE_FOLLOWUPS = {
-  'Branch Manager':   ['team_attendance', 'pto_balance', 'open_tickets',      'whats_new'],
-  'Line Cook':        ['food_safety',     'report_equipment', 'pto_balance',  'latest_leadership'],
-  'Shift Supervisor': ['team_org',        'request_access',   'pto_balance',  'whats_new'],
-  'Cleaning Staff':   ['safety_policy',   'supply_request',   'pto_balance',  'latest_leadership'],
-};
-
-function shiftPhaseFor(now = new Date()) {
-  const h = now.getHours();
-  if (h >= 18 || h < 5) return 'closing';
-  if (h >= 12) return 'midshift';
-  return 'opening';
-}
-
-// Build the chips for the empty-state launchpad. Combines:
-// - role (which followups make sense)
-// - time of day (which shift phase chip leads)
-// - available capabilities (drop chips routing to nothing)
-// - day of week (swap one chip on Mon/Tue mornings)
-function pickRoleChips({ role, capabilities, now }) {
-  const phase = shiftPhaseFor(now);
-  const day = now.getDay();           // 0 Sun … 6 Sat
-  const hour = now.getHours();
-  const has = (id) => !id || capabilities.has(id);
-  const canUse = (chip) => (chip.requires || []).every(has);
-
-  const out = [];
-  // 1) leading shift chip — only if Store Ops is connected.
-  const shiftChip = SHIFT_CHIPS[phase];
-  if (canUse(shiftChip)) out.push(shiftChip);
-
-  // 2) role-specific followups, capability-filtered, deduped.
-  const ids = ROLE_FOLLOWUPS[role] || ROLE_FOLLOWUPS['Branch Manager'];
-  // Monday/Tuesday morning bias toward leadership news.
-  const biased = (day === 1 || day === 2) && hour < 12 ? ['latest_leadership', ...ids] : ids;
-  for (const id of biased) {
-    const chip = COMMON_CHIPS[id];
-    if (chip && canUse(chip) && !out.includes(chip)) out.push(chip);
-    if (out.length >= 4) break;
-  }
-  return out;
-}
 
 // Translated display labels for ROLE_CHIPS (full message stays English for reliable intent classification)
 const CHIP_LABEL_I18N = {
@@ -1699,9 +1605,9 @@ function LanguagePicker({ lang, onChange, variant = 'dark' }) {
   );
 }
 
-function AppHeader({ user, onLogout, onClear, hasMessages, lang, onLangChange }) {
+function AppHeader({ user, onLogout, onClear, hasMessages, lang, onLangChange, demoUsers = [] }) {
   const t = useT();
-  const userDemo = DEMO_USERS.find(u => u.email === user?.email) ?? DEMO_USERS[0];
+  const userDemo = demoUsers.find(u => u.email === user?.email) ?? demoUsers[0] ?? { color: '#7C3AED', avatar: '?' };
   return (
     <div style={{ background: 'linear-gradient(135deg, #7C3AED, #4F46E5)', padding: '8px 18px 14px', flexShrink: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1726,7 +1632,7 @@ function AppHeader({ user, onLogout, onClear, hasMessages, lang, onLangChange })
         )}
         <LanguagePicker lang={lang} onChange={onLangChange} />
         <button onClick={onLogout} style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 20, padding: '4px 10px', color: 'rgba(255,255,255,0.9)', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-          <div style={{ width: 18, height: 18, borderRadius: '50%', background: userDemo.color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800 }}>{userDemo.avatar}</div>
+          <div style={{ width: 18, height: 18, borderRadius: '50%', background: userDemoSafe.color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800 }}>{userDemoSafe.avatar}</div>
           {user?.name?.split(' ')[0]}
         </button>
       </div>
@@ -1736,7 +1642,7 @@ function AppHeader({ user, onLogout, onClear, hasMessages, lang, onLangChange })
 
 // ── Login screen ──────────────────────────────────────────────────────────────
 
-function LoginScreen({ onConnect, lang, onLangChange, registry = DEFAULT_REGISTRY, a2aAgents = DEFAULT_A2A_AGENTS }) {
+function LoginScreen({ onConnect, lang, onLangChange, registry = DEFAULT_REGISTRY, a2aAgents = DEFAULT_A2A_AGENTS, demoUsers = [] }) {
   const t = useT();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1861,7 +1767,7 @@ function LoginScreen({ onConnect, lang, onLangChange, registry = DEFAULT_REGISTR
         {/* User picker */}
         <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>{t('signInAs')}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {DEMO_USERS.map(u => (
+          {demoUsers.map(u => (
             <button key={u.email} onClick={() => connect(u.email)} disabled={loading}
               style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1, transition: 'all 0.15s', textAlign: 'left', width: '100%' }}
               onMouseEnter={e => { if (!loading) { e.currentTarget.style.background = `${u.color}22`; e.currentTarget.style.borderColor = `${u.color}55`; }}}
@@ -1870,7 +1776,7 @@ function LoginScreen({ onConnect, lang, onLangChange, registry = DEFAULT_REGISTR
               <div style={{ width: 38, height: 38, borderRadius: '50%', background: u.color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{u.avatar}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'white' }}>{u.name}</div>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>{u.storeRole}</div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>{u.role}</div>
                 <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.location}</div>
               </div>
             </button>
@@ -1958,16 +1864,26 @@ export default function NavigatorOrchestratorStudio() {
   // it's connected AND at least one active assistant references it. Same for A2A.
   // The defaults are the union of "what the backend can serve"; filtering yields
   // "what THIS admin actually wired up".
+  //
+  // Post-login the derivation is also scoped to the user's audience — assistants
+  // whose `audience` excludes the logged-in user disappear, and any MCP/agent
+  // that was only referenced by those assistants disappears with them. Pre-login
+  // we use the workspace-wide view so the login screen can advertise full
+  // capability ("here's what Acme has wired up").
   const { config } = useConfigStore();
+  const demoUsers = config.demoUsers || [];
+  const userDemo = user ? (demoUsers.find(u => u.email === user.email) ?? null) : null;
   const { liveRegistry, liveA2AAgents } = useMemo(() => {
-    const live = deriveLiveOrchestrator(config);
+    const live = user
+      ? deriveLiveOrchestratorFor(config, userDemo)
+      : deriveLiveOrchestrator(config);
     const liveMcpIds = new Set(live.mcps.map(m => m.id));
     const liveAgentIds = new Set(live.agents.map(a => a.id));
     return {
       liveRegistry: DEFAULT_REGISTRY.filter(s => liveMcpIds.has(s.id)),
       liveA2AAgents: DEFAULT_A2A_AGENTS.filter(s => liveAgentIds.has(s.id)),
     };
-  }, [config]);
+  }, [config, user, userDemo]);
 
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -2179,11 +2095,13 @@ export default function NavigatorOrchestratorStudio() {
         onLangChange={setLang}
         registry={liveRegistry}
         a2aAgents={liveA2AAgents}
+        demoUsers={demoUsers}
       />
     </LangContext.Provider>
   );
 
-  const userDemo = DEMO_USERS.find(u => u.email === user.email) ?? DEMO_USERS[0];
+  // Fallback for users not in the config roster (e.g. signed in via custom email).
+  const userDemoSafe = userDemo ?? { color: '#7C3AED', avatar: (user.name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0,2), role: user.storeRole || '', location: '', subtitle: '' };
   const tt = (key) => tBase(lang, key);
 
   // The chat shell — header, messages, input, sources sheet — is shared
@@ -2191,7 +2109,7 @@ export default function NavigatorOrchestratorStudio() {
   // it once into `chatBody` and place it inside the appropriate wrapper below.
   const chatBody = (
     <>
-      <AppHeader user={user} onLogout={logout} onClear={resetSession} hasMessages={messages.length > 0} lang={lang} onLangChange={setLang} />
+      <AppHeader user={user} onLogout={logout} onClear={resetSession} hasMessages={messages.length > 0} lang={lang} onLangChange={setLang} demoUsers={demoUsers} />
 
       <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', background: 'transparent', position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', padding: '12px 12px 0' }}>
         {/* Empty state */}
@@ -2201,24 +2119,24 @@ export default function NavigatorOrchestratorStudio() {
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', paddingBottom: 16 }}>
               {/* Avatar with glow */}
               <div style={{ position: 'relative', marginBottom: 16 }}>
-                <div style={{ position: 'absolute', inset: -14, background: `radial-gradient(circle, ${userDemo.color}33 0%, transparent 70%)`, borderRadius: '50%' }} />
-                <div style={{ width: 58, height: 58, borderRadius: '50%', background: userDemo.color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 800, position: 'relative', boxShadow: `0 6px 24px ${userDemo.color}55` }}>
-                  {userDemo.avatar}
+                <div style={{ position: 'absolute', inset: -14, background: `radial-gradient(circle, ${userDemoSafe.color}33 0%, transparent 70%)`, borderRadius: '50%' }} />
+                <div style={{ width: 58, height: 58, borderRadius: '50%', background: userDemoSafe.color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 800, position: 'relative', boxShadow: `0 6px 24px ${userDemoSafe.color}55` }}>
+                  {userDemoSafe.avatar}
                 </div>
               </div>
               {/* Name + role + location */}
               <div style={{ fontSize: 18, fontWeight: 800, color: '#111827', letterSpacing: '-0.4px', lineHeight: 1.2 }}>
                 Hi, {user.name.split(' ')[0]}
               </div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: userDemo.color, marginTop: 4, marginBottom: 3 }}>
-                {userDemo.storeRole}
+              <div style={{ fontSize: 12, fontWeight: 600, color: userDemoSafe.color, marginTop: 4, marginBottom: 3 }}>
+                {userDemoSafe.role}
               </div>
               <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <MapPin size={10} />
-                {userDemo.location}
+                {userDemoSafe.location}
               </div>
               <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.55, maxWidth: 250 }}>
-                {ROLE_SUBTITLES[userDemo.storeRole] || tt('appSubtitle')}
+                {userDemoSafe.subtitle || tt('appSubtitle')}
               </div>
             </div>
 
@@ -2230,7 +2148,7 @@ export default function NavigatorOrchestratorStudio() {
                   ...liveA2AAgents.map(s => s.id),
                 ]);
                 const chips = pickRoleChips({
-                  role: userDemo.storeRole,
+                  role: userDemoSafe.role,
                   capabilities: capabilityIds,
                   now: new Date(),
                 });
@@ -2274,7 +2192,7 @@ export default function NavigatorOrchestratorStudio() {
                             boxShadow: '0 1px 5px rgba(0,0,0,0.07)',
                             transition: 'all 0.15s',
                           }}
-                          onMouseEnter={e => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = userDemo.color; }}
+                          onMouseEnter={e => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = userDemoSafe.color; }}
                           onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.82)'; e.currentTarget.style.color = '#111827'; }}
                         >
                           {labelMap[chip.label] ?? chip.label}
@@ -2479,10 +2397,10 @@ export default function NavigatorOrchestratorStudio() {
         <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '12px 14px', marginTop: 4 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>{tt('signedInAs')}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <div style={{ width: 34, height: 34, borderRadius: '50%', background: userDemo.color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, flexShrink: 0 }}>{userDemo.avatar}</div>
+            <div style={{ width: 34, height: 34, borderRadius: '50%', background: userDemoSafe.color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, flexShrink: 0 }}>{userDemoSafe.avatar}</div>
             <div>
               <div style={{ color: 'white', fontWeight: 700, fontSize: 13 }}>{user.name}</div>
-              <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>{user.storeRole}</div>
+              <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>{userDemoSafe.role}</div>
             </div>
           </div>
           <button onClick={logout}
