@@ -20,10 +20,21 @@ export default function CompanionShell({ user, connections, onSignedOut, onBack,
       try {
         const list = await listConversations();
         if (cancelled) return;
-        // Mobile defaults to a fresh conversation on each visit — previous
-        // chats are still reachable from the drawer. Desktop keeps showing
-        // the most recent one so power users don't lose context on reload.
-        if (isMobile) {
+
+        // Honour ?c=<id> in the URL if it matches one of THIS user's
+        // conversations. The API already 404s any id the user doesn't own,
+        // so we just need to silently fall back if it isn't in our list.
+        const params = new URLSearchParams(window.location.search);
+        const urlId = params.get('c');
+        const owned = urlId && list.some((c) => c.id === urlId) ? urlId : null;
+
+        if (owned) {
+          setConversations(list);
+          setActiveId(owned);
+        } else if (isMobile) {
+          // Mobile defaults to a fresh conversation on each visit — previous
+          // chats are still reachable from the drawer. Desktop keeps showing
+          // the most recent one so power users don't lose context on reload.
           const conv = await createConversation('New conversation');
           if (cancelled) return;
           setConversations([conv, ...list]);
@@ -44,10 +55,27 @@ export default function CompanionShell({ user, connections, onSignedOut, onBack,
     return () => { cancelled = true; };
   }, []);
 
+  // Mirror the active conversation id into the URL so each chat is
+  // deep-linkable. We use replaceState (not pushState) so the browser
+  // history stays flat — refreshing or sharing the URL still works, but
+  // each conversation switch doesn't pollute back/forward navigation.
+  useEffect(() => {
+    if (!activeId) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('c') === activeId) return;
+    params.set('c', activeId);
+    const next = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
+    window.history.replaceState({}, '', next);
+  }, [activeId]);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('connected')) {
-      const cleaned = window.location.pathname + window.location.hash;
+      // Strip ONLY the connected param — preserve ?c=<id> so the URL still
+      // points at the conversation the user came from.
+      params.delete('connected');
+      const qs = params.toString();
+      const cleaned = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
       window.history.replaceState({}, '', cleaned);
       onMeRefresh?.();
     }
@@ -163,6 +191,9 @@ export default function CompanionShell({ user, connections, onSignedOut, onBack,
       onSignOut={handleSignOut}
       onNewConversation={newConversation}
       onOpenHistory={() => setDrawerOpen(true)}
+      onConversationRenamed={(id, title) => {
+        setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)));
+      }}
       isMobile={isMobile}
     />
   ) : (

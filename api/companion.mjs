@@ -24,6 +24,23 @@ function pathOf(req) {
   return (req.url || '').split('?')[0];
 }
 
+// Derive a snappy conversation title from the user's first message. Takes
+// the first sentence (or first ~60 chars), trims, drops a single trailing
+// punctuation mark, and capitalises the first letter. Empty/whitespace-only
+// inputs yield null so we fall back to the original placeholder.
+function deriveTitle(rawMessage) {
+  const s = String(rawMessage || '').trim().replace(/\s+/g, ' ');
+  if (!s) return null;
+  const sentenceMatch = s.match(/^[^.!?\n]{3,120}[.!?]/);
+  let candidate = sentenceMatch ? sentenceMatch[0] : s;
+  candidate = candidate.slice(0, 60).trim();
+  // Drop a single trailing . , ; : but keep '?' so questions read as questions.
+  candidate = candidate.replace(/[.,;:]\s*$/, '');
+  if (!candidate) return null;
+  if (s.length > 60 && !/[.!?]$/.test(candidate)) candidate += '…';
+  return candidate.charAt(0).toUpperCase() + candidate.slice(1);
+}
+
 export default async function handler(req, res) {
   const path = pathOf(req);
   try {
@@ -162,6 +179,25 @@ async function chat(req, res) {
       insert into messages (conversation_id, role, content)
       values (${conversationId}, 'user', ${JSON.stringify({ text: message })}::jsonb)
     `;
+
+    // First user message in this conversation? Auto-name it from the message
+    // so the sidebar stops showing "New conversation" everywhere. We DO NOT
+    // overwrite a title the user (or a previous auto-naming pass) already set.
+    const titleRows = await sql`
+      select title from conversations where id = ${conversationId} and user_id = ${session.userId}
+    `;
+    const currentTitle = titleRows[0]?.title || null;
+    const userMsgCount = await sql`
+      select count(*)::int as n from messages where conversation_id = ${conversationId} and role = 'user'
+    `;
+    if (userMsgCount[0]?.n === 1 && (!currentTitle || currentTitle === 'New conversation')) {
+      const derived = deriveTitle(message);
+      if (derived) {
+        await sql`update conversations set title = ${derived} where id = ${conversationId} and user_id = ${session.userId}`;
+        emit({ type: 'conversation_renamed', conversationId, title: derived });
+      }
+    }
+
     await sql`update conversations set updated_at = now() where id = ${conversationId}`;
     const rows = await sql`
       select role, content from messages

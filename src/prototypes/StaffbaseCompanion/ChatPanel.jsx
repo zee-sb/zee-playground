@@ -70,7 +70,7 @@ function reduceMessages(rows) {
 
 // ── Main panel ──────────────────────────────────────────────────────────────
 
-export default function ChatPanel({ conversationId, user, connections = [], onNavigateConnections, onSignOut, onNewConversation, onOpenHistory, isMobile = false }) {
+export default function ChatPanel({ conversationId, user, connections = [], onNavigateConnections, onSignOut, onNewConversation, onOpenHistory, onConversationRenamed, isMobile = false }) {
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState(null);
@@ -116,6 +116,12 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
         next.push({ kind: 'connector_error', connector: evt.connector, message: evt.message });
       } else if (evt.type === 'needs_connection') {
         next.push({ kind: 'connect_prompt', connectors: evt.connectors || [] });
+      } else if (evt.type === 'conversation_renamed') {
+        // Fire-and-forget — the parent updates its conversation list.
+        // Use queueMicrotask so we don't setState during this setState.
+        if (evt.conversationId && evt.title) {
+          queueMicrotask(() => onConversationRenamed?.(evt.conversationId, evt.title));
+        }
       } else if (evt.type === 'delta') {
         const last = next[next.length - 1];
         if (last?.kind === 'msg' && last.role === 'assistant' && last.streaming) {
