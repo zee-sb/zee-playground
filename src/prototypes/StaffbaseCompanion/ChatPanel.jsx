@@ -70,31 +70,49 @@ function reduceMessages(rows) {
         // Drop any earlier reconstructed trivia entries — keep only the
         // latest snapshot's view.
         for (let i = out.length - 1; i >= 0; i--) {
-          if (out[i].kind === 'trivia_question' || out[i].kind === 'trivia_result') out.splice(i, 1);
+          const k = out[i].kind;
+          if (k === 'trivia_question' || k === 'trivia_result' || k === 'trivia_recap') out.splice(i, 1);
         }
         const t = c.trivia;
-        let score = 0;
-        for (const past of t.rounds || []) {
-          if (past.correct) score += 1;
+        if (t.finalized) {
+          // Once trivia is complete, a single tidy recap card reads way
+          // better than three stacked "Close, but no" chips.
+          const total = (t.rounds || []).length || 3;
           out.push({
-            kind: 'trivia_result',
-            round: (out.filter((x) => x.kind === 'trivia_result').length || 0) + 1,
-            total: 3,
-            correct: !!past.correct,
-            reveal: past.correctLabel,
-            score,
-            scoreOutOf: 3,
+            kind: 'trivia_recap',
+            score: Number(t.score) || 0,
+            total,
+            rounds: (t.rounds || []).map((r) => ({
+              category: r.category,
+              correct: !!r.correct,
+              correctLabel: r.correctLabel || '—',
+              userGuess: r.userGuess || '—',
+            })),
           });
-        }
-        if (t.currentRound && !t.finalized) {
-          out.push({
-            kind: 'trivia_question',
-            round: t.round, total: 3,
-            category: t.currentRound.category,
-            clue: t.currentRound.clue,
-            options: t.currentRound.optionPublic || [],
-            answered: false,
-          });
+        } else {
+          let score = 0;
+          for (const past of t.rounds || []) {
+            if (past.correct) score += 1;
+            out.push({
+              kind: 'trivia_result',
+              round: (out.filter((x) => x.kind === 'trivia_result').length || 0) + 1,
+              total: 3,
+              correct: !!past.correct,
+              reveal: past.correctLabel,
+              score,
+              scoreOutOf: 3,
+            });
+          }
+          if (t.currentRound) {
+            out.push({
+              kind: 'trivia_question',
+              round: t.round, total: 3,
+              category: t.currentRound.category,
+              clue: t.currentRound.clue,
+              options: t.currentRound.optionPublic || [],
+              answered: false,
+            });
+          }
         }
       }
     }
@@ -1043,6 +1061,62 @@ function TriviaQuestion({ question, onPick }) {
   );
 }
 
+// Shown when reloading a conversation whose trivia has already finished.
+// Collapses the three result chips + their now-empty reveal lines into one
+// tidy summary card so old conversations read cleanly.
+function TriviaRecap({ recap }) {
+  const { score = 0, total = 3, rounds = [] } = recap || {};
+  const cleanSweep = total > 0 && score === total;
+  return (
+    <div style={{
+      marginTop: 4, marginBottom: 4,
+      background: 'white', borderRadius: 16,
+      border: '1px solid #E4E4E7',
+      padding: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 16 }}>🎯</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#71717A' }}>
+            Trivia recap
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#18181B' }}>
+            {score}/{total}{cleanSweep ? ' · clean sweep' : ''}
+          </div>
+        </div>
+        <div style={{
+          fontSize: 11, fontWeight: 800, color: 'white', background: cleanSweep ? '#16A34A' : '#7C3AED',
+          padding: '4px 10px', borderRadius: 999,
+        }}>{score}/{total}</div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {rounds.map((r, i) => {
+          const catLabel = r.category === 'post' ? 'Mystery post'
+            : r.category === 'channel' ? 'Mystery channel'
+            : 'Mystery teammate';
+          return (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span style={{
+                fontSize: 11, marginTop: 1,
+                color: r.correct ? '#16A34A' : '#B45309',
+              }}>{r.correct ? '✓' : '✗'}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#71717A' }}>
+                  Round {i + 1} · {catLabel}
+                </div>
+                <div style={{ fontSize: 12, color: '#18181B', lineHeight: 1.35 }}>
+                  Picked <span style={{ fontWeight: 700 }}>{r.userGuess}</span>
+                  {r.correct ? null : <> · correct was <span style={{ fontWeight: 700 }}>{r.correctLabel}</span></>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function TriviaResult({ result }) {
   const color = result.correct ? '#16A34A' : '#B45309';
   const bg = result.correct ? '#DCFCE7' : '#FEF3C7';
@@ -1105,6 +1179,9 @@ function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false, s
   }
   if (item.kind === 'trivia_result') {
     return <TriviaResult result={item} />;
+  }
+  if (item.kind === 'trivia_recap') {
+    return <TriviaRecap recap={item} />;
   }
   if (item.role === 'user') {
     return (

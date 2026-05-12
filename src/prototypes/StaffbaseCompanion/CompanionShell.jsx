@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { MessageSquarePlus, ArrowLeft, Sparkles, Plug, MessageCircle, LogOut } from 'lucide-react';
+import { MessageSquarePlus, ArrowLeft, Sparkles, Plug, MessageCircle, LogOut, Trash2 } from 'lucide-react';
 import ChatPanel from './ChatPanel.jsx';
 import ConnectionsPanel from './ConnectionsPanel.jsx';
 import { PhoneFrame, StatusBar } from './PhoneFrame.jsx';
 import { useIsMobile } from './lib/responsive.js';
-import { listConversations, createConversation, logout } from './api.js';
+import { listConversations, createConversation, logout, deleteConversation as deleteConversationApi } from './api.js';
 
 export default function CompanionShell({ user, connections, onSignedOut, onBack, onMeRefresh }) {
   const isMobile = useIsMobile();
@@ -89,6 +89,35 @@ export default function CompanionShell({ user, connections, onSignedOut, onBack,
     setDrawerOpen(false);
   }
 
+  async function removeConversation(id, title) {
+    if (!id) return;
+    const label = title || 'this conversation';
+    if (!window.confirm(`Delete "${label}"? This can't be undone.`)) return;
+    try {
+      await deleteConversationApi(id);
+    } catch (err) {
+      window.alert(`Couldn't delete: ${err.message}`);
+      return;
+    }
+    setConversations((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      if (id === activeId) {
+        // Active conversation was deleted — pivot to the next-most-recent,
+        // or open a fresh one if the list is now empty.
+        if (next.length > 0) {
+          setActiveId(next[0].id);
+        } else {
+          (async () => {
+            const conv = await createConversation('New conversation');
+            setConversations([conv]);
+            setActiveId(conv.id);
+          })();
+        }
+      }
+      return next;
+    });
+  }
+
   async function handleSignOut() {
     await logout();
     onSignedOut();
@@ -147,15 +176,28 @@ export default function CompanionShell({ user, connections, onSignedOut, onBack,
               <div className="px-2 py-2 text-[12px] text-white/40">No conversations yet.</div>
             )}
             {conversations.map((c) => (
-              <button
+              <div
                 key={c.id}
-                onClick={() => { setActiveId(c.id); setDrawerOpen(false); }}
-                className={`w-full text-left px-3 py-2 rounded-md text-[13px] truncate mb-0.5 transition-colors ${
+                className={`group flex items-center rounded-md mb-0.5 transition-colors ${
                   c.id === activeId ? 'bg-white/15 text-white' : 'text-white/70 hover:bg-white/10'
                 }`}
               >
-                {c.title || 'Conversation'}
-              </button>
+                <button
+                  onClick={() => { setActiveId(c.id); setDrawerOpen(false); }}
+                  className="flex-1 min-w-0 text-left px-3 py-2 text-[13px] truncate"
+                  title={c.title || 'Conversation'}
+                >
+                  {c.title || 'Conversation'}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); removeConversation(c.id, c.title); }}
+                  aria-label={`Delete ${c.title || 'conversation'}`}
+                  title="Delete"
+                  className="px-2 py-2 text-white/30 hover:text-[#FCA5A5] opacity-60 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             ))}
           </div>
         </>

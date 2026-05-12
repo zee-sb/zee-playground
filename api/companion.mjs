@@ -48,6 +48,9 @@ export default async function handler(req, res) {
     if (path === '/api/companion/messages')      return await messages(req, res);
     if (path === '/api/companion/chat')          return await chat(req, res);
     if (path === '/api/companion/confirm')       return await confirm(req, res);
+    // DELETE /api/companion/conversations/:id — owner-only.
+    const delMatch = path.match(/^\/api\/companion\/conversations\/([^/]+)$/);
+    if (delMatch && req.method === 'DELETE') return await deleteConversation(req, res, delMatch[1]);
     res.status(404).json({ error: 'not_found', path });
   } catch (err) {
     console.error('[companion router]', path, err);
@@ -88,6 +91,34 @@ async function conversations(req, res) {
     return;
   }
   res.status(405).json({ error: 'Method not allowed' });
+}
+
+// ── DELETE /api/companion/conversations/:id ────────────────────────────
+async function deleteConversation(req, res, conversationId) {
+  if (!dbConfigured()) {
+    res.status(503).json({ error: 'db_not_configured' });
+    return;
+  }
+  const session = await getUserFromReq(req);
+  if (!session) {
+    res.status(401).json({ error: 'not_signed_in' });
+    return;
+  }
+  // Ownership gate — return the same 404 shape we use everywhere else so we
+  // don't leak whether the conversation exists for someone else.
+  const own = await sql`
+    select id from conversations where id = ${conversationId} and user_id = ${session.userId}
+  `;
+  if (!own.length) {
+    res.status(404).json({ error: 'conversation_not_found' });
+    return;
+  }
+  // FK cascade on messages.conversation_id cleans up the message rows
+  // automatically (per migration 002_multi_connector.sql).
+  await sql`
+    delete from conversations where id = ${conversationId} and user_id = ${session.userId}
+  `;
+  res.status(200).json({ ok: true });
 }
 
 // ── GET /api/companion/messages?conversationId=… ───────────────────────

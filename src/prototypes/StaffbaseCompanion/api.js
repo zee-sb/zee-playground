@@ -57,6 +57,15 @@ export async function createConversation(title) {
   return (await res.json()).conversation;
 }
 
+export async function deleteConversation(conversationId) {
+  const res = await fetch(`/api/companion/conversations/${encodeURIComponent(conversationId)}`, {
+    method: 'DELETE',
+    credentials: 'same-origin',
+  });
+  if (!res.ok) throw new Error(`delete conversation failed: ${res.status}`);
+  return true;
+}
+
 export async function listMessages(conversationId) {
   const res = await fetch(`/api/companion/messages?conversationId=${encodeURIComponent(conversationId)}`, {
     credentials: 'same-origin',
