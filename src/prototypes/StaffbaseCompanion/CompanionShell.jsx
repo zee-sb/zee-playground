@@ -6,6 +6,38 @@ import { PhoneFrame, StatusBar } from './PhoneFrame.jsx';
 import { useIsMobile } from './lib/responsive.js';
 import { listConversations, createConversation, logout, deleteConversation as deleteConversationApi } from './api.js';
 
+// Small avatar: real Staffbase photo when available, gradient-initials
+// fallback otherwise. Used in the sidebar pill + anywhere else we render
+// the signed-in user.
+function UserAvatar({ user, size = 32 }) {
+  const initials = user?.avatarInitials || (user?.displayName || '?').slice(0, 2).toUpperCase();
+  const hasImg = !!user?.avatarUrl;
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      {hasImg && (
+        <img
+          src={user.avatarUrl}
+          alt=""
+          referrerPolicy="no-referrer"
+          onError={(e) => { e.currentTarget.style.display = 'none'; const fb = e.currentTarget.nextElementSibling; if (fb) fb.style.display = 'grid'; }}
+          style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', background: '#1f2937' }}
+        />
+      )}
+      <div
+        style={{
+          width: size, height: size, borderRadius: '50%',
+          display: hasImg ? 'none' : 'grid',
+          placeItems: 'center', color: 'white',
+          fontSize: Math.floor(size * 0.4), fontWeight: 700,
+          background: 'linear-gradient(135deg,#7C3AED,#4F46E5)',
+          position: hasImg ? 'absolute' : undefined,
+          top: hasImg ? 0 : undefined, left: hasImg ? 0 : undefined,
+        }}
+      >{initials}</div>
+    </div>
+  );
+}
+
 export default function CompanionShell({ user, connections, onSignedOut, onBack, onMeRefresh }) {
   const isMobile = useIsMobile();
   const [view, setView] = useState('chat');
@@ -207,9 +239,7 @@ export default function CompanionShell({ user, connections, onSignedOut, onBack,
 
       <div className="px-3 py-3 border-t border-white/10">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-[#7C3AED] text-white text-[12px] font-bold grid place-items-center">
-            {user?.avatarInitials || '?'}
-          </div>
+          <UserAvatar user={user} size={32} />
           <div className="min-w-0 flex-1">
             <div className="text-[12px] font-semibold truncate">{user?.displayName}</div>
             <div className="text-[10px] text-white/40 truncate">{user?.title || ''} {user?.department ? `· ${user.department}` : ''}</div>

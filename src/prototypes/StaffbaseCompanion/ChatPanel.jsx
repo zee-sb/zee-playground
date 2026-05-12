@@ -463,8 +463,22 @@ function AppHeader({ user, connections, onSignOut, onNewConversation, onOpenHist
             onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.25)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}
           >
-            <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#7C3AED', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800 }}>
-              {initials}
+            <div style={{
+              width: 18, height: 18, borderRadius: '50%',
+              background: '#7C3AED', color: 'white',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 8, fontWeight: 800, overflow: 'hidden', position: 'relative',
+            }}>
+              {user?.avatarUrl ? (
+                <img
+                  src={user.avatarUrl}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  onError={(e) => { e.currentTarget.style.display = 'none'; const fb = e.currentTarget.nextElementSibling; if (fb) fb.style.display = 'flex'; }}
+                  style={{ width: 18, height: 18, objectFit: 'cover' }}
+                />
+              ) : null}
+              <span style={{ display: user?.avatarUrl ? 'none' : 'flex' }}>{initials}</span>
             </div>
             {firstName}
           </button>
@@ -503,8 +517,18 @@ function Hero({ user, atlassianLinked, onPick, onConnect }) {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 20, fontWeight: 800, position: 'relative',
             boxShadow: '0 6px 24px rgba(124,58,237,0.45)',
+            overflow: 'hidden',
           }}>
-            {initials}
+            {user?.avatarUrl ? (
+              <img
+                src={user.avatarUrl}
+                alt=""
+                referrerPolicy="no-referrer"
+                onError={(e) => { e.currentTarget.style.display = 'none'; const fb = e.currentTarget.nextElementSibling; if (fb) fb.style.display = 'flex'; }}
+                style={{ width: 58, height: 58, objectFit: 'cover' }}
+              />
+            ) : null}
+            <span style={{ display: user?.avatarUrl ? 'none' : 'flex' }}>{initials}</span>
           </div>
         </div>
         <div style={{ fontSize: 18, fontWeight: 800, color: '#111827', letterSpacing: '-0.4px', lineHeight: 1.2 }}>

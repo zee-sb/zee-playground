@@ -30,6 +30,7 @@ import {
 } from '../lib/session.mjs';
 import { sql, dbConfigured } from '../lib/db.mjs';
 import { resolveStaffbaseIdentity, STAFFBASE_DIRECTORY } from '../lib/staffbase-users.mjs';
+import { findUserByEmail as findStaffbaseUserByEmail } from '../lib/staffbase.mjs';
 import { listConnectionsForUser } from '../lib/connections.mjs';
 
 function appUrl(req) {
@@ -115,15 +116,26 @@ async function googleCallback(req, res) {
       return bounce('domain_not_allowed');
     }
     const identity = resolveStaffbaseIdentity(info);
+    // Look up the real Staffbase profile by email and override the canned
+    // seed values for name / title / department / avatar wherever the live
+    // API has something better. Falls back to the seed for fields that the
+    // intranet doesn't populate so we never display a blank profile.
+    const live = await findStaffbaseUserByEmail(info.email);
+    const displayName = live?.name      || identity.name;
+    const department  = live?.department || identity.department;
+    const title       = live?.title      || identity.title;
+    const avatarInit  = identity.avatar;                 // gradient-initials fallback
+    const avatarUrl   = live?.avatar      || null;       // real Staffbase photo
     const rows = await sql`
-      insert into users (staffbase_user_id, email, display_name, department, title, avatar_initials, last_login_at)
-      values (${identity.id}, ${identity.email}, ${identity.name}, ${identity.department}, ${identity.title}, ${identity.avatar}, now())
+      insert into users (staffbase_user_id, email, display_name, department, title, avatar_initials, avatar_url, last_login_at)
+      values (${identity.id}, ${identity.email}, ${displayName}, ${department}, ${title}, ${avatarInit}, ${avatarUrl}, now())
       on conflict (staffbase_user_id) do update
         set email           = excluded.email,
             display_name    = excluded.display_name,
             department      = coalesce(excluded.department, users.department),
             title           = coalesce(excluded.title, users.title),
             avatar_initials = excluded.avatar_initials,
+            avatar_url      = coalesce(excluded.avatar_url, users.avatar_url),
             last_login_at   = now()
       returning id
     `;
@@ -155,7 +167,7 @@ async function me(req, res) {
     return;
   }
   const rows = await sql`
-    select id, staffbase_user_id, email, display_name, department, title, avatar_initials
+    select id, staffbase_user_id, email, display_name, department, title, avatar_initials, avatar_url
     from users where id = ${session.userId}
   `;
   if (!rows.length) {
@@ -173,6 +185,7 @@ async function me(req, res) {
       department: u.department,
       title: u.title,
       avatarInitials: u.avatar_initials,
+      avatarUrl: u.avatar_url,
     },
     connections: connections.map((c) => ({
       provider: c.provider,
