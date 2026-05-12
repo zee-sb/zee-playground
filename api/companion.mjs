@@ -135,7 +135,7 @@ async function chat(req, res) {
   }
 
   const own = await sql`
-    select c.id, u.staffbase_user_id from conversations c
+    select c.id, u.staffbase_user_id, u.email, u.display_name, u.department, u.title from conversations c
     join users u on u.id = c.user_id
     where c.id = ${conversationId} and c.user_id = ${session.userId}
   `;
@@ -144,6 +144,13 @@ async function chat(req, res) {
     return;
   }
   const staffbaseUserId = own[0].staffbase_user_id;
+  const userProfile = {
+    id: staffbaseUserId,
+    email: own[0].email,
+    name: own[0].display_name,
+    department: own[0].department,
+    title: own[0].title,
+  };
 
   res.setHeader('Content-Type', 'application/x-ndjson');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -178,6 +185,7 @@ async function chat(req, res) {
       openai,
       userId: session.userId,
       staffbaseUserId,
+      userProfile,
       baseUrl: baseUrlOf(req),
       history: rows,
       emit,
