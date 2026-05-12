@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Sparkles, Plug, Send, Loader2, MapPin, Zap, LogOut, RotateCcw, Building2, Trophy, Menu, MessageSquarePlus, Database, ChevronRight, X, Eye, ThumbsUp, MessageCircle, Share2, TrendingUp, Activity, Users } from 'lucide-react';
+import { Sparkles, Plug, Send, Loader2, MapPin, Zap, LogOut, RotateCcw, Building2, Trophy, Menu, MessageSquarePlus, Database, ChevronRight, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import ToolCallCard from './ToolCallCard.jsx';
 import TraceCard from './TraceCard.jsx';
@@ -114,6 +114,8 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
         else next.push({ kind: 'trace', intent: { connectors: evt.connectors, reasoning: evt.reasoning } });
       } else if (evt.type === 'connector_error') {
         next.push({ kind: 'connector_error', connector: evt.connector, message: evt.message });
+      } else if (evt.type === 'needs_connection') {
+        next.push({ kind: 'connect_prompt', connectors: evt.connectors || [] });
       } else if (evt.type === 'delta') {
         const last = next[next.length - 1];
         if (last?.kind === 'msg' && last.role === 'assistant' && last.streaming) {
@@ -559,23 +561,6 @@ function SourcesBottomSheet({ sources, onClose }) {
         </div>
         <div className="px-3 py-3 overflow-y-auto flex-1 flex flex-col gap-2">
           {sources.map((s) => {
-            const pulse = extractAudiencePulse(s);
-            if (pulse) return <AudiencePulseCard key={s.id} data={pulse} />;
-
-            const channelData = extractChannelHealth(s);
-            if (channelData) return <ChannelHealthCard key={s.id} data={channelData} />;
-
-            const postCards = extractPostCards(s);
-            if (postCards.length > 0) {
-              return (
-                <div key={s.id} className="flex flex-col gap-2">
-                  {postCards.map((p, i) => (
-                    <TrendingPostCard key={`${s.id}-${p.id || i}`} post={p} />
-                  ))}
-                </div>
-              );
-            }
-
             const userCards = extractUserCards(s);
             if (userCards.length > 0) {
               return (
@@ -601,29 +586,6 @@ function SourcesBottomSheet({ sources, onClose }) {
       </div>
     </div>
   );
-}
-
-// ── Engagement-analytics extract helpers ────────────────────────────────────
-
-// Posts from top_posts, post_performance, or channel_health (its `topPosts`
-// array). Each card holds the post + its engagement counts.
-function extractPostCards(source) {
-  if (!source || !source.result || typeof source.result !== 'object' || source.result.error) return [];
-  const r = source.result;
-  if (source.name === 'top_posts' && Array.isArray(r.posts)) return r.posts;
-  if (source.name === 'channel_health' && Array.isArray(r.topPosts)) return r.topPosts;
-  if (source.name === 'post_performance' && r.post) return [{ ...r.post, _daily: r.daily }];
-  return [];
-}
-
-function extractChannelHealth(source) {
-  if (!source || source.name !== 'channel_health' || !source.result || source.result.error) return null;
-  return source.result;
-}
-
-function extractAudiencePulse(source) {
-  if (!source || source.name !== 'audience_pulse' || !source.result || source.result.error) return null;
-  return source.result;
 }
 
 // Pulls user-shaped objects out of a tool result, so we can render them as
@@ -800,249 +762,73 @@ function UserCard({ user }) {
   );
 }
 
-// ── Engagement-analytics cards ──────────────────────────────────────────────
-
-function fmtCount(n) {
-  if (n == null) return '–';
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
-  return String(n);
-}
-
-function relativeDate(iso) {
-  if (!iso) return null;
-  const t = new Date(iso).getTime();
-  if (!t) return null;
-  const days = Math.floor((Date.now() - t) / (1000 * 60 * 60 * 24));
-  if (days <= 0) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days}d ago`;
-  if (days < 30) return `${Math.floor(days / 7)}w ago`;
-  return `${Math.floor(days / 30)}mo ago`;
-}
-
-function StatBlock({ icon: Icon, value, label, color = '#52525B' }) {
+// One-tap "Connect Atlassian" (etc) card. Renders inline in the chat when the
+// orchestrator emits a `needs_connection` event because the user asked
+// something that requires an unlinked connector. Clicking starts the OAuth
+// flow in the same window; the callback bounces back to
+// /prototypes/staffbase-companion?connected=<provider>, which the shell
+// already watches and refreshes connections from.
+function ConnectorPromptCard({ connector }) {
+  const c = connector || {};
+  const color = c.color || '#7C3AED';
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, color }}>
-      <Icon size={11} />
-      <span style={{ fontSize: 11, fontWeight: 600, color: '#18181B' }}>{fmtCount(value)}</span>
-      <span style={{ fontSize: 10, color: '#A1A1AA' }}>{label}</span>
-    </div>
-  );
-}
-
-// Inline carousel card — compact, ~200px wide, fits two on a phone screen.
-function CompactPostCard({ post }) {
-  const baseStyle = {
-    flexShrink: 0, width: 200, scrollSnapAlign: 'start',
-    background: 'white', border: '1px solid #E4E4E7', borderRadius: 14,
-    padding: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-    textDecoration: 'none', display: 'block',
-  };
-  const content = (
-    <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-        <span style={{
-          fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
-          color: '#0EA5E9', background: 'rgba(14,165,233,0.1)',
-          padding: '2px 6px', borderRadius: 6,
-          maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>{post.channel?.title || 'Intranet'}</span>
-        {post.published && (
-          <span style={{ fontSize: 10, color: '#A1A1AA' }}>{relativeDate(post.published)}</span>
-        )}
-      </div>
-      <div style={{
-        fontSize: 12, fontWeight: 700, color: '#18181B', lineHeight: 1.3,
-        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-        overflow: 'hidden', minHeight: 32,
-      }}>{post.title}</div>
-      {post.author?.name && (
-        <div style={{ fontSize: 10, color: '#71717A', marginTop: 4 }}>{post.author.name}</div>
-      )}
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 10,
-        paddingTop: 8, borderTop: '1px solid #F4F4F5',
-      }}>
-        {post.visits != null && <StatBlock icon={Eye} value={post.visits} label="views" />}
-        {post.likes != null && <StatBlock icon={ThumbsUp} value={post.likes} label="likes" />}
-        {post.comments != null && <StatBlock icon={MessageCircle} value={post.comments} label="comments" />}
-        {post.shares ? <StatBlock icon={Share2} value={post.shares} label="shares" /> : null}
-      </div>
-    </>
-  );
-  return post.url
-    ? <a href={post.url} target="_blank" rel="noopener noreferrer" style={baseStyle}>{content}</a>
-    : <div style={baseStyle}>{content}</div>;
-}
-
-function PostCardCarousel({ posts }) {
-  if (!posts?.length) return null;
-  return (
-    <div
+    <a
+      href={c.connectUrl}
       style={{
-        display: 'flex', gap: 8, overflowX: 'auto',
-        WebkitOverflowScrolling: 'touch', scrollSnapType: 'x mandatory',
-        scrollbarWidth: 'none', msOverflowStyle: 'none',
-        marginTop: 8, marginLeft: -4, marginRight: -4,
-        paddingLeft: 4, paddingRight: 4, paddingBottom: 4,
+        display: 'block', textDecoration: 'none',
+        border: `1px solid ${color}33`,
+        borderRadius: 16,
+        background: 'white',
+        padding: 14,
+        boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+        position: 'relative',
+        overflow: 'hidden',
       }}
-      className="cw-no-scrollbar"
     >
-      {posts.map((p, i) => (
-        <CompactPostCard key={`${p.id || i}`} post={p} />
-      ))}
-    </div>
-  );
-}
-
-// Sources-sheet card — fuller layout with all 4 stats, full title, link.
-function TrendingPostCard({ post }) {
-  return (
-    <div className="border border-[#E4E4E7] rounded-xl p-3 bg-white">
-      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#E0F2FE] text-[#0369A1]">
-          {post.channel?.title || 'Intranet'}
-        </span>
-        {post.published && (
-          <span className="text-[10px] text-[#A1A1AA]">{relativeDate(post.published)}</span>
-        )}
-        {post.author?.name && (
-          <span className="text-[10px] text-[#71717A]">· {post.author.name}</span>
-        )}
-      </div>
-      <div className="text-[13px] font-bold text-[#18181B] leading-snug mb-2">{post.title}</div>
-      <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2 border-t border-[#F4F4F5]">
-        {post.visits != null && <StatBlock icon={Eye} value={post.visits} label="views" />}
-        {post.uniqueVisitors != null && post.uniqueVisitors !== post.visits && (
-          <StatBlock icon={Users} value={post.uniqueVisitors} label="unique" />
-        )}
-        {post.likes != null && <StatBlock icon={ThumbsUp} value={post.likes} label="likes" />}
-        {post.comments != null && <StatBlock icon={MessageCircle} value={post.comments} label="comments" />}
-        {post.shares != null && <StatBlock icon={Share2} value={post.shares} label="shares" />}
-      </div>
-      {post.url && (
-        <a href={post.url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-[#7C3AED] hover:underline mt-2 inline-block">
-          View post →
-        </a>
-      )}
-    </div>
-  );
-}
-
-function ChannelHealthCard({ data }) {
-  const { channel, totals, topPost, topPosts, window } = data || {};
-  return (
-    <div className="border border-[#E4E4E7] rounded-xl p-4 bg-white">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-9 h-9 rounded-lg grid place-items-center text-white flex-shrink-0" style={{ background: '#0EA5E9' }}>
-          <Activity size={16} />
+      {/* Soft accent strip in the connector colour */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, height: 3,
+        background: `linear-gradient(90deg, ${color}, ${color}88)`,
+      }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: 10,
+          display: 'grid', placeItems: 'center',
+          color: 'white', background: color, flexShrink: 0,
+          fontWeight: 800, fontSize: 18,
+        }}>
+          <Plug size={18} />
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#71717A]">Channel health</div>
-          <div className="text-[14px] font-bold text-[#18181B] truncate">{channel?.title || channel?.id || 'Channel'}</div>
-        </div>
-      </div>
-      <div className="text-[22px] font-bold text-[#18181B] leading-tight">
-        {totals?.postsInWindow ?? 0} <span className="text-[12px] font-medium text-[#71717A]">posts · last {window?.days ?? 30} days</span>
-      </div>
-      <div className="grid grid-cols-3 gap-2 mt-3 mb-3">
-        <div className="bg-[#F8FAFC] rounded-lg p-2 text-center">
-          <div className="text-[14px] font-bold text-[#18181B]">{fmtCount(totals?.totalVisits)}</div>
-          <div className="text-[9px] uppercase tracking-wider text-[#71717A] font-bold">Views</div>
-        </div>
-        <div className="bg-[#F8FAFC] rounded-lg p-2 text-center">
-          <div className="text-[14px] font-bold text-[#18181B]">{fmtCount(totals?.totalLikes)}</div>
-          <div className="text-[9px] uppercase tracking-wider text-[#71717A] font-bold">Likes</div>
-        </div>
-        <div className="bg-[#F8FAFC] rounded-lg p-2 text-center">
-          <div className="text-[14px] font-bold text-[#18181B]">{fmtCount(totals?.totalComments)}</div>
-          <div className="text-[9px] uppercase tracking-wider text-[#71717A] font-bold">Comments</div>
-        </div>
-      </div>
-      {topPost && (
-        <div className="mt-3 pt-3 border-t border-[#F4F4F5]">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#71717A] mb-1">Top post</div>
-          <div className="text-[12px] font-semibold text-[#18181B] leading-snug">{topPost.title}</div>
-          <div className="text-[10px] text-[#A1A1AA] mt-1">{fmtCount(topPost.visits)} views · {fmtCount(topPost.likes)} likes · {fmtCount(topPost.comments)} comments</div>
-        </div>
-      )}
-      {Array.isArray(topPosts) && topPosts.length > 1 && (
-        <div className="mt-2">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#71717A] mb-1">Other top posts</div>
-          {topPosts.slice(1, 4).map((p, i) => (
-            <div key={p.id || i} className="text-[11px] text-[#52525B] leading-snug truncate py-0.5">
-              · {p.title} <span className="text-[#A1A1AA]">({fmtCount(p.visits)} views)</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// CSS-only sparkline — flex of vertical bars sized by ratio. No chart.js
-// dependency. The bars sit on a baseline so the visual is always coherent
-// even when one bucket dominates.
-function Sparkline({ values, color = '#7C3AED', height = 40 }) {
-  const max = Math.max(1, ...(values || []).map((v) => Number(v) || 0));
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height, marginTop: 4 }}>
-      {(values || []).map((v, i) => {
-        const h = Math.max(2, ((Number(v) || 0) / max) * height);
-        return (
-          <div
-            key={i}
-            style={{
-              flex: 1, height: h, background: color, opacity: 0.7,
-              borderRadius: 2, minWidth: 4,
-            }}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-function AudiencePulseCard({ data }) {
-  const { total, daily, window } = data || {};
-  const activeSeries = (daily || []).map((d) => d.activeUsers);
-  const engagedSeries = (daily || []).map((d) => d.engagedUsers);
-  return (
-    <div className="border border-[#E4E4E7] rounded-xl p-4 bg-white">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-9 h-9 rounded-lg grid place-items-center text-white flex-shrink-0" style={{ background: '#7C3AED' }}>
-          <TrendingUp size={16} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#71717A]">Audience pulse</div>
-          <div className="text-[12px] text-[#52525B]">Last {window?.days ?? 7} days · platform-wide</div>
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        <div className="bg-[#F5F3FF] rounded-lg p-2 text-center">
-          <div className="text-[18px] font-bold text-[#7C3AED] leading-none">{fmtCount(total?.activeUsers)}</div>
-          <div className="text-[9px] uppercase tracking-wider text-[#71717A] font-bold mt-1">Active</div>
-        </div>
-        <div className="bg-[#ECFEFF] rounded-lg p-2 text-center">
-          <div className="text-[18px] font-bold text-[#0891B2] leading-none">{fmtCount(total?.engagedUsers)}</div>
-          <div className="text-[9px] uppercase tracking-wider text-[#71717A] font-bold mt-1">Engaged</div>
-        </div>
-        <div className="bg-[#F8FAFC] rounded-lg p-2 text-center">
-          <div className="text-[18px] font-bold text-[#18181B] leading-none">{fmtCount(total?.registeredUsers || total?.totalUsers)}</div>
-          <div className="text-[9px] uppercase tracking-wider text-[#71717A] font-bold mt-1">{total?.registeredUsers ? 'Registered' : 'Total'}</div>
-        </div>
-      </div>
-      {activeSeries.length > 1 && (
-        <>
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#71717A] flex justify-between">
-            <span>Daily active</span>
-            <span className="text-[#0891B2]">Daily engaged</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+            <span style={{
+              fontSize: 9, fontWeight: 800, letterSpacing: '0.06em',
+              textTransform: 'uppercase', color, background: `${color}1A`,
+              padding: '2px 6px', borderRadius: 6,
+            }}>One-tap connect</span>
           </div>
-          <Sparkline values={activeSeries} color="#7C3AED" />
-          <Sparkline values={engagedSeries} color="#0891B2" />
-        </>
-      )}
-    </div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#18181B' }}>
+            Connect {c.name}
+          </div>
+          {c.description && (
+            <div style={{ fontSize: 11, color: '#71717A', marginTop: 2, lineHeight: 1.35 }}>
+              {c.description}
+            </div>
+          )}
+        </div>
+        <div
+          style={{
+            flexShrink: 0,
+            padding: '8px 14px', borderRadius: 999,
+            background: color, color: 'white',
+            fontSize: 12, fontWeight: 700,
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}
+        >
+          Connect <ChevronRight size={14} />
+        </div>
+      </div>
+    </a>
   );
 }
 
@@ -1057,6 +843,15 @@ function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false, s
     return (
       <div style={{ margin: '8px 0', border: '1px solid #FECACA', background: '#FEF2F2', borderRadius: 8, padding: '8px 10px', fontSize: 12, color: '#B91C1C' }}>
         Connector <span style={{ fontFamily: 'monospace' }}>{item.connector}</span> failed: {item.message}
+      </div>
+    );
+  }
+  if (item.kind === 'connect_prompt') {
+    return (
+      <div className="flex flex-col gap-2 my-2">
+        {item.connectors.map((c) => (
+          <ConnectorPromptCard key={c.id} connector={c} />
+        ))}
       </div>
     );
   }
@@ -1084,20 +879,8 @@ function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false, s
           ) : (item.streaming ? <span style={{ color: '#A1A1AA' }}>…</span> : null)}
         </div>
         {!item.streaming && (() => {
-          // Inline post carousel — trending / performance / channel-health top posts.
-          const posts = sources.flatMap((s) => extractPostCards(s));
-          const postSeen = new Set();
-          const uniquePosts = posts.filter((p) => {
-            const k = p.id || p.url || p.title;
-            if (postSeen.has(k)) return false;
-            postSeen.add(k);
-            return true;
-          });
-          return uniquePosts.length > 0 ? <PostCardCarousel posts={uniquePosts} /> : null;
-        })()}
-        {!item.streaming && (() => {
-          // Inline people carousel — directory lookups.
-          const people = sources.flatMap((s) => extractUserCards(s));
+          const peopleSources = sources.filter((s) => extractUserCards(s).length > 0);
+          const people = peopleSources.flatMap((s) => extractUserCards(s));
           const seen = new Set();
           const unique = people.filter((u) => {
             const k = `${u.id || ''}|${u.email || ''}`;
