@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Sparkles, Plug, Send, Loader2, MapPin, Zap, LogOut, RotateCcw, Building2, Trophy, Menu, MessageSquarePlus } from 'lucide-react';
+import { Sparkles, Plug, Send, Loader2, MapPin, Zap, LogOut, RotateCcw, Building2, Trophy, Menu, MessageSquarePlus, Database, ChevronRight, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import ToolCallCard from './ToolCallCard.jsx';
 import TraceCard from './TraceCard.jsx';
@@ -75,6 +75,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
   const [busy, setBusy] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [openSources, setOpenSources] = useState(null); // array of tool items, or null
   const [error, setError] = useState(null);
   const endRef = useRef(null);
   const atlassianLinked = connections.some((c) => c.provider === 'atlassian');
@@ -226,15 +227,50 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
                   break;
                 }
               }
-              return items.map((item, i) => (
-                <Item
-                  key={i}
-                  item={item}
-                  userInitials={userInitials}
-                  onSuggestion={send}
-                  suggestionsDisabled={busy || i !== lastSuggestionIdx}
-                />
-              ));
+              // Collapse runs of tool items into the next assistant message
+              // they precede — those tools are the "sources" for that answer.
+              // Anything still pending at the end (mid-stream, no assistant
+              // msg yet) is shown inline so the user sees progress.
+              const out = [];
+              let pendingTools = [];
+              for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (item.kind === 'tool') { pendingTools.push(item); continue; }
+                if (item.kind === 'msg' && item.role === 'assistant') {
+                  out.push(
+                    <Item
+                      key={i}
+                      item={item}
+                      userInitials={userInitials}
+                      onSuggestion={send}
+                      suggestionsDisabled={busy || i !== lastSuggestionIdx}
+                      sources={pendingTools.filter((t) => t.status === 'done' || t.status === 'error')}
+                      onOpenSources={setOpenSources}
+                    />
+                  );
+                  pendingTools = [];
+                } else {
+                  out.push(
+                    <Item
+                      key={i}
+                      item={item}
+                      userInitials={userInitials}
+                      onSuggestion={send}
+                      suggestionsDisabled={busy || i !== lastSuggestionIdx}
+                    />
+                  );
+                }
+              }
+              // Tools still streaming (no assistant msg yet) — render inline
+              // so the user gets running-state feedback.
+              for (const t of pendingTools) {
+                if (t.status === 'running' || t.status === 'pending') {
+                  out.push(
+                    <Item key={`pt-${t.id}`} item={t} userInitials={userInitials} onSuggestion={send} />
+                  );
+                }
+              }
+              return out;
             })()}
             {busy && (
               <div className="cw-root" style={{ '--cw-primary': '#7C3AED' }}>
@@ -260,6 +296,13 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           busy={confirmBusy}
           onConfirm={() => decide('confirm')}
           onCancel={() => decide('cancel')}
+        />
+      )}
+
+      {openSources && (
+        <SourcesBottomSheet
+          sources={openSources}
+          onClose={() => setOpenSources(null)}
         />
       )}
     </>
@@ -456,9 +499,84 @@ function Hero({ user, atlassianLinked, onPick, onConnect }) {
   );
 }
 
+// ── Sources badge + bottom sheet ────────────────────────────────────────────
+
+function SourcesBadge({ count, onOpen }) {
+  if (!count) return null;
+  return (
+    <button
+      onClick={onOpen}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        marginTop: 8, padding: '4px 10px',
+        background: 'rgba(124,58,237,0.07)', border: '1px solid rgba(124,58,237,0.2)',
+        borderRadius: 20, cursor: 'pointer', transition: 'all 0.15s',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(124,58,237,0.14)'; e.currentTarget.style.borderColor = 'rgba(124,58,237,0.4)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(124,58,237,0.07)'; e.currentTarget.style.borderColor = 'rgba(124,58,237,0.2)'; }}
+    >
+      <Database size={10} color="#7C3AED" />
+      <span style={{ fontSize: 11, fontWeight: 600, color: '#7C3AED' }}>
+        {count} {count === 1 ? 'source' : 'sources'}
+      </span>
+      <ChevronRight size={10} color="#7C3AED" />
+    </button>
+  );
+}
+
+// Bottom sheet anchored to the chat surface (not the full viewport), matching
+// the ConfirmWriteModal pattern. Slides up from the bottom.
+function SourcesBottomSheet({ sources, onClose }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setOpen(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  return (
+    <div className="absolute inset-0 z-50 flex flex-col justify-end pointer-events-none">
+      <div
+        onClick={onClose}
+        className="absolute inset-0 bg-black/40 pointer-events-auto transition-opacity duration-200"
+        style={{ opacity: open ? 1 : 0 }}
+      />
+      <div
+        className="relative bg-white rounded-t-2xl shadow-2xl overflow-hidden pointer-events-auto transition-transform duration-200 ease-out flex flex-col"
+        style={{ transform: open ? 'translateY(0)' : 'translateY(100%)', maxHeight: '80%' }}
+      >
+        <div className="pt-2 pb-1 flex justify-center flex-shrink-0">
+          <div className="w-9 h-1 rounded-full bg-[#E4E4E7]" />
+        </div>
+        <div className="px-5 py-3 border-b border-[#E4E4E7] flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Database size={14} color="#7C3AED" />
+            <span className="font-bold text-[14px]">Sources</span>
+            <span className="text-[11px] font-semibold text-[#71717A] bg-[#F4F4F5] px-1.5 py-0.5 rounded">{sources.length}</span>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-full bg-[#F4F4F5] hover:bg-[#E4E4E7] grid place-items-center text-[#52525B]" aria-label="Close">
+            <X size={14} />
+          </button>
+        </div>
+        <div className="px-3 py-3 overflow-y-auto flex-1 flex flex-col gap-2">
+          {sources.map((s) => (
+            <ToolCallCard
+              key={s.id}
+              name={s.name}
+              args={s.args}
+              result={s.result}
+              status={s.status}
+              connector={s.connector}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Item renderer ───────────────────────────────────────────────────────────
 
-function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false }) {
+function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false, sources = [], onOpenSources }) {
   if (item.kind === 'trace') return <TraceCard intent={item.intent} connectors={item.connectors} />;
   if (item.kind === 'tool') {
     return <ToolCallCard name={item.name} args={item.args} result={item.result} status={item.status} connector={item.connector} />;
@@ -493,6 +611,9 @@ function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false })
             <ReactMarkdown components={markdownComponents}>{item.text}</ReactMarkdown>
           ) : (item.streaming ? <span style={{ color: '#A1A1AA' }}>…</span> : null)}
         </div>
+        {!item.streaming && sources.length > 0 && (
+          <SourcesBadge count={sources.length} onOpen={() => onOpenSources?.(sources)} />
+        )}
         {!item.streaming && item.suggestions?.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
             {item.suggestions.map((s, i) => {
