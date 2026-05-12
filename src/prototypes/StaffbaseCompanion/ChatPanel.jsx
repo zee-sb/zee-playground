@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Sparkles, Plug, Send, Loader2, MapPin, Zap, LogOut, RotateCcw, Building2, Trophy } from 'lucide-react';
+import { Sparkles, Plug, Send, Loader2, MapPin, Zap, LogOut, RotateCcw, Building2, Trophy, Menu, MessageSquarePlus } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import ToolCallCard from './ToolCallCard.jsx';
 import TraceCard from './TraceCard.jsx';
@@ -70,7 +70,7 @@ function reduceMessages(rows) {
 
 // ── Main panel ──────────────────────────────────────────────────────────────
 
-export default function ChatPanel({ conversationId, user, connections = [], onNavigateConnections, onSignOut, isMobile = false }) {
+export default function ChatPanel({ conversationId, user, connections = [], onNavigateConnections, onSignOut, onNewConversation, onOpenHistory, isMobile = false }) {
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState(null);
@@ -191,7 +191,14 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
 
   return (
     <>
-      <AppHeader user={user} connections={connections} onSignOut={onSignOut} />
+      <AppHeader
+        user={user}
+        connections={connections}
+        onSignOut={onSignOut}
+        onNewConversation={onNewConversation}
+        onOpenHistory={onOpenHistory}
+        isMobile={isMobile}
+      />
 
       <div style={{
         flex: 1, overflowY: 'auto', position: 'relative', zIndex: 1,
@@ -261,7 +268,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
 
 // ── AppHeader (purple gradient strip that flows up from the status bar) ──────
 
-function AppHeader({ user, connections, onSignOut }) {
+function AppHeader({ user, connections, onSignOut, onNewConversation, onOpenHistory, isMobile }) {
   const initials = user?.avatarInitials || (user?.displayName || '?').slice(0, 2).toUpperCase();
   const firstName = (user?.displayName || '').split(' ')[0] || 'You';
   const atlassianLinked = connections?.some((c) => c.provider === 'atlassian');
@@ -269,13 +276,27 @@ function AppHeader({ user, connections, onSignOut }) {
     ? 'HR · IT · Intranet · Atlassian'
     : 'HR · IT · Intranet';
 
+  const iconBtnStyle = {
+    background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)',
+    borderRadius: 8, padding: 6, color: 'white', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  };
+
   return (
     <div style={{
       background: 'linear-gradient(135deg, #7C3AED, #4F46E5)',
-      padding: '8px 18px 14px', flexShrink: 0,
+      padding: '8px 14px 14px', flexShrink: 0,
       position: 'relative', zIndex: 2,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {isMobile && onOpenHistory && (
+          <button onClick={onOpenHistory} aria-label="Open conversation history" style={iconBtnStyle}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.25)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}
+          >
+            <Menu size={14} />
+          </button>
+        )}
         <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid rgba(255,255,255,0.3)' }}>
           <Zap size={18} color="white" />
         </div>
@@ -283,6 +304,14 @@ function AppHeader({ user, connections, onSignOut }) {
           <div style={{ color: 'white', fontWeight: 700, fontSize: 16, lineHeight: 1.2, letterSpacing: '-0.3px' }}>Staffbase Companion</div>
           <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11, fontWeight: 500 }}>{subtitle}</div>
         </div>
+        {isMobile && onNewConversation && (
+          <button onClick={onNewConversation} aria-label="New conversation" title="New conversation" style={iconBtnStyle}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.25)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}
+          >
+            <MessageSquarePlus size={14} />
+          </button>
+        )}
         {user && (
           <button
             onClick={onSignOut}

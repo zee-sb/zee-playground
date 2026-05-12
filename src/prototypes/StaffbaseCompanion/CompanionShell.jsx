@@ -20,7 +20,15 @@ export default function CompanionShell({ user, connections, onSignedOut, onBack,
       try {
         const list = await listConversations();
         if (cancelled) return;
-        if (list.length === 0) {
+        // Mobile defaults to a fresh conversation on each visit — previous
+        // chats are still reachable from the drawer. Desktop keeps showing
+        // the most recent one so power users don't lose context on reload.
+        if (isMobile) {
+          const conv = await createConversation('New conversation');
+          if (cancelled) return;
+          setConversations([conv, ...list]);
+          setActiveId(conv.id);
+        } else if (list.length === 0) {
           const conv = await createConversation('New conversation');
           if (cancelled) return;
           setConversations([conv]);
@@ -153,6 +161,8 @@ export default function CompanionShell({ user, connections, onSignedOut, onBack,
       connections={connections}
       onNavigateConnections={() => setView('connections')}
       onSignOut={handleSignOut}
+      onNewConversation={newConversation}
+      onOpenHistory={() => setDrawerOpen(true)}
       isMobile={isMobile}
     />
   ) : (
@@ -175,18 +185,21 @@ export default function CompanionShell({ user, connections, onSignedOut, onBack,
           background: 'radial-gradient(ellipse 140% 100% at 50% 110%, #7C3AED 0%, rgba(124,58,237,0.55) 35%, rgba(124,58,237,0.15) 60%, transparent 80%)',
           pointerEvents: 'none', zIndex: 0,
         }} />
-        {/* Drawer-toggle button — floats at the very top-left, tucked into the AppHeader area */}
-        <button
-          onClick={() => setDrawerOpen(true)}
-          aria-label="Open menu"
-          style={{ position: 'absolute', top: 14, left: 14, zIndex: 10, background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, padding: 6, color: 'white', cursor: 'pointer' }}
-        >
-          <Menu size={14} />
-        </button>
         {view === 'chat' ? ChatSurface : (
-          <div style={{ position: 'relative', zIndex: 1, flex: 1, overflow: 'auto', background: 'white' }}>
-            <ConnectionsPanel connections={connections} onChanged={onMeRefresh} />
-          </div>
+          <>
+            {/* Menu button is owned by ChatPanel's AppHeader on chat view;
+                non-chat views render their own floating menu button. */}
+            <button
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Open menu"
+              style={{ position: 'absolute', top: 14, left: 14, zIndex: 10, background: 'rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8, padding: 6, color: '#52525B', cursor: 'pointer' }}
+            >
+              <Menu size={14} />
+            </button>
+            <div style={{ position: 'relative', zIndex: 1, flex: 1, overflow: 'auto', background: 'white' }}>
+              <ConnectionsPanel connections={connections} onChanged={onMeRefresh} />
+            </div>
+          </>
         )}
         {drawerOpen && (
           <div className="fixed inset-0 z-50 flex">
