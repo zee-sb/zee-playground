@@ -1,7 +1,8 @@
 import React from 'react'
 import { Routes, Route, useParams, useNavigate, Link } from 'react-router-dom'
-import { Sparkles, BarChart2, Plug, Bot, ClipboardList, MessageCircle, Building2 } from 'lucide-react'
+import { Sparkles, BarChart2, Plug, Bot, ClipboardList, MessageCircle, Building2, Zap } from 'lucide-react'
 import NavigatorStudio from './prototypes/Navigator/NavigatorStudio'
+import NavigatorSetupStudio from './prototypes/NavigatorSetup/NavigatorSetupStudio'
 import NavigatorOrchestratorStudio from './prototypes/NavigatorOrchestrator/NavigatorOrchestratorStudio'
 import NavigatorAnalyticsDashboard from './prototypes/NavigatorAnalytics/NavigatorAnalyticsDashboard'
 import MCPDemoStudio from './prototypes/MCPDemo/MCPDemoStudio'
@@ -16,6 +17,15 @@ import StaffbaseCompanion from './prototypes/StaffbaseCompanion'
 //                          intent trace, tool-call cards). Reflects whatever
 //                          the Studio has wired up.
 const PROTOTYPES = [
+  {
+    id: "navigator-setup",
+    title: "Navigator — Setup Wizard",
+    description: "One-click instance discovery: analyzes your Staffbase channels and posts, clusters content into topics, and proposes a ready-made Navigator configuration with named Assistants, context prompts, and knowledge sources.",
+    epic: "Navigator",
+    status: "ready",
+    icon: Zap,
+    component: NavigatorSetupStudio
+  },
   {
     id: "navigator-studio",
     title: "Navigator — Studio (Admin)",
