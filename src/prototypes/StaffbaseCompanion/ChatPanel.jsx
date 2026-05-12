@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import ToolCallCard from './ToolCallCard.jsx';
 import TraceCard from './TraceCard.jsx';
 import ConfirmWriteModal from './ConfirmWriteModal.jsx';
+import AnalyticsChartCard from './AnalyticsChartCard.jsx';
 import { TypingIndicator } from '../../chat-widget/TypingIndicator.jsx';
 import { streamPost, listMessages } from './api.js';
 import { markdownComponents } from './lib/markdown.jsx';
@@ -188,6 +189,8 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           reveal: evt.reveal,
           score: evt.score, scoreOutOf: evt.scoreOutOf,
         });
+      } else if (evt.type === 'chart_card') {
+        next.push({ kind: 'chart', chart: evt.chart, source: evt.source || null });
       } else if (evt.type === 'conversation_renamed') {
         // Fire-and-forget — the parent updates its conversation list.
         // Use queueMicrotask so we don't setState during this setState.
@@ -1206,6 +1209,9 @@ function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false, s
   }
   if (item.kind === 'trivia_recap') {
     return <TriviaRecap recap={item} />;
+  }
+  if (item.kind === 'chart') {
+    return <AnalyticsChartCard chart={item.chart} source={item.source} />;
   }
   if (item.role === 'user') {
     return (
