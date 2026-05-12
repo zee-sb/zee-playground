@@ -558,17 +558,98 @@ function SourcesBottomSheet({ sources, onClose }) {
           </button>
         </div>
         <div className="px-3 py-3 overflow-y-auto flex-1 flex flex-col gap-2">
-          {sources.map((s) => (
-            <ToolCallCard
-              key={s.id}
-              name={s.name}
-              args={s.args}
-              result={s.result}
-              status={s.status}
-              connector={s.connector}
-            />
-          ))}
+          {sources.map((s) => {
+            const userCards = extractUserCards(s);
+            if (userCards.length > 0) {
+              return (
+                <div key={s.id} className="flex flex-col gap-2">
+                  {userCards.map((u, i) => (
+                    <UserCard key={`${s.id}-${u.id || i}`} user={u} />
+                  ))}
+                </div>
+              );
+            }
+            return (
+              <ToolCallCard
+                key={s.id}
+                name={s.name}
+                args={s.args}
+                result={s.result}
+                status={s.status}
+                connector={s.connector}
+              />
+            );
+          })}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Pulls user-shaped objects out of a tool result, so we can render them as
+// rich cards in the sources sheet instead of raw JSON. Recognises the
+// `search_users` / `get_user` shape from the Staffbase MCP plus the generic
+// user shape from any tool whose result contains a `users` array.
+function extractUserCards(source) {
+  if (!source) return [];
+  const isUserTool = source.name === 'search_users' || source.name === 'get_user' || source.name === 'lookup_employee';
+  const isStaffbase = source.connector === 'intranet' || source.connector === 'hr_portal';
+  if (!isUserTool && !isStaffbase) return [];
+  const result = source.result;
+  if (!result || typeof result !== 'object') return [];
+  // Common shapes: { users: [...] }, { user: {...} }, single object, or array
+  let candidates = [];
+  if (Array.isArray(result.users)) candidates = result.users;
+  else if (Array.isArray(result)) candidates = result;
+  else if (result.user) candidates = [result.user];
+  else if (result.name && result.email) candidates = [result];
+  return candidates.filter((u) => u && u.name && (u.email || u.id));
+}
+
+function UserCard({ user }) {
+  const initials = (user.name || '?')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0])
+    .join('')
+    .toUpperCase();
+  return (
+    <div className="border border-[#E4E4E7] rounded-xl p-3 bg-white flex items-start gap-3">
+      <div className="flex-shrink-0">
+        {user.avatar ? (
+          <img
+            src={user.avatar}
+            alt=""
+            referrerPolicy="no-referrer"
+            onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling.style.display = 'grid'; }}
+            className="w-11 h-11 rounded-full object-cover bg-[#F4F4F5]"
+          />
+        ) : null}
+        <div
+          className="w-11 h-11 rounded-full grid place-items-center text-white text-[13px] font-bold"
+          style={{ background: 'linear-gradient(135deg,#7C3AED,#4F46E5)', display: user.avatar ? 'none' : 'grid' }}
+        >
+          {initials}
+        </div>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="font-semibold text-[14px] text-[#18181B] truncate">{user.name}</div>
+          {user.activated === false && (
+            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#FEF3C7] text-[#B45309]">deactivated</span>
+          )}
+        </div>
+        {user.title && <div className="text-[12px] text-[#52525B] truncate">{user.title}</div>}
+        <div className="text-[11px] text-[#71717A] mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+          {user.department && <span>{user.department}</span>}
+          {user.location && <span>· {user.location}</span>}
+        </div>
+        {user.email && (
+          <a href={`mailto:${user.email}`} className="text-[11px] text-[#7C3AED] hover:underline break-all">
+            {user.email}
+          </a>
+        )}
       </div>
     </div>
   );
