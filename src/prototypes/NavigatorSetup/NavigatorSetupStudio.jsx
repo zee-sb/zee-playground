@@ -5,6 +5,8 @@ import {
   GraduationCap, Users, Building2, Newspaper, ShieldCheck, Calendar, Hash,
   Loader2, AlertTriangle, AlertCircle, ExternalLink, Flame, ArrowRight,
   Check, RefreshCw, MessageCircle, Search, ChevronDown, ChevronUp,
+  Plane, Globe, Lightbulb, BookOpen, TrendingUp, Award, Coffee, Heart,
+  Languages, Map as MapIcon, Pencil, Library, ScrollText, Brain,
 } from 'lucide-react'
 import { StudioShell } from '../../components/StudioShell'
 import { useConfigStore } from '../AIAssistant/useConfigStore'
@@ -12,6 +14,7 @@ import { useConfigStore } from '../AIAssistant/useConfigStore'
 const ICON_MAP = {
   Sparkles, HeartHandshake, Briefcase, Megaphone, Wrench,
   GraduationCap, Users, Building2, Newspaper, ShieldCheck, Calendar, Hash,
+  Plane, Globe, Lightbulb, BookOpen, TrendingUp, Award, Coffee, Heart,
 }
 const resolveIcon = (name) => ICON_MAP[name] || Sparkles
 
@@ -30,14 +33,33 @@ const ICON_TO_EMOJI = {
   ShieldCheck: '🛡️',
   Calendar: '📅',
   Hash: '#️⃣',
+  Plane: '✈️',
+  Globe: '🌐',
+  Lightbulb: '💡',
+  BookOpen: '📖',
+  TrendingUp: '📈',
+  Award: '🏆',
+  Coffee: '☕',
+  Heart: '❤️',
 }
 const emojiForIcon = (name) => ICON_TO_EMOJI[name] || '✨'
+
+// Human-readable locale labels for the language chips.
+const LOCALE_NAMES = {
+  en_US: 'English (US)', en_GB: 'English (UK)', en: 'English',
+  de_DE: 'German', de: 'German', fr_FR: 'French', fr: 'French',
+  es_ES: 'Spanish', es: 'Spanish', pt_BR: 'Portuguese (BR)', pt: 'Portuguese',
+  it_IT: 'Italian', it: 'Italian', nl_NL: 'Dutch', nl: 'Dutch',
+  pl_PL: 'Polish', pl: 'Polish', ja_JP: 'Japanese', ja: 'Japanese',
+  zh_CN: 'Chinese (Simplified)', zh: 'Chinese',
+}
+const localeLabel = (l) => LOCALE_NAMES[l] || l
 
 const slug = (s) =>
   (s || 'cluster').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32)
 
 export default function NavigatorSetupStudio() {
-  const { setAssistants, setKnowledgeBases } = useConfigStore()
+  const { setAssistants, setKnowledgeBases, setConfig } = useConfigStore()
 
   const [phase, setPhase] = useState('idle') // idle | discovering | ready | error
   const [discovery, setDiscovery] = useState(null)
@@ -49,15 +71,19 @@ export default function NavigatorSetupStudio() {
   const [searching, setSearching] = useState(false)
   const [searchErr, setSearchErr] = useState(null)
 
-  const [includedClusterNames, setIncludedClusterNames] = useState(() => new Set())
+  const [includedAssistantKeys, setIncludedAssistantKeys] = useState(() => new Set())
   const [expandedPrompts, setExpandedPrompts] = useState(() => new Set())
+  const [editedMainInstructions, setEditedMainInstructions] = useState('')
+  const [includeWorkspaceConfig, setIncludeWorkspaceConfig] = useState(true)
   const [toast, setToast] = useState(null)
   const toastTimer = useRef(null)
 
-  // When a discovery completes, switch every proposed Assistant on by default.
+  // When a discovery completes, switch every proposed Assistant on by default,
+  // and seed the editable main instructions from the LLM output.
   useEffect(() => {
     if (!discovery?.proposedAssistants) return
-    setIncludedClusterNames(new Set(discovery.proposedAssistants.map((a) => a.clusterName)))
+    setIncludedAssistantKeys(new Set(discovery.proposedAssistants.map((_, i) => i)))
+    setEditedMainInstructions(discovery.workspace?.mainInstructions || '')
   }, [discovery])
 
   useEffect(() => () => toastTimer.current && clearTimeout(toastTimer.current), [])
@@ -111,65 +137,116 @@ export default function NavigatorSetupStudio() {
     }
   }
 
-  const toggleIncluded = (clusterName) => {
-    setIncludedClusterNames((prev) => {
+  const toggleIncluded = (idx) => {
+    setIncludedAssistantKeys((prev) => {
       const next = new Set(prev)
-      if (next.has(clusterName)) next.delete(clusterName)
-      else next.add(clusterName)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
       return next
     })
   }
 
-  const togglePromptExpanded = (clusterName) => {
+  const togglePromptExpanded = (key) => {
     setExpandedPrompts((prev) => {
       const next = new Set(prev)
-      if (next.has(clusterName)) next.delete(clusterName)
-      else next.add(clusterName)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
 
   const applyConfiguration = () => {
     if (!discovery?.proposedAssistants) return
-    const selected = discovery.proposedAssistants.filter((a) => includedClusterNames.has(a.clusterName))
-    if (selected.length === 0) {
-      showToast('Select at least one Assistant before applying.')
+    const selected = discovery.proposedAssistants
+      .map((a, i) => ({ a, i }))
+      .filter(({ i }) => includedAssistantKeys.has(i))
+      .map(({ a }) => a)
+    if (selected.length === 0 && !includeWorkspaceConfig) {
+      showToast('Select at least one Assistant or enable Workspace config before applying.')
       return
     }
     const now = Date.now()
     const channelById = new Map(discovery.channels.map((c) => [c.id, c]))
 
-    const newKbs = selected.map((a, i) => ({
-      id: `kb-setup-${slug(a.clusterName)}-${now}-${i}`,
-      name: a.clusterName,
-      source: 'Staffbase Channels',
-      articleCount: (a.knowledgeSources || []).reduce((sum, ks) => {
-        const ch = channelById.get(ks.channelId)
-        return sum + (ch?.sampledPostCount || 0)
-      }, 0),
-    }))
+    const newKbs = selected
+      .filter((a) => (a.knowledgeSources || []).length > 0)
+      .map((a, i) => ({
+        id: `kb-setup-${slug(a.name)}-${now}-${i}`,
+        name: a.clusterName === 'Universal' ? a.name : a.clusterName,
+        source: 'Staffbase Channels',
+        articleCount: (a.knowledgeSources || []).reduce((sum, ks) => {
+          const ch = channelById.get(ks.channelId)
+          return sum + (ch?.sampledPostCount || 0)
+        }, 0),
+      }))
+
+    const kbByAssistant = new Map()
+    let kbIdx = 0
+    for (const a of selected) {
+      if ((a.knowledgeSources || []).length > 0) {
+        kbByAssistant.set(a, newKbs[kbIdx])
+        kbIdx++
+      }
+    }
+
+    const mainBlock = includeWorkspaceConfig && editedMainInstructions.trim()
+      ? `# Main Navigator Instructions\n\n${editedMainInstructions.trim()}\n\n---\n\n`
+      : ''
+    const glossaryBlock = includeWorkspaceConfig && discovery.workspace?.glossary?.length
+      ? `# Glossary\n\n${discovery.workspace.glossary.map((g) => `- **${g.term}** — ${g.definition}`).join('\n')}\n\n---\n\n`
+      : ''
 
     const newAssistants = selected.map((a, i) => {
       const sourceLines = (a.knowledgeSources || [])
         .map((ks) => `- ${ks.channelTitle} (${ks.url})`)
         .join('\n')
+      const kb = kbByAssistant.get(a)
       return {
-        id: `asst-setup-${slug(a.clusterName)}-${now}-${i}`,
+        id: `asst-setup-${slug(a.name)}-${now}-${i}`,
         name: a.name,
         icon: emojiForIcon(a.lucideIcon),
         description: a.description,
-        instructions: `${a.systemPromptSnippet}\n\nKnowledge sources:\n${sourceLines}`,
+        instructions: `${mainBlock}${glossaryBlock}# Role\n\n${a.systemPromptSnippet}${sourceLines ? `\n\n# Knowledge sources\n\n${sourceLines}` : ''}`,
         mcpConnectorIds: [],
         externalAgentIds: [],
-        knowledgeBaseIds: [newKbs[i].id],
+        knowledgeBaseIds: kb ? [kb.id] : [],
         audience: { everyone: true, roles: [], locations: [] },
         status: 'active',
       }
     })
 
-    setKnowledgeBases((prev) => [...(prev || []), ...newKbs])
-    setAssistants((prev) => [...(prev || []), ...newAssistants])
-    showToast(`Configuration applied — ${selected.length} ${selected.length === 1 ? 'Assistant' : 'Assistants'} added. Open Navigator Studio to review.`)
+    if (newKbs.length) setKnowledgeBases((prev) => [...(prev || []), ...newKbs])
+    if (newAssistants.length) setAssistants((prev) => [...(prev || []), ...newAssistants])
+
+    if (includeWorkspaceConfig) {
+      // Persist workspace-level discoveries into the tenant blob.
+      setConfig((prev) => {
+        const prevTenant = prev?.tenant || {}
+        const discoveredLocations = (discovery.orgSignals?.locations || []).map((l) => l.name).filter(Boolean)
+        const discoveredRoles = (discovery.orgSignals?.departments || []).map((d) => d.name).filter(Boolean)
+        return {
+          ...prev,
+          tenant: {
+            ...prevTenant,
+            // Extend rather than overwrite — keep seed locations/roles, dedupe.
+            locations: [...new Set([...(prevTenant.locations || []), ...discoveredLocations])],
+            roles: [...new Set([...(prevTenant.roles || []), ...discoveredRoles])],
+            // New fields — additive, won't break older Navigator Studio code that ignores them.
+            languages: discovery.languages || [],
+            glossary: discovery.workspace?.glossary || [],
+            systemPrompt: editedMainInstructions.trim(),
+            workspaceFacts: discovery.workspace?.workspaceFacts || [],
+            tone: discovery.workspace?.tone || [],
+          },
+        }
+      })
+    }
+
+    const parts = []
+    if (newAssistants.length) parts.push(`${newAssistants.length} ${newAssistants.length === 1 ? 'Assistant' : 'Assistants'}`)
+    if (newKbs.length) parts.push(`${newKbs.length} knowledge ${newKbs.length === 1 ? 'base' : 'bases'}`)
+    if (includeWorkspaceConfig) parts.push('workspace config')
+    showToast(`Applied: ${parts.join(' · ')}. Open Navigator Studio to review.`)
   }
 
   return (
@@ -192,7 +269,10 @@ export default function NavigatorSetupStudio() {
 
           {discovery && (
             <>
-              <SectionDivider title="What we found" />
+              <SectionDivider title="Workspace overview" subtitle="The big picture — who works here, where, in what languages." />
+              <WorkspaceOverview discovery={discovery} />
+
+              <SectionDivider title="What we found" subtitle="Channels and posts powering the workspace right now." />
               <Phase2Results
                 discovery={discovery}
                 searchTerm={searchTerm}
@@ -204,10 +284,35 @@ export default function NavigatorSetupStudio() {
                 onSuggestionClick={(q) => runSearch(q)}
               />
 
-              <SectionDivider title="Proposed Navigator Setup" />
+              <SectionDivider
+                title="Main Navigator instructions"
+                subtitle="The orchestrator-level system prompt every Assistant inherits. Edit before applying."
+              />
+              <MainInstructionsCard
+                value={editedMainInstructions}
+                onChange={setEditedMainInstructions}
+                tone={discovery.workspace?.tone}
+                workspaceFacts={discovery.workspace?.workspaceFacts}
+                overview={discovery.workspace?.overview}
+              />
+
+              {discovery.workspace?.glossary?.length > 0 && (
+                <>
+                  <SectionDivider
+                    title="Workspace glossary"
+                    subtitle="Internal acronyms and program names Navigator should recognize."
+                  />
+                  <GlossaryCard glossary={discovery.workspace.glossary} />
+                </>
+              )}
+
+              <SectionDivider
+                title="Proposed Assistants"
+                subtitle={`${discovery.proposedAssistants.length} Assistants — universal (HR, IT, etc.) plus content-driven from your channels.`}
+              />
               <Phase3Proposal
                 discovery={discovery}
-                includedClusterNames={includedClusterNames}
+                includedAssistantKeys={includedAssistantKeys}
                 onToggleIncluded={toggleIncluded}
                 expandedPrompts={expandedPrompts}
                 onTogglePromptExpanded={togglePromptExpanded}
@@ -218,8 +323,10 @@ export default function NavigatorSetupStudio() {
 
         {discovery && (
           <ApplyFooter
-            selectedCount={includedClusterNames.size}
+            selectedCount={includedAssistantKeys.size}
             totalCount={discovery.proposedAssistants.length}
+            includeWorkspaceConfig={includeWorkspaceConfig}
+            onToggleWorkspaceConfig={() => setIncludeWorkspaceConfig((v) => !v)}
             onApply={applyConfiguration}
           />
         )}
@@ -254,9 +361,9 @@ function Phase1Hero({ phase, onDiscover }) {
         </div>
         <h1 className="text-[32px] font-bold tracking-tight text-[#18181B]">Navigator Setup</h1>
         <p className="text-[16px] text-[#71717A] mt-2 max-w-2xl leading-relaxed">
-          Discover your intranet and generate a ready-to-use Navigator configuration.
-          One click pulls your channels and most-engaged posts, clusters them into topic groups,
-          and proposes a named Assistant per group — complete with system prompts and knowledge links.
+          One click analyzes your channels, posts, user directory, departments, and languages —
+          then drafts a ready-to-use Navigator configuration: orchestrator instructions, a workspace
+          glossary, and a full Assistant lineup (HR, IT, Onboarding, plus content-driven ones).
         </p>
 
         <button
@@ -280,14 +387,20 @@ function Phase1Hero({ phase, onDiscover }) {
         </button>
 
         {isDiscovering && (
-          <div className="mt-8 grid md:grid-cols-3 gap-4">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="bg-[#F5F5F7] border border-[#E4E4E7] rounded-xl p-5 animate-pulse">
-                <div className="h-3 bg-[#E4E4E7] rounded w-1/2 mb-3" />
-                <div className="h-6 bg-[#E4E4E7] rounded w-2/3 mb-2" />
-                <div className="h-3 bg-[#E4E4E7] rounded w-3/4" />
-              </div>
-            ))}
+          <div className="mt-8">
+            <div className="flex items-center gap-2 mb-4 text-[12.5px] text-[#71717A]">
+              <Loader2 size={14} className="animate-spin text-[#7C3AED]" />
+              Pulling channels · posts · directory · drafting workspace config + Assistants
+            </div>
+            <div className="grid md:grid-cols-3 gap-4">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="bg-[#F5F5F7] border border-[#E4E4E7] rounded-xl p-5 animate-pulse">
+                  <div className="h-3 bg-[#E4E4E7] rounded w-1/2 mb-3" />
+                  <div className="h-6 bg-[#E4E4E7] rounded w-2/3 mb-2" />
+                  <div className="h-3 bg-[#E4E4E7] rounded w-3/4" />
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -328,10 +441,202 @@ function ErrorCard({ message, onRetry }) {
   )
 }
 
-function SectionDivider({ title }) {
+function SectionDivider({ title, subtitle }) {
   return (
     <div className="mt-12 mb-5">
       <h2 className="text-[22px] font-bold tracking-tight text-[#18181B]">{title}</h2>
+      {subtitle && <p className="text-[13.5px] text-[#71717A] mt-1">{subtitle}</p>}
+    </div>
+  )
+}
+
+// ── Workspace Overview ─────────────────────────────────────────────────────
+
+function WorkspaceOverview({ discovery }) {
+  const { orgSignals, languages, workspace } = discovery
+  const totalUsers = orgSignals?.totalUsers || 0
+  const departments = orgSignals?.departments || []
+  const locations = orgSignals?.locations || []
+  const topAuthors = orgSignals?.topAuthors || []
+
+  return (
+    <div className="space-y-4">
+      {workspace?.overview && (
+        <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-lg bg-[#F5F3FF] grid place-items-center shrink-0">
+              <Brain size={16} className="text-[#7C3AED]" />
+            </div>
+            <div className="flex-1">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">AI summary</div>
+              <p className="text-[14px] text-[#18181B] mt-1 leading-relaxed">{workspace.overview}</p>
+              {workspace.tone?.length > 0 && (
+                <div className="flex gap-1.5 mt-3 flex-wrap">
+                  <span className="text-[11px] text-[#A1A1AA] uppercase tracking-wider mr-1 self-center font-semibold">Tone:</span>
+                  {workspace.tone.map((t) => (
+                    <span key={t} className="text-[11.5px] px-2 py-0.5 rounded-full bg-[#F5F3FF] border border-[#DDD6FE] text-[#5B21B6] font-medium">{t}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-4 gap-3">
+        <StatCard icon={Users} label="Users in directory" value={totalUsers} hint={totalUsers >= 200 ? '200-user sample' : null} />
+        <StatCard icon={Building2} label="Departments" value={departments.length} hint={departments.length === 15 ? 'top 15' : null} />
+        <StatCard icon={MapIcon} label="Locations" value={locations.length} hint={locations.length === 15 ? 'top 15' : null} />
+        <StatCard icon={Languages} label="Languages" value={languages.length} hint={languages.length > 0 ? languages.slice(0, 2).map(localeLabel).join(', ') + (languages.length > 2 ? '…' : '') : null} />
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-4">
+        <ListCard
+          icon={Building2}
+          title="Top departments"
+          empty="No department data in directory."
+          items={departments.slice(0, 8).map((d) => ({ label: d.name, value: d.count }))}
+        />
+        <ListCard
+          icon={MapIcon}
+          title="Top locations"
+          empty="No location data in directory."
+          items={locations.slice(0, 8).map((l) => ({ label: l.name, value: l.count }))}
+        />
+        <ListCard
+          icon={Megaphone}
+          title="Top contributors (50-post sample)"
+          empty="No author signals."
+          items={topAuthors.slice(0, 8).map((a) => ({ label: a.name, value: `${a.postCount} ${a.postCount === 1 ? 'post' : 'posts'}` }))}
+        />
+      </div>
+
+      {(orgSignals?.customFieldKeys?.length > 0 || workspace?.workspaceFacts?.length > 0) && (
+        <div className="grid lg:grid-cols-2 gap-4">
+          {workspace?.workspaceFacts?.length > 0 && (
+            <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
+              <div className="flex items-center gap-2 mb-3">
+                <Lightbulb size={14} className="text-[#D97706]" />
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">Workspace facts</span>
+              </div>
+              <ul className="space-y-1.5">
+                {workspace.workspaceFacts.map((f, i) => (
+                  <li key={i} className="text-[13px] text-[#3F3F46] leading-relaxed">• {f}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {orgSignals?.customFieldKeys?.length > 0 && (
+            <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
+              <div className="flex items-center gap-2 mb-3">
+                <Hash size={14} className="text-[#71717A]" />
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">Custom profile fields</span>
+              </div>
+              <p className="text-[12px] text-[#71717A] mb-2">Workspace-specific fields detected in user profiles.</p>
+              <div className="flex flex-wrap gap-1.5">
+                {orgSignals.customFieldKeys.map((k) => (
+                  <span key={k} className="text-[11.5px] px-2 py-0.5 rounded-md bg-[#F5F5F7] border border-[#E4E4E7] text-[#52525B] font-mono">{k}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StatCard({ icon: Icon, label, value, hint }) {
+  return (
+    <div className="bg-white border border-[#E4E4E7] rounded-2xl p-4 shadow-sm">
+      <div className="flex items-center gap-2 mb-1">
+        <Icon size={13} className="text-[#7C3AED]" />
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">{label}</div>
+      </div>
+      <div className="text-[26px] font-bold tracking-tight text-[#18181B]">{value}</div>
+      {hint && <div className="text-[11px] text-[#A1A1AA] mt-0.5">{hint}</div>}
+    </div>
+  )
+}
+
+function ListCard({ icon: Icon, title, items, empty }) {
+  return (
+    <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
+      <div className="flex items-center gap-2 mb-3">
+        <Icon size={14} className="text-[#7C3AED]" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">{title}</span>
+      </div>
+      {items.length === 0 ? (
+        <div className="text-[12.5px] text-[#A1A1AA] py-2">{empty}</div>
+      ) : (
+        <ul className="space-y-1.5">
+          {items.map((item, i) => (
+            <li key={i} className="flex items-center justify-between gap-2 text-[13px]">
+              <span className="text-[#18181B] font-medium truncate">{item.label}</span>
+              <span className="text-[#71717A] shrink-0">{item.value}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// ── Main Navigator Instructions ────────────────────────────────────────────
+
+function MainInstructionsCard({ value, onChange, tone, workspaceFacts, overview }) {
+  const [editing, setEditing] = useState(false)
+  return (
+    <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 rounded-lg bg-[#F5F3FF] grid place-items-center">
+            <ScrollText size={16} className="text-[#7C3AED]" />
+          </div>
+          <div>
+            <div className="text-[14px] font-semibold text-[#18181B]">Orchestrator system prompt</div>
+            <div className="text-[12px] text-[#71717A]">Inherited by every Assistant. ~{(value || '').split(/\s+/).filter(Boolean).length} words.</div>
+          </div>
+        </div>
+        <button
+          onClick={() => setEditing((v) => !v)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#E4E4E7] hover:border-[#7C3AED] hover:text-[#7C3AED] text-[12.5px] font-semibold text-[#52525B] transition-colors"
+        >
+          <Pencil size={13} />
+          {editing ? 'Done' : 'Edit'}
+        </button>
+      </div>
+      {editing ? (
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          rows={14}
+          className="w-full font-mono text-[12.5px] leading-relaxed p-3 bg-[#FAFAFA] border border-[#E4E4E7] rounded-lg focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] outline-none text-[#27272A]"
+        />
+      ) : (
+        <pre className="font-mono text-[12.5px] leading-relaxed p-3 bg-[#FAFAFA] border border-[#E4E4E7] rounded-lg text-[#27272A] whitespace-pre-wrap max-h-[400px] overflow-y-auto">{value || '(empty)'}</pre>
+      )}
+    </div>
+  )
+}
+
+// ── Glossary ───────────────────────────────────────────────────────────────
+
+function GlossaryCard({ glossary }) {
+  return (
+    <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
+      <div className="flex items-center gap-2 mb-3">
+        <Library size={14} className="text-[#7C3AED]" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">{glossary.length} {glossary.length === 1 ? 'term' : 'terms'}</span>
+      </div>
+      <div className="grid md:grid-cols-2 gap-x-6 gap-y-3">
+        {glossary.map((g, i) => (
+          <div key={i} className="flex items-start gap-3">
+            <span className="text-[12.5px] font-bold font-mono text-[#5B21B6] bg-[#F5F3FF] px-2 py-0.5 rounded border border-[#DDD6FE] shrink-0 whitespace-nowrap">{g.term}</span>
+            <span className="text-[12.5px] text-[#3F3F46] leading-relaxed">{g.definition}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -523,11 +828,13 @@ function Phase2Results({
 // ── Phase 3 ────────────────────────────────────────────────────────────────
 
 function Phase3Proposal({
-  discovery, includedClusterNames, onToggleIncluded,
+  discovery, includedAssistantKeys, onToggleIncluded,
   expandedPrompts, onTogglePromptExpanded,
 }) {
   const assistants = discovery.proposedAssistants
   const channelById = new Map(discovery.channels.map((c) => [c.id, c]))
+  const universalCount = assistants.filter((a) => a.alwaysInclude || a.clusterName === 'Universal').length
+  const contentCount = assistants.length - universalCount
 
   return (
     <div>
@@ -540,33 +847,60 @@ function Phase3Proposal({
         </div>
       )}
 
+      <div className="flex items-center gap-4 mb-4 text-[12.5px] text-[#52525B]">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-[#7C3AED]" />
+          {universalCount} universal ({universalCount === 1 ? 'always-include Assistant' : 'always-include Assistants'})
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-[#0EA5E9]" />
+          {contentCount} content-driven (from your channels)
+        </span>
+      </div>
+
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
-        {assistants.map((a) => {
+        {assistants.map((a, idx) => {
           const Icon = resolveIcon(a.lucideIcon)
-          const included = includedClusterNames.has(a.clusterName)
-          const expanded = expandedPrompts.has(a.clusterName)
+          const included = includedAssistantKeys.has(idx)
+          const expanded = expandedPrompts.has(idx)
+          const isUniversal = a.alwaysInclude || a.clusterName === 'Universal'
           return (
             <div
-              key={a.clusterName}
+              key={idx}
               className={`bg-white border rounded-2xl p-5 shadow-sm hover:shadow-xl transition-all flex flex-col ${
-                included ? 'border-[#DDD6FE]' : 'border-[#E4E4E7] opacity-70'
+                included ? (isUniversal ? 'border-[#DDD6FE]' : 'border-[#BAE6FD]') : 'border-[#E4E4E7] opacity-70'
               }`}
             >
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl grid place-items-center shrink-0" style={{ background: '#F5F3FF' }}>
-                  <Icon size={18} className="text-[#7C3AED]" />
+                <div
+                  className="w-10 h-10 rounded-xl grid place-items-center shrink-0"
+                  style={{ background: isUniversal ? '#F5F3FF' : '#F0F9FF' }}
+                >
+                  <Icon size={18} className={isUniversal ? 'text-[#7C3AED]' : 'text-[#0284C7]'} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-[15px] font-bold text-[#18181B] leading-tight">{a.name}</div>
-                  <div className="text-[12px] text-[#A1A1AA] mt-0.5">{a.clusterName}</div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    {isUniversal && (
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#F5F3FF] text-[#5B21B6] border border-[#DDD6FE]">Universal</span>
+                    )}
+                    <span className="text-[12px] text-[#A1A1AA]">{a.clusterName === 'Universal' ? '' : a.clusterName}</span>
+                  </div>
                 </div>
               </div>
 
               <p className="text-[13px] text-[#52525B] mt-3 leading-relaxed">{a.description}</p>
 
+              {a.signalsUsed?.length > 0 && (
+                <div className="mt-2 text-[11.5px] text-[#71717A] italic">
+                  <span className="font-semibold not-italic text-[#52525B]">Signal: </span>
+                  {a.signalsUsed[0]}
+                </div>
+              )}
+
               <div className="mt-3">
                 <button
-                  onClick={() => onTogglePromptExpanded(a.clusterName)}
+                  onClick={() => onTogglePromptExpanded(idx)}
                   className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-[#71717A] hover:text-[#18181B] transition-colors"
                 >
                   System prompt
@@ -574,16 +908,16 @@ function Phase3Proposal({
                 </button>
                 <pre
                   className={`mt-1.5 font-mono text-[11.5px] bg-[#F5F5F7] border border-[#E4E4E7] rounded-lg p-2.5 text-[#3F3F46] whitespace-pre-wrap leading-relaxed ${
-                    expanded ? '' : 'line-clamp-3'
+                    expanded ? '' : 'line-clamp-4'
                   }`}
                 >{a.systemPromptSnippet}</pre>
               </div>
 
               <div className="mt-3 flex-1">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A] mb-2">Knowledge Sources</div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A] mb-2">Knowledge sources</div>
                 <div className="flex flex-wrap gap-1.5">
                   {(a.knowledgeSources || []).length === 0 && (
-                    <span className="text-[12px] text-[#A1A1AA]">No channels matched.</span>
+                    <span className="text-[12px] text-[#A1A1AA] italic">Workspace-wide (no specific channel)</span>
                   )}
                   {(a.knowledgeSources || []).map((ks) => {
                     const ch = channelById.get(ks.channelId)
@@ -610,7 +944,7 @@ function Phase3Proposal({
                   {included ? 'Included in setup' : 'Skipped'}
                 </span>
                 <button
-                  onClick={() => onToggleIncluded(a.clusterName)}
+                  onClick={() => onToggleIncluded(idx)}
                   role="switch"
                   aria-checked={included}
                   className={`relative w-10 h-6 rounded-full transition-colors ${included ? 'bg-[#7C3AED]' : 'bg-[#D4D4D8]'}`}
@@ -630,21 +964,39 @@ function Phase3Proposal({
   )
 }
 
-function ApplyFooter({ selectedCount, totalCount, onApply }) {
+function ApplyFooter({ selectedCount, totalCount, includeWorkspaceConfig, onToggleWorkspaceConfig, onApply }) {
   return (
-    <div className="fixed bottom-0 left-[240px] right-0 bg-white/95 backdrop-blur border-t border-[#E4E4E7] px-8 py-4 z-40 shadow-[0_-4px_16px_rgba(0,0,0,0.04)]">
+    <div className="fixed bottom-0 left-[240px] right-0 bg-white/95 backdrop-blur border-t border-[#E4E4E7] px-8 py-3.5 z-40 shadow-[0_-4px_16px_rgba(0,0,0,0.04)]">
       <div className="max-w-[1200px] mx-auto flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg grid place-items-center" style={{ background: '#F5F3FF' }}>
-            <Sparkles size={16} className="text-[#7C3AED]" />
-          </div>
-          <div>
-            <div className="text-[14px] font-semibold text-[#18181B]">
-              {selectedCount} of {totalCount} {totalCount === 1 ? 'Assistant' : 'Assistants'} selected
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg grid place-items-center" style={{ background: '#F5F3FF' }}>
+              <Sparkles size={16} className="text-[#7C3AED]" />
             </div>
-            <div className="text-[12px] text-[#71717A]">Will be added to your Navigator configuration.</div>
+            <div>
+              <div className="text-[14px] font-semibold text-[#18181B]">
+                {selectedCount} of {totalCount} {totalCount === 1 ? 'Assistant' : 'Assistants'} selected
+              </div>
+              <div className="text-[12px] text-[#71717A]">
+                Will append to Navigator. Existing Assistants stay.
+              </div>
+            </div>
           </div>
+
+          <label className="flex items-center gap-2 cursor-pointer pl-4 border-l border-[#E4E4E7]">
+            <input
+              type="checkbox"
+              checked={includeWorkspaceConfig}
+              onChange={onToggleWorkspaceConfig}
+              className="w-4 h-4 accent-[#7C3AED]"
+            />
+            <div>
+              <div className="text-[12.5px] font-semibold text-[#18181B]">Include workspace config</div>
+              <div className="text-[11px] text-[#71717A]">Main instructions · glossary · languages · departments</div>
+            </div>
+          </label>
         </div>
+
         <div className="flex items-center gap-3">
           <Link
             to="/prototypes/navigator-studio"
@@ -655,7 +1007,7 @@ function ApplyFooter({ selectedCount, totalCount, onApply }) {
           </Link>
           <button
             onClick={onApply}
-            disabled={selectedCount === 0}
+            disabled={selectedCount === 0 && !includeWorkspaceConfig}
             className="px-5 py-2.5 rounded-xl text-white text-[14px] font-semibold transition-all disabled:opacity-60 disabled:cursor-not-allowed shadow-sm hover:shadow-md inline-flex items-center gap-2"
             style={{ background: '#7C3AED' }}
           >
