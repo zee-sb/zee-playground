@@ -606,6 +606,111 @@ function extractUserCards(source) {
   return candidates.filter((u) => u && u.name && (u.email || u.id));
 }
 
+// Inline horizontal carousel that renders directly under an assistant message
+// whenever the answer included people-lookup tool results. Lets the user
+// scrub through compact profile cards without opening the sources sheet.
+function UserCardCarousel({ users }) {
+  if (!users?.length) return null;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 8,
+        overflowX: 'auto',
+        WebkitOverflowScrolling: 'touch',
+        scrollSnapType: 'x mandatory',
+        scrollbarWidth: 'none',
+        msOverflowStyle: 'none',
+        marginTop: 8,
+        marginLeft: -4,
+        marginRight: -4,
+        paddingLeft: 4,
+        paddingRight: 4,
+        paddingBottom: 4,
+      }}
+      className="cw-no-scrollbar"
+    >
+      {users.map((u, i) => (
+        <CompactUserCard key={`${u.id || u.email || i}`} user={u} />
+      ))}
+    </div>
+  );
+}
+
+function CompactUserCard({ user }) {
+  const initials = (user.name || '?')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0])
+    .join('')
+    .toUpperCase();
+  const href = user.email ? `mailto:${user.email}` : undefined;
+  const content = (
+    <>
+      <div style={{ position: 'relative', width: 56, height: 56, marginBottom: 8 }}>
+        {user.avatar && (
+          <img
+            src={user.avatar}
+            alt=""
+            referrerPolicy="no-referrer"
+            onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling.style.display = 'grid'; }}
+            style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover', background: '#F4F4F5' }}
+          />
+        )}
+        <div
+          style={{
+            width: 56, height: 56, borderRadius: '50%',
+            display: user.avatar ? 'none' : 'grid',
+            placeItems: 'center', color: 'white', fontSize: 16, fontWeight: 700,
+            background: 'linear-gradient(135deg,#7C3AED,#4F46E5)',
+            position: user.avatar ? 'absolute' : undefined,
+            top: user.avatar ? 0 : undefined, left: user.avatar ? 0 : undefined,
+          }}
+        >
+          {initials}
+        </div>
+      </div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#18181B', lineHeight: 1.25 }}>
+        {user.name}
+      </div>
+      {user.title && (
+        <div
+          style={{
+            fontSize: 11, color: '#52525B', marginTop: 2, lineHeight: 1.3,
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
+        >
+          {user.title}
+        </div>
+      )}
+      {user.department && (
+        <div style={{ fontSize: 10, color: '#71717A', marginTop: 4, fontWeight: 500 }}>
+          {user.department}
+        </div>
+      )}
+    </>
+  );
+  const baseStyle = {
+    flexShrink: 0,
+    width: 160,
+    scrollSnapAlign: 'start',
+    background: 'white',
+    border: '1px solid #E4E4E7',
+    borderRadius: 14,
+    padding: '12px 12px 10px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+    textDecoration: 'none',
+    display: 'block',
+  };
+  return href ? (
+    <a href={href} style={baseStyle}>{content}</a>
+  ) : (
+    <div style={baseStyle}>{content}</div>
+  );
+}
+
 function UserCard({ user }) {
   const initials = (user.name || '?')
     .split(/\s+/)
@@ -692,6 +797,19 @@ function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false, s
             <ReactMarkdown components={markdownComponents}>{item.text}</ReactMarkdown>
           ) : (item.streaming ? <span style={{ color: '#A1A1AA' }}>…</span> : null)}
         </div>
+        {!item.streaming && (() => {
+          const peopleSources = sources.filter((s) => extractUserCards(s).length > 0);
+          const people = peopleSources.flatMap((s) => extractUserCards(s));
+          // De-dupe by id+email so multi-tool answers don't double up.
+          const seen = new Set();
+          const unique = people.filter((u) => {
+            const k = `${u.id || ''}|${u.email || ''}`;
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          });
+          return unique.length > 0 ? <UserCardCarousel users={unique} /> : null;
+        })()}
         {!item.streaming && sources.length > 0 && (
           <SourcesBadge count={sources.length} onOpen={() => onOpenSources?.(sources)} />
         )}

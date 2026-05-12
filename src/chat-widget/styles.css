@@ -1,6 +1,8 @@
 /* ─── Chat Widget Styles ─── */
 /* All classes prefixed with .cw- to avoid collisions */
 
+.cw-no-scrollbar::-webkit-scrollbar { display: none; }
+
 :root {
   --cw-primary: #7B5CE3;
   --cw-primary-dark: #6D28D9;
