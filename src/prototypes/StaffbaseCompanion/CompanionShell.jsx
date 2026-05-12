@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MessageSquarePlus, ArrowLeft, Sparkles, Plug, MessageCircle, LogOut, Menu } from 'lucide-react';
+import { MessageSquarePlus, ArrowLeft, Sparkles, Plug, MessageCircle, LogOut } from 'lucide-react';
 import ChatPanel from './ChatPanel.jsx';
 import ConnectionsPanel from './ConnectionsPanel.jsx';
 import { PhoneFrame, StatusBar } from './PhoneFrame.jsx';
@@ -186,20 +186,14 @@ export default function CompanionShell({ user, connections, onSignedOut, onBack,
           pointerEvents: 'none', zIndex: 0,
         }} />
         {view === 'chat' ? ChatSurface : (
-          <>
-            {/* Menu button is owned by ChatPanel's AppHeader on chat view;
-                non-chat views render their own floating menu button. */}
-            <button
-              onClick={() => setDrawerOpen(true)}
-              aria-label="Open menu"
-              style={{ position: 'absolute', top: 14, left: 14, zIndex: 10, background: 'rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8, padding: 6, color: '#52525B', cursor: 'pointer' }}
-            >
-              <Menu size={14} />
-            </button>
-            <div style={{ position: 'relative', zIndex: 1, flex: 1, overflow: 'auto', background: 'white' }}>
-              <ConnectionsPanel connections={connections} onChanged={onMeRefresh} />
-            </div>
-          </>
+          <div style={{ position: 'relative', zIndex: 1, flex: 1, overflow: 'hidden', background: 'white' }}>
+            <ConnectionsPanel
+              connections={connections}
+              onChanged={onMeRefresh}
+              isMobile
+              onOpenHistory={() => setDrawerOpen(true)}
+            />
+          </div>
         )}
         {drawerOpen && (
           <div className="fixed inset-0 z-50 flex">
