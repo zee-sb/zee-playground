@@ -217,6 +217,12 @@ async function chat(req, res) {
         values (${conversationId}, 'tool', ${JSON.stringify(toolMsg)}::jsonb)
       `;
     };
+    const onSystemMessage = async (content) => {
+      await sql`
+        insert into messages (conversation_id, role, content)
+        values (${conversationId}, 'system', ${JSON.stringify(content)}::jsonb)
+      `;
+    };
     const result = await runOrchestratedTurn({
       openai,
       userId: session.userId,
@@ -227,6 +233,7 @@ async function chat(req, res) {
       emit,
       onAssistantMessage,
       onToolResult,
+      onSystemMessage,
     });
     if (result.status === 'await_confirm') {
       await sql`

@@ -63,6 +63,40 @@ function reduceMessages(rows) {
           if (item) item.status = 'pending';
         }
       }
+      // Trivia-state recovery: rebuild past round results + the currently
+      // open question from the latest trivia state. Earlier snapshots are
+      // superseded by the most recent one (we just overwrite).
+      if (c.trivia) {
+        // Drop any earlier reconstructed trivia entries — keep only the
+        // latest snapshot's view.
+        for (let i = out.length - 1; i >= 0; i--) {
+          if (out[i].kind === 'trivia_question' || out[i].kind === 'trivia_result') out.splice(i, 1);
+        }
+        const t = c.trivia;
+        let score = 0;
+        for (const past of t.rounds || []) {
+          if (past.correct) score += 1;
+          out.push({
+            kind: 'trivia_result',
+            round: (out.filter((x) => x.kind === 'trivia_result').length || 0) + 1,
+            total: 3,
+            correct: !!past.correct,
+            reveal: past.correctLabel,
+            score,
+            scoreOutOf: 3,
+          });
+        }
+        if (t.currentRound && !t.finalized) {
+          out.push({
+            kind: 'trivia_question',
+            round: t.round, total: 3,
+            category: t.currentRound.category,
+            clue: t.currentRound.clue,
+            options: t.currentRound.optionPublic || [],
+            answered: false,
+          });
+        }
+      }
     }
   }
   return out;
@@ -116,6 +150,26 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
         next.push({ kind: 'connector_error', connector: evt.connector, message: evt.message });
       } else if (evt.type === 'needs_connection') {
         next.push({ kind: 'connect_prompt', connectors: evt.connectors || [] });
+      } else if (evt.type === 'trivia_question') {
+        next.push({
+          kind: 'trivia_question',
+          round: evt.round, total: evt.total, category: evt.category,
+          clue: evt.clue, options: evt.options || [],
+          answered: false,
+        });
+      } else if (evt.type === 'trivia_result') {
+        // Mark the latest trivia_question as answered so the composer unlocks,
+        // and push a result item just under it.
+        for (let i = next.length - 1; i >= 0; i--) {
+          if (next[i].kind === 'trivia_question') { next[i].answered = true; break; }
+        }
+        next.push({
+          kind: 'trivia_result',
+          round: evt.round, total: evt.total,
+          correct: !!evt.correct,
+          reveal: evt.reveal,
+          score: evt.score, scoreOutOf: evt.scoreOutOf,
+        });
       } else if (evt.type === 'conversation_renamed') {
         // Fire-and-forget — the parent updates its conversation list.
         // Use queueMicrotask so we don't setState during this setState.
@@ -197,6 +251,16 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
   const userInitials = user?.avatarInitials || (user?.displayName || '?').slice(0, 2).toUpperCase();
   const liveBadges = ['Staffbase'];
   if (atlassianLinked) liveBadges.push('Atlassian');
+
+  // Trivia is active when the latest trivia_question hasn't been answered.
+  // While active, the composer is disabled — the user must pick a card.
+  const triviaActive = (() => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.kind === 'trivia_question') return !it.answered;
+    }
+    return false;
+  })();
 
   return (
     <>
@@ -296,7 +360,12 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
         </div>
       )}
 
-      <Composer onSubmit={send} disabled={busy || !conversationId} isMobile={isMobile} />
+      <Composer
+        onSubmit={send}
+        disabled={busy || !conversationId || triviaActive}
+        placeholder={triviaActive ? 'Pick a card above to continue' : undefined}
+        isMobile={isMobile}
+      />
 
       {pendingConfirm && (
         <ConfirmWriteModal
@@ -838,6 +907,171 @@ function ConnectorPromptCard({ connector }) {
   );
 }
 
+// ── Trivia question + result cards ──────────────────────────────────────────
+// The trivia state machine emits trivia_question events with 3 options that
+// hide identifying detail (title/date/description). The user picks ONE card;
+// the click sends the option's label as a normal user message so the
+// orchestrator can validate. Composer is disabled while a question is open
+// (computed in the parent), so clicking is the ONLY way forward.
+
+function CategoryLabel({ category }) {
+  const map = {
+    teammate: { label: 'Mystery teammate', color: '#7C3AED' },
+    post: { label: 'Mystery post', color: '#0EA5E9' },
+    channel: { label: 'Mystery channel', color: '#0EA5E9' },
+  };
+  const c = map[category] || { label: 'Trivia', color: '#7C3AED' };
+  return (
+    <span style={{
+      fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
+      color: c.color, background: `${c.color}1A`,
+      padding: '2px 7px', borderRadius: 6,
+    }}>{c.label}</span>
+  );
+}
+
+function TriviaOptionCard({ option, onClick, disabled }) {
+  const initials = (option.label || '?')
+    .split(/\s+/).filter(Boolean).slice(0, 2)
+    .map((p) => p[0]).join('').toUpperCase();
+  const color = option.kind === 'channel' ? '#0EA5E9'
+    : option.kind === 'post' ? '#0369A1'
+    : '#7C3AED';
+
+  const visual = option.kind === 'teammate' ? (
+    <div style={{ position: 'relative', width: 72, height: 72, margin: '0 auto 8px' }}>
+      {option.avatar && (
+        <img
+          src={option.avatar}
+          alt=""
+          referrerPolicy="no-referrer"
+          onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling.style.display = 'grid'; }}
+          style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', background: '#F4F4F5' }}
+        />
+      )}
+      <div style={{
+        width: 72, height: 72, borderRadius: '50%',
+        display: option.avatar ? 'none' : 'grid',
+        placeItems: 'center', color: 'white', fontSize: 22, fontWeight: 800,
+        background: 'linear-gradient(135deg,#7C3AED,#4F46E5)',
+        position: option.avatar ? 'absolute' : undefined,
+        top: option.avatar ? 0 : undefined, left: option.avatar ? 0 : undefined,
+      }}>{initials}</div>
+    </div>
+  ) : option.kind === 'post' ? (
+    <div style={{
+      width: '100%', height: 72, marginBottom: 8,
+      borderRadius: 10,
+      background: option.image
+        ? `url(${option.image}) center/cover, ${color}`
+        : `linear-gradient(135deg, ${color}, #1e3a8a)`,
+      display: 'grid', placeItems: 'center',
+    }}>
+      {!option.image && (
+        <div style={{ color: 'white', fontSize: 26, fontWeight: 800, opacity: 0.6 }}>{initials}</div>
+      )}
+    </div>
+  ) : (
+    <div style={{
+      width: '100%', height: 72, marginBottom: 8,
+      borderRadius: 10,
+      background: `linear-gradient(135deg, ${color}, #1e3a8a)`,
+      display: 'grid', placeItems: 'center',
+      color: 'white', fontSize: 28, fontWeight: 800,
+    }}>#</div>
+  );
+
+  return (
+    <button
+      onClick={() => !disabled && onClick?.(option.label)}
+      disabled={disabled}
+      style={{
+        flex: 1, minWidth: 0,
+        background: 'white',
+        border: '1px solid #E4E4E7', borderRadius: 14,
+        padding: 12,
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.6 : 1,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        transition: 'all 0.12s ease',
+        textAlign: 'center',
+      }}
+      onMouseEnter={(e) => { if (!disabled) { e.currentTarget.style.borderColor = color; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 4px 14px ${color}33`; } }}
+      onMouseLeave={(e) => { if (!disabled) { e.currentTarget.style.borderColor = '#E4E4E7'; e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)'; } }}
+    >
+      {visual}
+      <div style={{
+        fontSize: 12, fontWeight: 700, color: '#18181B',
+        lineHeight: 1.25,
+        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+        overflow: 'hidden', minHeight: 30,
+      }}>
+        {option.label}
+      </div>
+    </button>
+  );
+}
+
+function TriviaQuestion({ question, onPick }) {
+  return (
+    <div style={{
+      marginTop: 4, marginBottom: 4,
+      background: 'white', borderRadius: 16,
+      border: '1px solid #E4E4E7',
+      padding: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <CategoryLabel category={question.category} />
+        <span style={{ fontSize: 10, color: '#A1A1AA', fontWeight: 600 }}>
+          Round {question.round} of {question.total}
+        </span>
+      </div>
+      <div style={{ fontSize: 13, lineHeight: 1.4, color: '#18181B', marginBottom: 10 }}>
+        <ReactMarkdown components={markdownComponents}>{question.clue}</ReactMarkdown>
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {(question.options || []).map((opt) => (
+          <TriviaOptionCard
+            key={opt.id}
+            option={opt}
+            onClick={onPick}
+            disabled={question.answered}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TriviaResult({ result }) {
+  const color = result.correct ? '#16A34A' : '#B45309';
+  const bg = result.correct ? '#DCFCE7' : '#FEF3C7';
+  return (
+    <div style={{
+      marginTop: 4, marginBottom: 4,
+      background: bg, borderRadius: 12,
+      padding: '8px 12px',
+      display: 'flex', alignItems: 'center', gap: 8,
+    }}>
+      <span style={{ fontSize: 16 }}>{result.correct ? '🎯' : '🤔'}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color, lineHeight: 1.3 }}>
+          {result.correct ? 'Nailed it' : 'Close, but no'}
+        </div>
+        <div style={{ fontSize: 11, color: '#52525B', lineHeight: 1.35 }}>
+          {result.reveal}
+        </div>
+      </div>
+      <div style={{
+        fontSize: 11, fontWeight: 700, color, background: 'white',
+        padding: '4px 8px', borderRadius: 999, flexShrink: 0,
+      }}>
+        {result.score}/{result.scoreOutOf}
+      </div>
+    </div>
+  );
+}
+
 // ── Item renderer ───────────────────────────────────────────────────────────
 
 function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false, sources = [], onOpenSources }) {
@@ -860,6 +1094,17 @@ function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false, s
         ))}
       </div>
     );
+  }
+  if (item.kind === 'trivia_question') {
+    return (
+      <TriviaQuestion
+        question={item}
+        onPick={(label) => !item.answered && onSuggestion(label)}
+      />
+    );
+  }
+  if (item.kind === 'trivia_result') {
+    return <TriviaResult result={item} />;
   }
   if (item.role === 'user') {
     return (
@@ -938,7 +1183,7 @@ function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false, s
 
 // ── Composer (rounded glass pill + circular send + AI disclaimer) ──────────
 
-function Composer({ onSubmit, disabled, isMobile }) {
+function Composer({ onSubmit, disabled, isMobile, placeholder }) {
   const [value, setValue] = useState('');
   const ref = useRef(null);
 
@@ -978,7 +1223,7 @@ function Composer({ onSubmit, disabled, isMobile }) {
           value={value}
           onChange={onInput}
           onKeyDown={onKey}
-          placeholder="Ask Companion anything…"
+          placeholder={placeholder || 'Ask Companion anything…'}
           disabled={disabled}
           rows={1}
           style={{
