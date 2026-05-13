@@ -55,7 +55,9 @@ export function HealthSummary({ summary, loading, onAction, actionLabel = 'View 
   )
 }
 
-export default function HealthTab({ basePath }) {
+// When embedded inside another panel (e.g. Home tab) we skip the page header
+// and the summary cards — the outer panel already provides them.
+export default function HealthTab({ basePath, embedded = false }) {
   const navigate = useNavigate()
   const { issues, summary, loading, error, deep, setDeep, refresh, applyAutoFix } = useNavigatorHealth()
   const [sevFilter, setSevFilter] = useState('all')
@@ -112,42 +114,46 @@ export default function HealthTab({ basePath }) {
 
   return (
     <div className="max-w-4xl">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <ShieldCheck size={20} className="text-[#7C3AED]" />
-            <h2 className="text-[18px] font-bold text-[#111827]">Navigator health</h2>
+      {!embedded && (
+        <>
+          {/* Header — skipped when embedded inside the Home tab. */}
+          <div className="flex items-start justify-between mb-5">
+            <div>
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={20} className="text-[#7C3AED]" />
+                <h2 className="text-[18px] font-bold text-[#111827]">Navigator health</h2>
+              </div>
+              <p className="text-[12.5px] text-[#6B7280] mt-1 max-w-xl">
+                Cross-entity validation across Assistants, Flows, MCPs, Agents, and Knowledge Bases. Surfaces broken references, scope overlaps, orphan resources, and gaps in your workspace blueprint.
+              </p>
+            </div>
+            <button
+              onClick={refresh}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#E5E7EB] bg-white hover:border-[#7C3AED] hover:text-[#7C3AED] text-[12.5px] font-semibold text-[#374151] disabled:opacity-50"
+            >
+              <RotateCw size={13} className={loading ? 'animate-spin' : ''} />
+              Re-run
+            </button>
           </div>
-          <p className="text-[12.5px] text-[#6B7280] mt-1 max-w-xl">
-            Cross-entity validation across Assistants, Flows, MCPs, Agents, and Knowledge Bases. Surfaces broken references, scope overlaps, orphan resources, and gaps in your workspace blueprint.
-          </p>
-        </div>
-        <button
-          onClick={refresh}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#E5E7EB] bg-white hover:border-[#7C3AED] hover:text-[#7C3AED] text-[12.5px] font-semibold text-[#374151] disabled:opacity-50"
-        >
-          <RotateCw size={13} className={loading ? 'animate-spin' : ''} />
-          Re-run
-        </button>
-      </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
-        <SummaryCard
-          icon={AlertCircle} color="#DC2626" bg="#FEF2F2" border="#FCA5A5"
-          label="Errors" count={summary?.errors || 0}
-        />
-        <SummaryCard
-          icon={AlertTriangle} color="#D97706" bg="#FEF9C3" border="#FACC15"
-          label="Warnings" count={summary?.warnings || 0}
-        />
-        <SummaryCard
-          icon={Info} color="#2563EB" bg="#EFF6FF" border="#BFDBFE"
-          label="Info" count={summary?.info || 0}
-        />
-      </div>
+          {/* Summary cards */}
+          <div className="grid grid-cols-3 gap-3 mb-5">
+            <SummaryCard
+              icon={AlertCircle} color="#DC2626" bg="#FEF2F2" border="#FCA5A5"
+              label="Errors" count={summary?.errors || 0}
+            />
+            <SummaryCard
+              icon={AlertTriangle} color="#D97706" bg="#FEF9C3" border="#FACC15"
+              label="Warnings" count={summary?.warnings || 0}
+            />
+            <SummaryCard
+              icon={Info} color="#2563EB" bg="#EFF6FF" border="#BFDBFE"
+              label="Info" count={summary?.info || 0}
+            />
+          </div>
+        </>
+      )}
 
       {/* Filters + deep toggle */}
       <div className="flex items-center gap-2 flex-wrap mb-4">

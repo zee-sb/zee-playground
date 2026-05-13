@@ -150,7 +150,7 @@ export default function HomeTab({ tenant = {}, config = {}, blueprint, basePath,
         />
         {healthOpen && (
           <div className="mt-5 pt-5 border-t border-[#E5E7EB]">
-            <HealthTab basePath={basePath} />
+            <HealthTab basePath={basePath} embedded />
           </div>
         )}
       </div>
