@@ -1,30 +1,81 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import {
   ArrowLeft, Plug, BookOpen, MessageSquare, ChevronRight, Loader2,
   CheckCircle, XCircle, User, Wrench, FileText, Zap, Send, RotateCcw,
   ChevronDown, ChevronUp, AlertCircle, Calendar, MapPin, Mail, Clock,
-  Users, Building2, X,
+  Users, Building2, X, Sparkles, Bot, Server, ExternalLink, ShieldCheck,
 } from 'lucide-react';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const DEMO_USERS = [
-  { email: 'alice@staffbase.com', name: 'Alice Chen', role: 'HR Admin', color: '#7C3AED' },
-  { email: 'bob@staffbase.com', name: 'Bob Smith', role: 'Software Engineer', color: '#2563EB' },
-  { email: 'carol@staffbase.com', name: 'Carol Davis', role: 'Product Manager', color: '#059669' },
-  { email: 'dave@staffbase.com', name: 'Dave Wilson', role: 'UX Designer', color: '#D97706' },
+  { email: 'zyad.abuzeid@staffbase.com', name: 'Zee Abuzeid',  role: 'Senior Product Manager', color: '#00C7B2' },
+  { email: 'alice.chen@staffbase.com',   name: 'Alice Chen',   role: 'HR Manager',             color: '#7C3AED' },
+  { email: 'bob.smith@staffbase.com',    name: 'Bob Smith',    role: 'Software Engineer',      color: '#2563EB' },
+  { email: 'carol.davis@staffbase.com',  name: 'Carol Davis',  role: 'Product Manager',        color: '#059669' },
+  { email: 'dave.wilson@staffbase.com',  name: 'Dave Wilson',  role: 'UX Designer',            color: '#D97706' },
+  { email: 'erin@staffbase.com',         name: 'Erin Patel',   role: 'Office Worker',          color: '#DB2777' },
 ];
 
-const MCP_BASE = '/api/mcp';
 const AUTH_BASE = '/api/mcp-auth';
 const CHAT_BASE = '/api/chat';
+
+// Registry of every server reachable from the explorer.
+//   protocol: 'mcp' uses JSON-RPC initialize/list/call.
+//   protocol: 'a2a' uses an Agent Card discovery (GET) + task POSTs.
+//   auth: 'bearer'  → simulated SSO via /api/mcp-auth.
+//         'none'    → no auth; click-to-initialize.
+//         'oauth-google' → real OAuth; surfaced via the Companion prototype.
+const SERVERS = [
+  {
+    id: 'hr', protocol: 'mcp', name: 'Staffbase HR Portal',
+    description: 'Employee directory, PTO, policies, org chart',
+    base: '/api/mcp', auth: 'bearer', chat: '/api/chat',
+    color: '#7C3AED', icon: Users,
+  },
+  {
+    id: 'it', protocol: 'mcp', name: 'Staffbase IT Helpdesk',
+    description: 'Software requests, ticketing, device assignments',
+    base: '/api/mcp-it', auth: 'bearer', chat: '/api/chat',
+    color: '#2563EB', icon: Wrench,
+  },
+  {
+    id: 'intranet', protocol: 'mcp', name: 'Staffbase Intranet (Live)',
+    description: 'Real Campsite channels, posts, users via Staffbase API',
+    base: '/api/mcp-intranet', auth: 'none',
+    color: '#059669', icon: Building2,
+  },
+  {
+    id: 'staffbase', protocol: 'mcp', name: 'Staffbase Intranet v2',
+    description: 'Full Intranet catalog — channels, posts, search, profiles',
+    base: '/api/mcp-staffbase', auth: 'none',
+    color: '#00C7B2', icon: Server,
+  },
+  {
+    id: 'atlassian', protocol: 'mcp', name: 'Atlassian Internal',
+    description: 'Confluence + Jira — requires real Atlassian OAuth via Companion',
+    base: '/api/mcp-atlassian', auth: 'oauth-google',
+    color: '#0052CC', icon: BookOpen,
+  },
+  {
+    id: 'onboarding', protocol: 'a2a', name: 'Staffbase Onboarding Agent',
+    description: 'Autonomous A2A agent — personalised onboarding checklists',
+    base: '/api/a2a', auth: 'bearer',
+    color: '#F59E0B', icon: Sparkles,
+  },
+];
+
+function findServer(id) {
+  return SERVERS.find(s => s.id === id) || SERVERS[0];
+}
 
 // ── MCP client helpers ────────────────────────────────────────────────────────
 
 let reqId = 1;
 function nextId() { return reqId++; }
 
-async function mcpCall(method, params = {}, token = null) {
+async function mcpCall(base, method, params = {}, token = null) {
   const headers = {
     'Content-Type': 'application/json',
     'Accept': 'application/json, text/event-stream',
@@ -32,7 +83,7 @@ async function mcpCall(method, params = {}, token = null) {
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(MCP_BASE, {
+  const res = await fetch(base, {
     method: 'POST',
     headers,
     body: JSON.stringify({ jsonrpc: '2.0', id: nextId(), method, params }),
@@ -42,6 +93,12 @@ async function mcpCall(method, params = {}, token = null) {
   const jsonLine = text.split('\n').find(l => l.startsWith('data: ') || l.startsWith('{'));
   const raw = jsonLine?.startsWith('data: ') ? jsonLine.slice(6) : jsonLine || text;
   return JSON.parse(raw);
+}
+
+async function fetchAgentCard(base) {
+  const res = await fetch(base, { method: 'GET', headers: { 'Accept': 'application/json' } });
+  if (!res.ok) throw new Error(`Agent card fetch failed (${res.status})`);
+  return res.json();
 }
 
 // ── Dept colors ───────────────────────────────────────────────────────────────
@@ -473,11 +530,43 @@ function StatusDot({ ok }) {
 
 // ── Tab: Connect ──────────────────────────────────────────────────────────────
 
-function ConnectTab({ session, onConnect, onDisconnect }) {
+function ConnectTab({ server, session, onConnect, onDisconnect }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const connect = async (email) => {
+  const finishConnect = async (data) => {
+    if (server.protocol === 'a2a') {
+      const card = await fetchAgentCard(server.base);
+      onConnect({
+        ...data,
+        serverId: server.id,
+        agentCard: card,
+        serverInfo: { name: card.name, version: card.version },
+        capabilities: { skills: card.skills?.length || 0, streaming: !!card.capabilities?.streaming },
+      });
+      return;
+    }
+    const init = await mcpCall(server.base, 'initialize', {
+      protocolVersion: '2025-03-26',
+      capabilities: {},
+      clientInfo: { name: 'navigator-demo', version: '1.0.0' },
+    }, data.token);
+    // Best-effort list calls to fill the Capabilities panel with live counts.
+    const counts = { resources: 0, tools: 0, prompts: 0 };
+    await Promise.all([
+      mcpCall(server.base, 'resources/list', {}, data.token).then(r => { counts.resources = r.result?.resources?.length || 0; }).catch(() => {}),
+      mcpCall(server.base, 'tools/list',     {}, data.token).then(r => { counts.tools     = r.result?.tools?.length     || 0; }).catch(() => {}),
+      mcpCall(server.base, 'prompts/list',   {}, data.token).then(r => { counts.prompts   = r.result?.prompts?.length   || 0; }).catch(() => {}),
+    ]);
+    onConnect({
+      ...data,
+      serverId: server.id,
+      serverInfo: init.result?.serverInfo,
+      capabilities: counts,
+    });
+  };
+
+  const connectBearer = async (email) => {
     setLoading(true);
     setError(null);
     try {
@@ -488,14 +577,19 @@ function ConnectTab({ session, onConnect, onDisconnect }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Auth failed');
+      await finishConnect(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-      const init = await mcpCall('initialize', {
-        protocolVersion: '2025-03-26',
-        capabilities: {},
-        clientInfo: { name: 'navigator-demo', version: '1.0.0' },
-      }, data.token);
-
-      onConnect({ ...data, serverInfo: init.result?.serverInfo });
+  const connectAnonymous = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await finishConnect({ token: null, user: null });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -509,28 +603,34 @@ function ConnectTab({ session, onConnect, onDisconnect }) {
         <div className="flex items-start gap-4 p-5 bg-emerald-50 border border-emerald-200 rounded-xl">
           <CheckCircle size={22} className="text-emerald-500 mt-0.5 shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-emerald-800">Connected to Staffbase HR Portal</p>
-            <p className="text-sm text-emerald-700 mt-0.5">Authenticated as <strong>{session.user.name}</strong> · {session.user.title}</p>
+            <p className="font-semibold text-emerald-800">Connected to {server.name}</p>
+            {session.user ? (
+              <p className="text-sm text-emerald-700 mt-0.5">Authenticated as <strong>{session.user.name}</strong> · {session.user.title}</p>
+            ) : (
+              <p className="text-sm text-emerald-700 mt-0.5">Anonymous session — this server doesn't require user auth</p>
+            )}
             {session.serverInfo && (
               <p className="text-xs text-emerald-600 mt-1">{session.serverInfo.name} v{session.serverInfo.version}</p>
             )}
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div className="p-3 bg-[#F9FAFB] rounded-lg border border-[#E5E7EB]">
-            <p className="text-[11px] text-[#6B7280] font-medium uppercase tracking-wide mb-1">Role</p>
-            <p className="font-semibold text-[#111827]">{session.user.role}</p>
+        {session.user && (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="p-3 bg-[#F9FAFB] rounded-lg border border-[#E5E7EB]">
+              <p className="text-[11px] text-[#6B7280] font-medium uppercase tracking-wide mb-1">Role</p>
+              <p className="font-semibold text-[#111827]">{session.user.role}</p>
+            </div>
+            <div className="p-3 bg-[#F9FAFB] rounded-lg border border-[#E5E7EB]">
+              <p className="text-[11px] text-[#6B7280] font-medium uppercase tracking-wide mb-1">Department</p>
+              <p className="font-semibold text-[#111827]">{session.user.department}</p>
+            </div>
+            <div className="p-3 bg-[#F9FAFB] rounded-lg border border-[#E5E7EB] col-span-2">
+              <p className="text-[11px] text-[#6B7280] font-medium uppercase tracking-wide mb-1">Bearer Token</p>
+              <p className="font-mono text-xs text-[#374151] truncate">{session.token}</p>
+            </div>
           </div>
-          <div className="p-3 bg-[#F9FAFB] rounded-lg border border-[#E5E7EB]">
-            <p className="text-[11px] text-[#6B7280] font-medium uppercase tracking-wide mb-1">Department</p>
-            <p className="font-semibold text-[#111827]">{session.user.department}</p>
-          </div>
-          <div className="p-3 bg-[#F9FAFB] rounded-lg border border-[#E5E7EB] col-span-2">
-            <p className="text-[11px] text-[#6B7280] font-medium uppercase tracking-wide mb-1">Bearer Token</p>
-            <p className="font-mono text-xs text-[#374151] truncate">{session.token}</p>
-          </div>
-        </div>
+        )}
 
         <button onClick={onDisconnect}
           className="w-full py-2 border border-[#E5E7EB] rounded-lg text-sm text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#374151] transition-colors">
@@ -540,11 +640,63 @@ function ConnectTab({ session, onConnect, onDisconnect }) {
     );
   }
 
+  // OAuth-only servers redirect users to the Companion prototype rather than
+  // attempting to do the dance from here.
+  if (server.auth === 'oauth-google') {
+    return (
+      <div className="p-6 space-y-5">
+        <div>
+          <h3 className="text-sm font-semibold text-[#111827] mb-1">Real OAuth required</h3>
+          <p className="text-sm text-[#6B7280]">
+            {server.name} runs against live Confluence + Jira. Authenticate with your real Staffbase Google account via the Companion prototype — per-user OAuth tokens are issued there.
+          </p>
+        </div>
+        <Link to="/prototypes/staffbase-companion"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-colors"
+          style={{ background: server.color }}>
+          <ExternalLink size={14} /> Open Staffbase Companion
+        </Link>
+      </div>
+    );
+  }
+
+  if (server.auth === 'none') {
+    return (
+      <div className="p-6 space-y-5">
+        <div>
+          <h3 className="text-sm font-semibold text-[#111827] mb-1">No authentication required</h3>
+          <p className="text-sm text-[#6B7280]">
+            {server.name} is open. Click below to call <code className="px-1 py-0.5 bg-[#F3F4F6] rounded text-[11px]">initialize</code> and explore its catalog.
+          </p>
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <AlertCircle size={15} className="shrink-0" />
+            {error}
+          </div>
+        )}
+
+        <button onClick={connectAnonymous} disabled={loading}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold text-white transition-colors disabled:opacity-40"
+          style={{ background: server.color }}>
+          {loading ? <Loader2 size={15} className="animate-spin" /> : <Plug size={14} />}
+          Initialize connection
+        </button>
+      </div>
+    );
+  }
+
+  // Default: simulated SSO bearer flow (HR, IT, Onboarding Agent).
   return (
     <div className="p-6 space-y-5">
       <div>
         <h3 className="text-sm font-semibold text-[#111827] mb-1">Simulated SSO Login</h3>
-        <p className="text-sm text-[#6B7280]">Pick an Staffbase employee to authenticate as. The server returns a Bearer token used for all MCP requests.</p>
+        <p className="text-sm text-[#6B7280]">
+          Pick a Staffbase employee to authenticate as. {server.protocol === 'a2a'
+            ? 'The agent identifies the new hire from this token to personalise the onboarding checklist.'
+            : 'The server returns a Bearer token used for all MCP requests.'}
+        </p>
       </div>
 
       {error && (
@@ -556,7 +708,7 @@ function ConnectTab({ session, onConnect, onDisconnect }) {
 
       <div className="grid grid-cols-1 gap-3">
         {DEMO_USERS.map(u => (
-          <button key={u.email} onClick={() => connect(u.email)} disabled={loading}
+          <button key={u.email} onClick={() => connectBearer(u.email)} disabled={loading}
             className="flex items-center gap-3 p-4 bg-white border border-[#E5E7EB] rounded-xl hover:border-[#7C3AED] hover:shadow-sm transition-all text-left disabled:opacity-50">
             <div className="w-9 h-9 rounded-full grid place-items-center text-white text-sm font-bold shrink-0"
               style={{ background: u.color }}>
@@ -576,7 +728,7 @@ function ConnectTab({ session, onConnect, onDisconnect }) {
 
 // ── Tab: Explorer ─────────────────────────────────────────────────────────────
 
-function ExplorerTab({ session }) {
+function ExplorerTab({ server, session }) {
   const [resources, setResources] = useState(null);
   const [tools, setTools] = useState(null);
   const [prompts, setPrompts] = useState(null);
@@ -584,30 +736,31 @@ function ExplorerTab({ session }) {
   const [fetchedContent, setFetchedContent] = useState({});
   const [loading, setLoading] = useState({});
   const token = session?.token;
+  const isA2A = server.protocol === 'a2a';
 
   const load = useCallback(async (type) => {
-    if (!token) return;
+    if (!session) return;
     setLoading(l => ({ ...l, [type]: true }));
     try {
       const methodMap = { resources: 'resources/list', tools: 'tools/list', prompts: 'prompts/list' };
-      const res = await mcpCall(methodMap[type], {}, token);
+      const res = await mcpCall(server.base, methodMap[type], {}, token);
       if (type === 'resources') setResources(res.result?.resources || []);
       if (type === 'tools') setTools(res.result?.tools || []);
       if (type === 'prompts') setPrompts(res.result?.prompts || []);
     } finally {
       setLoading(l => ({ ...l, [type]: false }));
     }
-  }, [token]);
+  }, [server.base, session, token]);
 
   useEffect(() => {
-    if (token) { load('resources'); load('tools'); load('prompts'); }
-  }, [token, load]);
+    if (session && !isA2A) { load('resources'); load('tools'); load('prompts'); }
+  }, [session, isA2A, load]);
 
   const fetchResource = async (uri) => {
     if (fetchedContent[uri]) { setSelected({ type: 'resource-content', uri }); return; }
     setLoading(l => ({ ...l, [uri]: true }));
     try {
-      const res = await mcpCall('resources/read', { uri }, token);
+      const res = await mcpCall(server.base, 'resources/read', { uri }, token);
       setFetchedContent(fc => ({ ...fc, [uri]: res.result?.contents?.[0] || res }));
       setSelected({ type: 'resource-content', uri });
     } finally {
@@ -619,7 +772,69 @@ function ExplorerTab({ session }) {
     return (
       <div className="p-6 flex flex-col items-center justify-center h-64 text-center gap-3">
         <Plug size={32} className="text-[#D1D5DB]" />
-        <p className="text-sm text-[#6B7280]">Connect to an account first to explore the MCP server.</p>
+        <p className="text-sm text-[#6B7280]">Connect first to explore {isA2A ? 'this agent' : 'this MCP server'}.</p>
+      </div>
+    );
+  }
+
+  // A2A explorer: list the agent's skills instead of MCP resources/tools/prompts.
+  if (isA2A) {
+    const skills = session.agentCard?.skills || [];
+    return (
+      <div className="flex h-full min-h-0">
+        <div className="w-64 border-r border-[#E5E7EB] overflow-y-auto shrink-0">
+          <div className="p-3">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Sparkles size={13} style={{ color: server.color }} />
+              <span className="text-[11px] font-bold uppercase tracking-wide" style={{ color: server.color }}>Skills</span>
+            </div>
+            {skills.map(s => (
+              <button key={s.id} onClick={() => setSelected({ type: 'skill', data: s })}
+                className={`w-full text-left px-2 py-1.5 rounded-lg text-xs flex items-center gap-2 transition-colors ${selected?.data?.id === s.id ? 'bg-[#FEF3C7] text-[#92400E]' : 'hover:bg-[#F9FAFB] text-[#374151]'}`}>
+                <Bot size={11} className="shrink-0" />
+                <span className="truncate">{s.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {!selected && (
+            <div className="h-full flex flex-col items-center justify-center text-center gap-2">
+              <Bot size={28} className="text-[#D1D5DB]" />
+              <p className="text-sm text-[#6B7280]">Select a skill on the left to inspect it.</p>
+            </div>
+          )}
+          {selected?.type === 'skill' && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Sparkles size={15} style={{ color: server.color }} />
+                <span className="font-semibold text-sm text-[#111827]">{selected.data.name}</span>
+                <Badge color={server.color}>skill</Badge>
+              </div>
+              <p className="text-sm text-[#4B5563]">{selected.data.description}</p>
+              {selected.data.tags?.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {selected.data.tags.map(t => (
+                    <span key={t} className="px-2 py-0.5 rounded-full bg-[#F3F4F6] text-[11px] text-[#374151]">{t}</span>
+                  ))}
+                </div>
+              )}
+              {selected.data.examples?.length > 0 && (
+                <>
+                  <p className="text-xs font-semibold text-[#6B7280] uppercase tracking-wide">Example prompts</p>
+                  <div className="space-y-1.5">
+                    {selected.data.examples.map(ex => (
+                      <div key={ex} className="px-3 py-2 bg-[#F9FAFB] rounded-lg border border-[#E5E7EB] text-xs text-[#374151]">
+                        “{ex}”
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -745,7 +960,7 @@ function ExplorerTab({ session }) {
 
 // ── Tab: Chat ─────────────────────────────────────────────────────────────────
 
-function ChatTab({ session }) {
+function ChatTab({ server, session }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -753,14 +968,16 @@ function ChatTab({ session }) {
   const bottomRef = useRef(null);
   const formResolverRef = useRef(null);
   const token = session?.token;
+  const isA2A = server.protocol === 'a2a';
+  const chatBase = server.chat || CHAT_BASE;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   useEffect(() => {
-    if (!token || tools) return;
-    mcpCall('tools/list', {}, token).then(res => {
+    if (isA2A || !session || tools) return;
+    mcpCall(server.base, 'tools/list', {}, token).then(res => {
       const t = res.result?.tools || [];
       setTools(t.map(tool => ({
         type: 'function',
@@ -774,7 +991,7 @@ function ChatTab({ session }) {
   }, [token, tools]);
 
   const callMcpTool = async (name, args) => {
-    const res = await mcpCall('tools/call', { name, arguments: args }, token);
+    const res = await mcpCall(server.base, 'tools/call', { name, arguments: args }, token);
     const content = res.result?.content;
     if (Array.isArray(content)) return content.map(c => c.text || JSON.stringify(c)).join('\n');
     return JSON.stringify(res.result || res.error);
@@ -800,8 +1017,82 @@ function ChatTab({ session }) {
     reject?.(new Error('cancelled'));
   };
 
+  const sendA2A = async (userText) => {
+    setSending(true);
+    setMessages(m => [...m, { role: 'user', content: userText }]);
+    setInput('');
+
+    const statusId = `a2a-${Date.now()}`;
+    setMessages(m => [...m, { role: 'a2a-status', id: statusId, label: 'Connecting to agent…' }]);
+
+    try {
+      const headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+      };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(server.base, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: nextId(), method: 'tasks/sendSubscribe',
+          params: {
+            id: `task-${Date.now()}`,
+            message: { role: 'user', parts: [{ type: 'text', text: userText }] },
+            metadata: { clientTime: new Date().toISOString() },
+          },
+        }),
+      });
+
+      if (!res.ok) throw new Error(`A2A request failed (${res.status})`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalArtifact = null;
+      let finalLabel = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let evt;
+          try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+          const r = evt.result;
+          if (!r) continue;
+          const label = r.status?.message?.parts?.find(p => p.type === 'text')?.text;
+          if (label) {
+            setMessages(m => m.map(msg => msg.id === statusId ? { ...msg, label } : msg));
+            finalLabel = label;
+          }
+          if (r.final && r.artifacts?.length) finalArtifact = r.artifacts[0];
+        }
+      }
+
+      setMessages(m => m.filter(msg => msg.id !== statusId));
+      if (finalArtifact) {
+        const dataPart = finalArtifact.parts?.find(p => p.type === 'data')?.data;
+        const summary = `**${finalArtifact.name}**\n\n${finalArtifact.description || ''}` +
+          (dataPart?.tasks ? `\n\n${dataPart.tasks.map((t, i) => `${i + 1}. ${t.title}${t.critical ? ' ⚑ critical' : ''}\n   ${t.desc}`).join('\n')}` : '');
+        setMessages(m => [...m, { role: 'assistant', content: summary }]);
+      } else if (finalLabel) {
+        setMessages(m => [...m, { role: 'assistant', content: finalLabel }]);
+      }
+    } catch (e) {
+      setMessages(m => m.filter(msg => msg.id !== statusId));
+      setMessages(m => [...m, { role: 'error', content: e.message }]);
+    } finally {
+      setSending(false);
+    }
+  };
+
   const send = async (userText) => {
     if (!userText.trim() || sending) return;
+    if (isA2A) return sendA2A(userText);
     setSending(true);
 
     const userMsg = { role: 'user', content: userText };
@@ -829,7 +1120,7 @@ Rules:
     try {
       let currentMessages = [systemMessage, ...history];
       for (let round = 0; round < 6; round++) {
-        const res = await fetch(CHAT_BASE, {
+        const res = await fetch(chatBase, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ messages: currentMessages, tools: tools || [] }),
@@ -951,7 +1242,7 @@ Rules:
     );
   }
 
-  const suggestions = [
+  const HR_SUGGESTIONS = [
     'How much PTO do I have left?',
     'Find engineers on the team',
     'What is the remote work policy?',
@@ -959,6 +1250,27 @@ Rules:
     'I want to take next week off',
     'Search for parental leave info',
   ];
+  const IT_SUGGESTIONS = [
+    'Request access to Figma',
+    'What software do I have access to?',
+    'Show my open IT tickets',
+    'I need a new MacBook',
+  ];
+  const INTRANET_SUGGESTIONS = [
+    'List the latest channels',
+    'Show me recent posts',
+    'Who works in Engineering?',
+  ];
+  const A2A_SUGGESTIONS = [
+    'Start my Staffbase onboarding',
+    "What's on my first-week checklist?",
+    'Show me day-one tasks',
+    "What's left before my first month is up?",
+  ];
+  const suggestions = isA2A ? A2A_SUGGESTIONS
+    : server.id === 'it' ? IT_SUGGESTIONS
+    : (server.id === 'intranet' || server.id === 'staffbase') ? INTRANET_SUGGESTIONS
+    : HR_SUGGESTIONS;
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -966,11 +1278,16 @@ Rules:
         {messages.length === 0 && (
           <div className="space-y-4 pt-4">
             <div className="text-center">
-              <div className="w-10 h-10 rounded-xl bg-[#EDE9FE] grid place-items-center mx-auto mb-2">
-                <Zap size={20} className="text-[#7C3AED]" />
+              <div className="w-10 h-10 rounded-xl grid place-items-center mx-auto mb-2"
+                style={{ background: server.color + '22' }}>
+                {isA2A
+                  ? <Sparkles size={20} style={{ color: server.color }} />
+                  : <Zap size={20} style={{ color: server.color }} />}
               </div>
-              <p className="text-sm font-semibold text-[#111827]">Staffbase HR Assistant</p>
-              <p className="text-xs text-[#6B7280] mt-0.5">Powered by OpenAI + MCP tools</p>
+              <p className="text-sm font-semibold text-[#111827]">{server.name}</p>
+              <p className="text-xs text-[#6B7280] mt-0.5">
+                {isA2A ? 'A2A streaming agent' : 'Powered by OpenAI + MCP tools'}
+              </p>
             </div>
             <div className="flex flex-wrap gap-2 justify-center">
               {suggestions.map(s => (
@@ -1000,6 +1317,18 @@ Rules:
                 </div>
                 <div className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-tl-sm bg-white border border-[#E5E7EB] text-sm leading-relaxed text-[#111827] whitespace-pre-wrap">
                   {msg.content}
+                </div>
+              </div>
+            )}
+
+            {msg.role === 'a2a-status' && (
+              <div className="flex gap-2 items-start">
+                <div className="w-6 h-6 rounded-full grid place-items-center shrink-0 mt-0.5"
+                  style={{ background: server.color + '22' }}>
+                  <Loader2 size={12} className="animate-spin" style={{ color: server.color }} />
+                </div>
+                <div className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-tl-sm bg-white border border-[#E5E7EB] text-sm leading-relaxed text-[#6B7280] italic">
+                  {msg.label}
                 </div>
               </div>
             )}
@@ -1080,17 +1409,178 @@ Rules:
   );
 }
 
+// ── Server picker rail ────────────────────────────────────────────────────────
+
+function ServerPicker({ servers, selectedId, onSelect }) {
+  return (
+    <div className="w-72 shrink-0 space-y-2">
+      <p className="px-1 text-xs font-bold uppercase tracking-wide text-[#6B7280] mb-2">
+        Servers & Agents
+      </p>
+      {servers.map(s => {
+        const Icon = s.icon;
+        const active = s.id === selectedId;
+        const protoLabel = s.protocol === 'a2a' ? 'A2A' : 'MCP';
+        return (
+          <button key={s.id} onClick={() => onSelect(s.id)}
+            className={`w-full text-left p-3 rounded-xl border bg-white transition-all flex items-start gap-3 ${active ? 'shadow-sm' : 'border-[#E4E4E7] hover:border-[#D1D5DB]'}`}
+            style={active ? { borderColor: s.color, boxShadow: `0 0 0 1px ${s.color}` } : undefined}>
+            <div className="w-9 h-9 rounded-lg grid place-items-center shrink-0"
+              style={{ background: s.color + '18' }}>
+              <Icon size={16} style={{ color: s.color }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold tracking-wide"
+                  style={{ background: s.color + '22', color: s.color }}>
+                  {protoLabel}
+                </span>
+                <span className="font-semibold text-sm text-[#111827] truncate">{s.name}</span>
+              </div>
+              <p className="text-[11px] text-[#6B7280] mt-0.5 leading-snug line-clamp-2">
+                {s.description}
+              </p>
+            </div>
+            {active && <ChevronRight size={14} className="shrink-0" style={{ color: s.color }} />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Right rail panels ─────────────────────────────────────────────────────────
+
+function ServerInfoPanel({ server, session }) {
+  const info = session?.serverInfo;
+  const rows = [
+    ['Name', info?.name || server.id],
+    ['Version', info?.version || '—'],
+    ['Transport', server.protocol === 'a2a' ? 'JSON-RPC over SSE' : 'HTTP (stateless)'],
+    ['Protocol', server.protocol === 'a2a' ? 'A2A v1' : '2025-03-26'],
+  ];
+  return (
+    <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-sm p-4 space-y-3">
+      <p className="text-xs font-bold uppercase tracking-wide text-[#6B7280]">Server Info</p>
+      <div className="space-y-2 text-sm">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex justify-between gap-2">
+            <span className="text-[#6B7280] shrink-0">{k}</span>
+            <span className="font-medium text-[#111827] truncate text-right">{v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CapabilitiesPanel({ server, session }) {
+  const caps = session?.capabilities;
+  let items = [];
+  if (server.protocol === 'a2a') {
+    items = [
+      { label: `${caps?.skills ?? '—'} Skills`, icon: Sparkles, color: server.color },
+      { label: caps?.streaming ? 'Streaming' : 'Non-streaming', icon: Zap, color: '#2563EB' },
+    ];
+  } else {
+    items = [
+      { label: `${caps?.resources ?? '—'} Resources`, icon: FileText, color: '#7C3AED' },
+      { label: `${caps?.tools ?? '—'} Tools`,         icon: Zap,      color: '#2563EB' },
+      { label: `${caps?.prompts ?? '—'} Prompts`,     icon: MessageSquare, color: '#059669' },
+    ];
+  }
+  if (server.auth === 'bearer') items.push({ label: 'Bearer Auth', icon: ShieldCheck, color: '#D97706' });
+  if (server.auth === 'oauth-google') items.push({ label: 'Google OAuth', icon: ShieldCheck, color: '#0052CC' });
+  if (server.auth === 'none') items.push({ label: 'No Auth', icon: User, color: '#6B7280' });
+
+  return (
+    <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-sm p-4 space-y-3">
+      <p className="text-xs font-bold uppercase tracking-wide text-[#6B7280]">Capabilities</p>
+      <div className="space-y-2">
+        {items.map(({ label, icon: Icon, color }) => (
+          <div key={label} className="flex items-center gap-2 text-sm text-[#374151]">
+            <Icon size={13} style={{ color }} />
+            {label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EndpointsPanel({ server }) {
+  const rows = [];
+  if (server.protocol === 'a2a') {
+    rows.push({ method: 'GET',  path: server.base });
+    rows.push({ method: 'POST', path: server.base });
+  } else {
+    rows.push({ method: 'POST', path: server.base });
+    rows.push({ method: 'GET',  path: server.base });
+  }
+  if (server.auth === 'bearer') rows.push({ method: 'POST', path: '/api/mcp-auth' });
+  if (server.chat) rows.push({ method: 'POST', path: server.chat });
+
+  const methodColor = (m) => m === 'POST' ? '#059669' : '#2563EB';
+
+  return (
+    <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-sm p-4 space-y-3">
+      <p className="text-xs font-bold uppercase tracking-wide text-[#6B7280]">Endpoints</p>
+      <div className="space-y-1.5 text-xs font-mono">
+        {rows.map(({ method, path }) => (
+          <div key={path + method} className="flex items-center gap-2">
+            <span className="font-bold" style={{ color: methodColor(method) }}>{method}</span>
+            <span className="text-[#6B7280] truncate">{path}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AgentCardPanel({ session }) {
+  const card = session?.agentCard;
+  if (!card) return null;
+  return (
+    <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-sm p-4 space-y-2">
+      <p className="text-xs font-bold uppercase tracking-wide text-[#6B7280]">Agent Card</p>
+      <div className="space-y-1 text-sm">
+        <p className="font-semibold text-[#111827]">{card.name}</p>
+        <p className="text-[11px] text-[#6B7280] leading-snug">{card.description}</p>
+        <div className="flex flex-wrap gap-1.5 pt-1.5">
+          <Badge color="#F59E0B">v{card.version}</Badge>
+          <Badge color="#2563EB">{card.provider?.organization}</Badge>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function MCPDemoStudio({ onBack }) {
   const [tab, setTab] = useState('connect');
+  const [serverId, setServerId] = useState('hr');
   const [session, setSession] = useState(null);
+
+  const server = findServer(serverId);
 
   const tabs = [
     { id: 'connect', label: 'Connect', icon: Plug },
     { id: 'explorer', label: 'Explorer', icon: BookOpen },
     { id: 'chat', label: 'Chat', icon: MessageSquare },
   ];
+
+  // Switching servers always invalidates the current session — bearer tokens
+  // aren't portable across flavors, and per-server state would otherwise leak.
+  const handleSelect = (id) => {
+    if (id === serverId) return;
+    setServerId(id);
+    setSession(null);
+    setTab('connect');
+  };
+
+  const protocolLabel = server.protocol === 'a2a' ? 'A2A Agent' : 'MCP Server';
+  const chatDisabled = server.auth === 'oauth-google';
 
   return (
     <div className="min-h-screen bg-[#F5F5F7] flex flex-col">
@@ -1100,26 +1590,34 @@ export default function MCPDemoStudio({ onBack }) {
         </button>
         <div className="w-px h-5 bg-[#E4E4E7]" />
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-[#7C3AED] grid place-items-center">
+          <div className="w-6 h-6 rounded-md grid place-items-center" style={{ background: server.color }}>
             <Plug size={13} className="text-white" />
           </div>
-          <span className="font-semibold text-sm text-[#111827]">Staffbase HR Portal — MCP Server Demo</span>
+          <span className="font-semibold text-sm text-[#111827]">
+            {server.name} — {protocolLabel} Demo
+          </span>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <StatusDot ok={!!session} />
-          <span className="text-xs text-[#6B7280]">{session ? `${session.user.name}` : 'Not connected'}</span>
+          <span className="text-xs text-[#6B7280]">
+            {session ? (session.user?.name || 'Anonymous session') : 'Not connected'}
+          </span>
         </div>
       </header>
 
-      <div className="flex flex-1 min-h-0 max-w-5xl mx-auto w-full gap-6 p-6">
+      <div className="flex flex-1 min-h-0 max-w-7xl mx-auto w-full gap-6 p-6">
+        <ServerPicker servers={SERVERS} selectedId={serverId} onSelect={handleSelect} />
+
         <div className="flex-1 bg-white rounded-2xl border border-[#E4E4E7] shadow-sm flex flex-col overflow-hidden" style={{ minHeight: '600px' }}>
           <div className="flex border-b border-[#E5E7EB] shrink-0">
             {tabs.map(t => {
               const Icon = t.icon;
               const active = tab === t.id;
+              const disabled = chatDisabled && t.id !== 'connect';
               return (
-                <button key={t.id} onClick={() => setTab(t.id)}
-                  className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${active ? 'border-[#7C3AED] text-[#7C3AED]' : 'border-transparent text-[#6B7280] hover:text-[#374151]'}`}>
+                <button key={t.id} onClick={() => !disabled && setTab(t.id)} disabled={disabled}
+                  className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${active ? 'text-[#111827]' : disabled ? 'text-[#D1D5DB] cursor-not-allowed' : 'border-transparent text-[#6B7280] hover:text-[#374151]'}`}
+                  style={active ? { borderColor: server.color, color: server.color } : { borderColor: 'transparent' }}>
                   <Icon size={15} />
                   {t.label}
                 </button>
@@ -1128,60 +1626,18 @@ export default function MCPDemoStudio({ onBack }) {
           </div>
 
           <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-            {tab === 'connect' && <ConnectTab session={session} onConnect={setSession} onDisconnect={() => setSession(null)} />}
-            {tab === 'explorer' && <ExplorerTab session={session} />}
-            {tab === 'chat' && <ChatTab session={session} />}
+            {tab === 'connect' && <ConnectTab server={server} session={session} onConnect={setSession} onDisconnect={() => setSession(null)} />}
+            {tab === 'explorer' && <ExplorerTab server={server} session={session} />}
+            {tab === 'chat' && <ChatTab server={server} session={session} />}
           </div>
         </div>
 
         <div className="w-64 shrink-0 space-y-4">
-          {session && <UserProfileCard user={session.user} />}
-
-          <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-sm p-4 space-y-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-[#6B7280]">Server Info</p>
-            <div className="space-y-2 text-sm">
-              {[['Name', 'staffbase-hr-portal'], ['Version', '1.0.0'], ['Transport', 'HTTP (stateless)'], ['Protocol', '2025-03-26']].map(([k, v]) => (
-                <div key={k} className="flex justify-between">
-                  <span className="text-[#6B7280]">{k}</span>
-                  <span className="font-medium text-[#111827]">{v}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-sm p-4 space-y-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-[#6B7280]">Capabilities</p>
-            <div className="space-y-2">
-              {[
-                { label: '7 Resources', icon: FileText, color: '#7C3AED' },
-                { label: '5 Tools', icon: Zap, color: '#2563EB' },
-                { label: '3 Prompts', icon: MessageSquare, color: '#059669' },
-                { label: 'Bearer Auth', icon: User, color: '#D97706' },
-              ].map(({ label, icon: Icon, color }) => (
-                <div key={label} className="flex items-center gap-2 text-sm text-[#374151]">
-                  <Icon size={13} style={{ color }} />
-                  {label}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-sm p-4 space-y-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-[#6B7280]">Endpoints</p>
-            <div className="space-y-1.5 text-xs font-mono">
-              {[
-                { method: 'POST', path: '/api/mcp', color: '#059669' },
-                { method: 'GET', path: '/api/mcp', color: '#2563EB' },
-                { method: 'POST', path: '/api/mcp-auth', color: '#059669' },
-                { method: 'POST', path: '/api/chat', color: '#059669' },
-              ].map(({ method, path, color }) => (
-                <div key={path + method} className="flex items-center gap-2">
-                  <span className="font-bold" style={{ color }}>{method}</span>
-                  <span className="text-[#6B7280] truncate">{path}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          {session?.user && <UserProfileCard user={session.user} />}
+          {server.protocol === 'a2a' && <AgentCardPanel session={session} />}
+          <ServerInfoPanel server={server} session={session} />
+          <CapabilitiesPanel server={server} session={session} />
+          <EndpointsPanel server={server} />
         </div>
       </div>
     </div>
