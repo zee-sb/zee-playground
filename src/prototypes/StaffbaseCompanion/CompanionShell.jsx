@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { MessageSquarePlus, ArrowLeft, Sparkles, Plug, MessageCircle, LogOut, Trash2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { MessageSquarePlus, ArrowLeft, Sparkles, Plug, MessageCircle, LogOut, Trash2, Search, X as XIcon } from 'lucide-react';
 import ChatPanel from './ChatPanel.jsx';
 import ConnectionsPanel from './ConnectionsPanel.jsx';
 import { PhoneFrame, StatusBar } from './PhoneFrame.jsx';
@@ -45,6 +45,16 @@ export default function CompanionShell({ user, connections, staffbase, onSignedO
   const [activeId, setActiveId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Client-side filter — fast and good enough for the typical 50-row history.
+  // If the user wants to find a conversation by a word inside a message, we'd
+  // need server-side full-text search; out of scope for this round.
+  const filteredConversations = useMemo(() => {
+    if (!searchQuery.trim()) return conversations;
+    const q = searchQuery.toLowerCase();
+    return conversations.filter((c) => (c.title || '').toLowerCase().includes(q));
+  }, [conversations, searchQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -207,12 +217,36 @@ export default function CompanionShell({ user, connections, staffbase, onSignedO
           >
             <MessageSquarePlus size={14} /> New conversation
           </button>
+          {conversations.length > 0 && (
+            <div className="mx-3 mb-2 relative">
+              <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search conversations"
+                className="w-full bg-white/5 border border-white/10 focus:border-white/30 outline-none rounded-md pl-7 pr-7 py-1.5 text-[12px] text-white placeholder-white/30"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+                  aria-label="Clear search"
+                >
+                  <XIcon size={11} />
+                </button>
+              )}
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto px-2 pb-2">
             {loading && <div className="px-2 py-2 text-[12px] text-white/40">Loading…</div>}
             {!loading && conversations.length === 0 && (
               <div className="px-2 py-2 text-[12px] text-white/40">No conversations yet.</div>
             )}
-            {conversations.map((c) => (
+            {!loading && conversations.length > 0 && filteredConversations.length === 0 && (
+              <div className="px-2 py-2 text-[12px] text-white/40">No matches for "{searchQuery}".</div>
+            )}
+            {filteredConversations.map((c) => (
               <div
                 key={c.id}
                 className={`group flex items-center rounded-md mb-0.5 transition-colors ${

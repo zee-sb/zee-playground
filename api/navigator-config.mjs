@@ -17,7 +17,15 @@ import {
   ensureConfigRow,
   RevisionConflictError,
 } from '../lib/workspace-config.mjs';
+import { getBlueprint, listAssistants, createAssistant, deleteAssistant } from '../lib/blueprints.mjs';
+import { checkConfigHealth } from '../lib/navigator-health.mjs';
+import { buildSeedConfigPayload, buildSeedAssistants } from '../lib/seed.mjs';
 import { dbConfigured } from '../lib/db.mjs';
+
+// Memoize the deep-check result per (branchId, revision) so the LLM call
+// only fires when something has actually changed.
+const deepHealthCache = new Map(); // key → { value, expiresAt }
+const DEEP_CACHE_MAX_AGE_MS = 10 * 60 * 1000; // 10 min upper bound
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -26,7 +34,9 @@ export default async function handler(req, res) {
     const action = url.searchParams.get('action');
     if (action === 'load') return await handleLoad(req, res);
     if (action === 'save') return await handleSave(req, res);
-    res.status(400).json({ error: 'unknown action — expected load | save' });
+    if (action === 'health') return await handleHealth(req, res, url);
+    if (action === 'reseed') return await handleReseed(req, res);
+    res.status(400).json({ error: 'unknown action — expected load | save | health | reseed' });
   } catch (err) {
     if (err instanceof RevisionConflictError) {
       return res.status(409).json({
@@ -53,13 +63,25 @@ async function readJsonBody(req) {
   return raw ? JSON.parse(raw) : {};
 }
 
+function extractBlueprintGroups(blueprintRow) {
+  if (!blueprintRow?.blueprint) return [];
+  const bp = blueprintRow.blueprint;
+  const list = Array.isArray(bp.groups) ? bp.groups : (Array.isArray(bp.workspace?.groups) ? bp.workspace.groups : []);
+  // Groups can be {name, memberCount} objects OR bare strings — normalize.
+  return list.map((g) => (typeof g === 'string' ? g : g?.name)).filter(Boolean);
+}
+
 // ── load ───────────────────────────────────────────────────────────────────
 async function handleLoad(_req, res) {
   if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
   const branch = await getActiveBranch();
   if (!branch?.id) return res.status(503).json({ error: 'branch_unavailable' });
 
-  const config = await getConfig(branch.id);
+  const [config, blueprintRow] = await Promise.all([
+    getConfig(branch.id),
+    getBlueprint(branch.id).catch(() => null),
+  ]);
+  const blueprintGroups = extractBlueprintGroups(blueprintRow);
   if (!config) {
     // No config row yet — return an empty default so the client can hydrate
     // and start editing. We do NOT auto-insert here: the row is created on
@@ -69,12 +91,11 @@ async function handleLoad(_req, res) {
       branchId: branch.id,
       branchName: branch.name,
       config: {
-        mcpConnectors: [],
-        externalAgents: [],
-        knowledgeBases: [],
+        connectors: [],
         flows: [],
         tenantOverrides: {},
       },
+      blueprintGroups,
       revision: 0,
       empty: true,
     });
@@ -83,12 +104,11 @@ async function handleLoad(_req, res) {
     branchId: branch.id,
     branchName: branch.name,
     config: {
-      mcpConnectors: config.mcpConnectors,
-      externalAgents: config.externalAgents,
-      knowledgeBases: config.knowledgeBases,
+      connectors: config.connectors,
       flows: config.flows,
       tenantOverrides: config.tenantOverrides,
     },
+    blueprintGroups,
     revision: config.revision,
     updatedAt: config.updatedAt,
     empty: false,
@@ -127,13 +147,131 @@ async function handleSave(req, res) {
     branchId: branch.id,
     branchName: branch.name,
     config: {
-      mcpConnectors: saved.mcpConnectors,
-      externalAgents: saved.externalAgents,
-      knowledgeBases: saved.knowledgeBases,
+      connectors: saved.connectors,
       flows: saved.flows,
       tenantOverrides: saved.tenantOverrides,
     },
     revision: saved.revision,
     updatedAt: saved.updatedAt,
+  });
+}
+
+// ── health ─────────────────────────────────────────────────────────────────
+// Runs the cross-entity health check over the live workspace state. The
+// cheap checks (broken refs, orphans, audience overlaps, blueprint coverage)
+// are synchronous; pass ?deep=true to also run the LLM-judged assistant
+// overlap check. Deep results are memoized by (branchId, revision) so
+// re-checking the same state doesn't burn tokens.
+async function handleHealth(_req, res, url) {
+  if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
+  const branch = await getActiveBranch();
+  if (!branch?.id) return res.status(503).json({ error: 'branch_unavailable' });
+  const deep = url.searchParams.get('deep') === 'true';
+
+  const [config, blueprintRow, assistants] = await Promise.all([
+    getConfig(branch.id).catch(() => null),
+    getBlueprint(branch.id).catch(() => null),
+    listAssistants(branch.id).catch(() => []),
+  ]);
+  const blueprint = blueprintRow?.blueprint || null;
+  const revision = config?.revision || 0;
+
+  // Deep cache key — same revision + same deep flag = same answer.
+  const cacheKey = `${branch.id}:${revision}:${deep ? 'deep' : 'shallow'}`;
+  const cached = deepHealthCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return res.status(200).json({
+      branchId: branch.id,
+      branchName: branch.name,
+      revision,
+      cached: true,
+      ...cached.value,
+    });
+  }
+
+  const result = await checkConfigHealth({
+    config: config || {},
+    blueprint,
+    assistants,
+    deep,
+  });
+
+  // Stamp revision into the summary so the client can detect drift.
+  result.summary.revision = revision;
+
+  deepHealthCache.set(cacheKey, {
+    value: result,
+    expiresAt: Date.now() + DEEP_CACHE_MAX_AGE_MS,
+  });
+  // Trim the cache so it doesn't grow unbounded.
+  if (deepHealthCache.size > 32) {
+    const oldestKey = deepHealthCache.keys().next().value;
+    deepHealthCache.delete(oldestKey);
+  }
+
+  return res.status(200).json({
+    branchId: branch.id,
+    branchName: branch.name,
+    revision,
+    cached: false,
+    ...result,
+  });
+}
+
+// ── reseed ────────────────────────────────────────────────────────────────
+// "Back to known good" — wipes navigator_config + navigator_assistants for
+// the active branch and re-inserts the canonical seed from lib/seed.mjs.
+// Deliberately preserves `workspace_blueprints` so the admin doesn't have
+// to re-run the (expensive) discovery wizard. Also preserves
+// `users.connections` rows so a user with an OAuth token doesn't have to
+// re-auth after the admin disables and re-enables a connector.
+async function handleReseed(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
+  if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
+  const branch = await getActiveBranch();
+  if (!branch?.id) return res.status(503).json({ error: 'branch_unavailable' });
+
+  // 1) Wipe assistants for this branch and re-insert the seed list.
+  const existing = await listAssistants(branch.id);
+  for (const a of existing) {
+    await deleteAssistant({ branchId: branch.id, id: a.id });
+  }
+  const seedAssistants = buildSeedAssistants();
+  const created = [];
+  for (const a of seedAssistants) {
+    const row = await createAssistant({
+      branchId: branch.id,
+      assistant: a,
+      source: a.source || 'seed',
+      templateId: null,
+      userId: null,
+    });
+    created.push(row);
+  }
+
+  // 2) Rewrite the navigator_config row to the seed payload. CAS-safe:
+  //    fetch current revision first, then save with that revision so we
+  //    don't trip the optimistic concurrency check.
+  await ensureConfigRow(branch.id);
+  const current = await getConfig(branch.id);
+  const seedPayload = buildSeedConfigPayload();
+  const saved = await saveConfig({
+    branchId: branch.id,
+    config: seedPayload,
+    baseRevision: current?.revision ?? 0,
+    userId: null,
+  });
+
+  return res.status(200).json({
+    branchId: branch.id,
+    branchName: branch.name,
+    config: {
+      connectors: saved.connectors,
+      flows: saved.flows,
+      tenantOverrides: saved.tenantOverrides,
+    },
+    revision: saved.revision,
+    assistants: created,
+    preserved: ['workspace_blueprints', 'connections', 'conversations'],
   });
 }

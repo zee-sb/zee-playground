@@ -1,33 +1,26 @@
 import React from 'react'
-import { Building2, Users as UsersIcon, RotateCcw, ShieldCheck } from 'lucide-react'
+import { Building2, Users as UsersIcon, ShieldCheck } from 'lucide-react'
 
 /**
- * Workspace tab — Staffbase tenant info + groups (discovered) + Reset.
+ * Workspace tab — Staffbase tenant info + groups (discovered).
  *
  * Read-only on purpose: this is the "settings" panel for the tenant itself,
  * showing admins what universe their assistants live in. Audience options in
  * Studio's Assistant editor are drawn from real Staffbase groups (discovered
- * by the Setup wizard into workspace_blueprints).
+ * by the Setup wizard into workspace_blueprints). The "Reset to defaults"
+ * button lives in the Studio header — kept off this tab so admins don't
+ * accidentally wipe the workspace while inspecting it.
  */
-export default function WorkspaceTab({ tenant = {}, demoUsers = [], onReset }) {
+export default function WorkspaceTab({ tenant = {}, demoUsers = [] }) {
   const groups = tenant.groups || []
   return (
     <div>
       {/* Header */}
-      <div className="flex items-end justify-between mb-6">
-        <div>
-          <h1 className="text-[22px] font-bold text-[#111827]">Workspace</h1>
-          <p className="text-[13px] text-[#6B7280] mt-1">
-            Tenant identity and audience groups. Groups are discovered from the live Staffbase directory and populate the Audience editor for each assistant.
-          </p>
-        </div>
-        <button
-          onClick={onReset}
-          className="flex items-center gap-2 px-3 py-2 text-[12px] font-semibold text-[#6B7280] hover:text-[#111827] border border-[#E5E7EB] rounded-lg hover:bg-[#F9FAFB] transition-colors"
-        >
-          <RotateCcw size={13} />
-          Reset to Staffbase defaults
-        </button>
+      <div className="mb-6">
+        <h1 className="text-[22px] font-bold text-[#111827]">Workspace</h1>
+        <p className="text-[13px] text-[#6B7280] mt-1">
+          Tenant identity and audience groups. Groups are discovered from the live Staffbase directory and populate the Audience editor for each assistant.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[2fr_3fr] gap-6">

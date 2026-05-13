@@ -13,6 +13,31 @@
 import OpenAI from 'openai';
 import { MCP_REGISTRY } from '../lib/mcp-registry.mjs';
 import { A2A_REGISTRY } from '../lib/a2a-registry.mjs';
+import { getBranch } from '../lib/staffbase.mjs';
+import { getBlueprint } from '../lib/blueprints.mjs';
+import { dbConfigured } from '../lib/db.mjs';
+
+// In-memory blueprint cache keyed by branchId. The orchestrator runs on
+// every chat turn — we don't want a DB roundtrip each time. TTL is short so
+// edits to mainInstructions surface in seconds.
+const BLUEPRINT_CACHE = new Map(); // branchId -> { value, expiresAt }
+const BLUEPRINT_TTL_MS = 30_000;
+
+async function loadActiveMainInstructions() {
+  if (!dbConfigured()) return null;
+  try {
+    const branch = await getBranch().catch(() => null);
+    if (!branch?.id) return null;
+    const cached = BLUEPRINT_CACHE.get(branch.id);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const row = await getBlueprint(branch.id);
+    const mainInstructions = row?.blueprint?.workspace?.mainInstructions || null;
+    BLUEPRINT_CACHE.set(branch.id, { value: mainInstructions, expiresAt: Date.now() + BLUEPRINT_TTL_MS });
+    return mainInstructions;
+  } catch {
+    return null;
+  }
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -409,9 +434,10 @@ export default async function handler(req, res) {
 
     // ── Step 2: Load tools + UI instructions from relevant servers ──────────
     const mcpDomains = domains.filter(d => MCP_REGISTRY.find(s => s.id === d));
-    const [{ tools, toolMap }, uiInstructions] = await Promise.all([
+    const [{ tools, toolMap }, uiInstructions, workspaceMainInstructions] = await Promise.all([
       loadTools(baseUrl, token, mcpDomains, MCP_REGISTRY),
       loadUIInstructions(baseUrl, token, mcpDomains, MCP_REGISTRY),
+      loadActiveMainInstructions(),
     ]);
     const serversQueried = [...new Set(Object.values(toolMap).map(e => e.serverId))];
     emit({ type: 'trace_tools', serversQueried, toolCount: tools.length });
@@ -444,13 +470,21 @@ The user's UI language is **${langName}** (code: ${userLang}).
       ? `\n## Recent topics (this session)\nThe user has recently asked about:\n${recentTopics.map(t => `- "${t}"`).join('\n')}\nVary your follow-up suggestions so they don't repeat what the user just asked.`
       : '';
 
+    // Workspace-level system prompt from discovery, edited via the Home tab.
+    // Goes after time/language framing but before the hardcoded scope and
+    // suggestions rules — so admin-authored tone/glossary/routing wins, but
+    // critical guardrails (refusal pattern, <suggestions> contract) survive.
+    const workspaceBlock = workspaceMainInstructions
+      ? `\n## Workspace orchestrator instructions\nThese instructions were authored by this workspace's admin during Navigator setup. Use them as the primary guide for tone, scope framing, routing intent, and glossary — they describe THIS company:\n\n${workspaceMainInstructions}\n`
+      : '';
+
     const systemContent = `You are Navigator, an intelligent enterprise assistant for Staffbase. You seamlessly access HR, IT, and the Campsite intranet to help employees get things done — all in one conversation.
 
 ## Date & time
 Today is ${today}. The user's local time is ${timeStr}${nowTz ? ` (${nowTz})` : ''} — currently ${partOfDay}. Always interpret "today", "tomorrow", "tonight", "this week" against this clock.
 
 ${langBlock}${recentTopicsBlock}
-
+${workspaceBlock}
 ${uiInstructions ? `${uiInstructions}\n\n` : ''}## Core behavior
 - Call tools immediately when you have enough information — don't ask for confirmation unless absolutely necessary
 - For cross-domain queries, call tools from multiple servers in sequence

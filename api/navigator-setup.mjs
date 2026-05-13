@@ -21,7 +21,7 @@ import {
   listChannels, listRecentPosts, listUsers, searchPosts, getPost,
   listPages, listGroups, getUsersTotal, getBranch,
 } from '../lib/staffbase.mjs';
-import { getBlueprint, saveBlueprint } from '../lib/blueprints.mjs';
+import { getBlueprint, saveBlueprint, patchBlueprintField } from '../lib/blueprints.mjs';
 import { embed } from '../lib/embeddings.mjs';
 import { dbConfigured } from '../lib/db.mjs';
 
@@ -41,7 +41,9 @@ export default async function handler(req, res) {
     if (action === 'discover') return await handleDiscover(req, res);
     if (action === 'search-preview') return await handleSearchPreview(req, res, url);
     if (action === 'match-pages') return await handleMatchPages(req, res, url);
-    res.status(400).json({ error: 'unknown action — expected load | discover | search-preview | match-pages' });
+    if (action === 'update-main-instructions') return await handleUpdateMainInstructions(req, res);
+    if (action === 'optimize-main-instructions') return await handleOptimizeMainInstructions(req, res);
+    res.status(400).json({ error: 'unknown action — expected load | discover | search-preview | match-pages | update-main-instructions | optimize-main-instructions' });
   } catch (err) {
     const isAuthErr = /STAFFBASE_API_TOKEN is not configured/.test(err.message || '');
     res.status(isAuthErr ? 503 : 500).json({
@@ -155,10 +157,10 @@ async function handleDiscover(_req, res) {
     .slice(0, 20);
   const recentPosts = postsRaw.slice(0, 20);
 
-  // ── Deep-content sample: full body for the top 3 posts so the LLM has
-  // real employee-reading material to infer tone, internal acronyms, and
-  // topic depth.
-  const deepPostIds = topPosts.slice(0, 3).map((p) => p.id);
+  // ── Deep-content sample: full body for the top 10 posts so the LLM has
+  // a meaningful corpus of employee-reading material to infer tone, internal
+  // acronyms, and topic depth. (3 posts was too thin for any real signal.)
+  const deepPostIds = topPosts.slice(0, 10).map((p) => p.id);
   const deepPosts = await Promise.all(
     deepPostIds.map((id) => getPost(id).catch(() => null))
   ).then((arr) => arr.filter(Boolean));
@@ -364,7 +366,7 @@ async function passAWorkspace({ channels, topPosts, deepPosts, orgSignals, langu
   const compactChannels = channels.map((c) => ({
     id: c.id, title: c.title, postCount: c.sampledPostCount,
   }));
-  const compactTopPosts = topPosts.slice(0, 15).map((p) => ({
+  const compactTopPosts = topPosts.slice(0, 25).map((p) => ({
     title: p.title,
     teaser: (p.teaser || '').slice(0, 160),
     channelTitle: p.channel?.title,
@@ -374,7 +376,7 @@ async function passAWorkspace({ channels, topPosts, deepPosts, orgSignals, langu
     excerpt: (p.content || '').slice(0, 1200),
   }));
   // Pages: the richest knowledge surface. Body excerpts up to 800 chars each.
-  const compactPages = (pages || []).slice(0, 12).map((p) => ({
+  const compactPages = (pages || []).slice(0, 25).map((p) => ({
     title: p.title,
     description: p.description,
     bodyExcerpt: (p.bodyExcerpt || '').slice(0, 800),
@@ -547,7 +549,7 @@ async function passBAssistants({ channels, topPosts, deepPosts, orgSignals, lang
     title: p.title,
     excerpt: (p.content || '').slice(0, 800),
   }));
-  const compactPages = (pages || []).slice(0, 12).map((p) => ({
+  const compactPages = (pages || []).slice(0, 25).map((p) => ({
     id: p.id, title: p.title, description: p.description,
     bodyExcerpt: (p.bodyExcerpt || '').slice(0, 500),
   }));
@@ -726,5 +728,135 @@ async function handleSearchPreview(_req, res, url) {
     query,
     results,
     hasResults: results.length > 0,
+  });
+}
+
+// ── update-main-instructions ────────────────────────────────────────────────
+//
+// Persist a user-edited orchestrator system prompt verbatim. The Home tab's
+// editor uses this for "Save as-is".
+
+async function readJsonBody(req) {
+  if (req.body && typeof req.body === 'object') return req.body;
+  let raw = '';
+  for await (const chunk of req) raw += chunk;
+  try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
+}
+
+async function handleUpdateMainInstructions(req, res) {
+  if (!dbConfigured()) {
+    return res.status(503).json({ error: 'database_not_configured', code: 'db_missing' });
+  }
+  const body = await readJsonBody(req);
+  const mainInstructions = typeof body.mainInstructions === 'string' ? body.mainInstructions : null;
+  if (mainInstructions === null) {
+    return res.status(400).json({ error: 'mainInstructions (string) is required' });
+  }
+  const branch = await getBranch();
+  if (!branch?.id) {
+    return res.status(503).json({ error: 'branch_unavailable', code: 'staffbase_branch_missing' });
+  }
+  const existing = await getBlueprint(branch.id);
+  if (!existing) {
+    return res.status(404).json({ error: 'no_blueprint', code: 'discovery_required' });
+  }
+  await patchBlueprintField(branch.id, ['workspace', 'mainInstructions'], mainInstructions);
+  return res.status(200).json({ ok: true, mainInstructions });
+}
+
+// ── optimize-main-instructions ──────────────────────────────────────────────
+//
+// Run an LLM polish pass over the user's draft, enforcing the Pass-A
+// section structure (ROLE / ABOUT / TONE & LANGUAGE / WHAT NAVIGATOR HELPS
+// WITH / WHAT NAVIGATOR DOES NOT HANDLE / ROUTING / GLOSSARY /
+// WORKSPACE-SPECIFIC NOTES). Returns both `original` and `optimized` so the
+// UI can show a diff before committing. Does NOT persist — the client calls
+// update-main-instructions with the result if the user accepts.
+
+async function handleOptimizeMainInstructions(req, res) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return res.status(503).json({ error: 'openai_not_configured', code: 'openai_missing' });
+  }
+  const body = await readJsonBody(req);
+  const draft = typeof body.mainInstructions === 'string' ? body.mainInstructions : null;
+  if (!draft || !draft.trim()) {
+    return res.status(400).json({ error: 'mainInstructions (string) is required' });
+  }
+
+  // Pull workspace context (companyName, tone, glossary) so the polish pass
+  // can reinforce workspace-specific framing instead of generic boilerplate.
+  let workspaceContext = null;
+  try {
+    const branch = await getBranch();
+    if (branch?.id) {
+      const row = await getBlueprint(branch.id);
+      const ws = row?.blueprint?.workspace || null;
+      if (ws) {
+        workspaceContext = {
+          companyName: ws.companyName,
+          companyMission: ws.companyMission,
+          tone: ws.tone,
+          glossary: (ws.glossary || []).slice(0, 12),
+          languages: row?.blueprint?.languages || [],
+        };
+      }
+    }
+  } catch {}
+
+  const client = new OpenAI({ apiKey });
+  const system = `You are an expert prompt engineer optimizing a workspace-level orchestrator system prompt for an enterprise AI assistant called Navigator.
+
+You will be given:
+- a DRAFT system prompt written by an admin
+- optional WORKSPACE CONTEXT (company name, tone adjectives, glossary, languages)
+
+Your job: produce an OPTIMIZED version that preserves the admin's intent and content but enforces this exact section structure (use these headings verbatim, as plain text, no markdown):
+
+  ROLE
+  ABOUT [COMPANY]
+  TONE & LANGUAGE
+  WHAT NAVIGATOR HELPS WITH
+  WHAT NAVIGATOR DOES NOT HANDLE
+  ROUTING
+  GLOSSARY
+  WORKSPACE-SPECIFIC NOTES
+
+Rules:
+- Keep the admin's facts, scope decisions, and tone. Do NOT invent new policies or routes the admin didn't mention.
+- Reorganize content into the right sections; tighten phrasing; remove fluff and sycophancy.
+- WHAT NAVIGATOR HELPS WITH and WHAT NAVIGATOR DOES NOT HANDLE must be bullet lists with "- " prefix.
+- GLOSSARY must be "- TERM — definition" lines.
+- Total length: 400-700 words.
+- Do not use markdown bold/italics; plain text only.
+- Output STRICT JSON: { "optimized": "...the rewritten prompt as one string..." }
+
+If the draft is missing a section, infer the most reasonable content for that section from the rest of the draft and the workspace context — never leave a section empty.`;
+
+  const response = await client.chat.completions.create({
+    model: 'gpt-4o-mini',
+    temperature: 0.2,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: system },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          draft,
+          workspaceContext,
+        }),
+      },
+    ],
+  });
+
+  let parsed = {};
+  try { parsed = JSON.parse(response.choices?.[0]?.message?.content || '{}'); } catch {}
+  const optimized = typeof parsed.optimized === 'string' ? parsed.optimized : null;
+  if (!optimized) {
+    return res.status(500).json({ error: 'optimization_failed', code: 'llm_invalid_output' });
+  }
+  return res.status(200).json({
+    original: draft,
+    optimized,
   });
 }

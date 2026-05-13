@@ -19,3 +19,15 @@ export const markdownComponents = {
     : <code {...props} style={{ display: 'block', background: '#F9FAFB', border: '1px solid #E5E7EB', padding: '8px 10px', borderRadius: 8, fontSize: 12, fontFamily: 'ui-monospace, SFMono-Regular, monospace', whiteSpace: 'pre-wrap', margin: '6px 0' }} />,
   blockquote: ({ node, ...props }) => <blockquote {...props} style={{ margin: '4px 0', paddingLeft: 10, borderLeft: '3px solid #DDD6FE', color: '#4B5563' }} />,
 };
+
+// While a message is still streaming, an in-flight markdown image
+// (`![alt](data:image/png;base64,…` with no closing `)`) renders as raw
+// text because react-markdown can't recognise the incomplete syntax.
+const INCOMPLETE_IMAGE_RE = /!\[[^\]]*\]\([^)]*$/;
+
+export function sanitizeStreamingMarkdown(text, streaming) {
+  if (!streaming || !text) return text;
+  const m = text.match(INCOMPLETE_IMAGE_RE);
+  if (!m) return text;
+  return text.slice(0, m.index) + '\n\n*Generating image…*';
+}

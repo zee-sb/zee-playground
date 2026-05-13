@@ -3,12 +3,13 @@ import { Sparkles, Plug, Send, Loader2, MapPin, Zap, LogOut, RotateCcw, Building
 import ReactMarkdown from 'react-markdown';
 import ToolCallCard from './ToolCallCard.jsx';
 import TraceCard from './TraceCard.jsx';
+import FlowCard from './FlowCard.jsx';
 import ConfirmWriteModal from './ConfirmWriteModal.jsx';
 import AnalyticsChartCard from './AnalyticsChartCard.jsx';
 import CardRouter from './cards/CardRouter.jsx';
 import { TypingIndicator } from '../../chat-widget/TypingIndicator.jsx';
 import { streamPost, listMessages } from './api.js';
-import { markdownComponents } from './lib/markdown.jsx';
+import { markdownComponents, sanitizeStreamingMarkdown } from './lib/markdown.jsx';
 import '../../chat-widget/styles.css';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -131,6 +132,12 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [openSources, setOpenSources] = useState(null); // array of tool items, or null
   const [error, setError] = useState(null);
+  // Active context pill — set when the orchestrator picks an assistant/flow
+  // for the current turn. Cleared when the flow completes or Studio is empty.
+  const [activeContext, setActiveContext] = useState(null);
+  // Dynamic Hero chips driven by Studio (assistants + flows visible to the
+  // signed-in user). Loaded lazily; falls back to legacy chips when empty.
+  const [heroData, setHeroData] = useState(null);
   const endRef = useRef(null);
   const atlassianLinked = connections.some((c) => c.provider === 'atlassian');
 
@@ -155,6 +162,22 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [items, busy]);
 
+  // Load Studio-driven Hero chips once per mount. Empty Studio → keep
+  // legacy chip fallback inside <Hero>.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/companion/hero')
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (cancelled || !data) return;
+        if (!data.studioEmpty && (data.assistants?.length || data.flows?.length)) {
+          setHeroData(data);
+        }
+      })
+      .catch(() => { /* ignore */ });
+    return () => { cancelled = true; };
+  }, [conversationId]);
+
   const handleEvent = useCallback((evt) => {
     setItems((prev) => {
       const next = [...prev];
@@ -166,6 +189,61 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
         const trace = [...next].reverse().find((i) => i.kind === 'trace');
         if (trace) trace.intent = { connectors: evt.connectors, reasoning: evt.reasoning };
         else next.push({ kind: 'trace', intent: { connectors: evt.connectors, reasoning: evt.reasoning } });
+      } else if (evt.type === 'trace_route') {
+        // Studio-driven hierarchical trace — replaces / extends the legacy trace_intent.
+        const trace = [...next].reverse().find((i) => i.kind === 'trace');
+        if (trace) { trace.route = { tier1: evt.tier1, tier2: evt.tier2, fallbackUsed: !!evt.fallbackUsed }; }
+        else next.push({ kind: 'trace', route: { tier1: evt.tier1, tier2: evt.tier2, fallbackUsed: !!evt.fallbackUsed } });
+      } else if (evt.type === 'studio_empty') {
+        // The orchestrator fell back to legacy mode — surface it on the trace card.
+        const trace = [...next].reverse().find((i) => i.kind === 'trace');
+        if (trace) trace.studioEmpty = evt.reason || 'legacy mode';
+        queueMicrotask(() => setActiveContext(null));
+      } else if (evt.type === 'assistant_selected') {
+        queueMicrotask(() => setActiveContext({ kind: 'assistant', id: evt.assistantId, name: evt.name, icon: evt.icon }));
+      } else if (evt.type === 'flow_started') {
+        queueMicrotask(() => setActiveContext({
+          kind: 'flow', id: evt.flowId, name: evt.name,
+          mode: evt.mode, goal: evt.goal, totalSteps: evt.totalSteps,
+        }));
+        next.push({
+          kind: 'flow',
+          id: evt.flowId,
+          name: evt.name,
+          mode: evt.mode || 'suggested',
+          goal: evt.goal || '',
+          totalSteps: evt.totalSteps || 0,
+          completedSteps: 0,
+          steps: [],
+          status: 'running',
+        });
+      } else if (evt.type === 'flow_step') {
+        const flowItem = [...next].reverse().find((i) => i.kind === 'flow' && i.id === evt.flowId);
+        if (flowItem) {
+          flowItem.completedSteps = evt.stepIndex || (flowItem.completedSteps + 1);
+          flowItem.totalSteps = evt.totalSteps || flowItem.totalSteps;
+          flowItem.steps = flowItem.steps || [];
+          flowItem.steps.push({ index: flowItem.steps.length, label: evt.label || `Step ${flowItem.steps.length + 1}`, toolCallId: evt.toolCallId || null });
+        }
+      } else if (evt.type === 'flow_completed') {
+        const flowItem = [...next].reverse().find((i) => i.kind === 'flow' && i.id === evt.flowId);
+        if (flowItem) {
+          flowItem.status = 'completed';
+          flowItem.summary = evt.summary || '';
+          flowItem.completedSteps = flowItem.totalSteps || flowItem.completedSteps;
+        }
+        queueMicrotask(() => setActiveContext(null));
+      } else if (evt.type === 'agent_handoff') {
+        next.push({ kind: 'agent_handoff', agentId: evt.agentId, agentName: evt.agentName, color: evt.color });
+      } else if (evt.type === 'kb_citation') {
+        // Attach citation to the most recent in-flight tool item.
+        const toolItem = [...next].reverse().find((i) => i.kind === 'tool' && (!evt.toolCallId || i.id === evt.toolCallId));
+        if (toolItem) {
+          toolItem.citations = toolItem.citations || [];
+          if (!toolItem.citations.find((c) => c.kbId === evt.kbId)) {
+            toolItem.citations.push({ kbId: evt.kbId, name: evt.name, source: evt.source });
+          }
+        }
       } else if (evt.type === 'connector_error') {
         next.push({ kind: 'connector_error', connector: evt.connector, message: evt.message });
       } else if (evt.type === 'needs_connection') {
@@ -213,6 +291,9 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           id: evt.toolCallId,
           name: evt.name,
           connector: evt.connector,
+          connectorName: evt.connectorName || null,
+          connectorColor: evt.connectorColor || null,
+          degraded: !!evt.degraded,
           args: evt.args,
           status: 'running',
         });
@@ -302,10 +383,17 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
         WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain',
         display: 'flex', flexDirection: 'column', padding: '12px 12px 0',
       }}>
+        {activeContext && !empty && (
+          <ActiveContextPill
+            context={activeContext}
+            onClear={() => activeContext.mode !== 'required' && setActiveContext(null)}
+          />
+        )}
         {empty ? (
           <Hero
             user={user}
             atlassianLinked={atlassianLinked}
+            heroData={heroData}
             onPick={send}
             onConnect={onNavigateConnections}
           />
@@ -496,7 +584,7 @@ function AppHeader({ user, connections, onSignOut, onNewConversation, onOpenHist
 
 // ── Hero (empty state) ──────────────────────────────────────────────────────
 
-function Hero({ user, atlassianLinked, onPick, onConnect }) {
+function Hero({ user, atlassianLinked, heroData, onPick, onConnect }) {
   const callMe = user?.customFields?.callme;
   const firstName = (callMe || user?.displayName || '').split(' ')[0] || 'there';
   const initials = user?.avatarInitials || (firstName).slice(0, 2).toUpperCase();
@@ -505,11 +593,38 @@ function Hero({ user, atlassianLinked, onPick, onConnect }) {
   // generic label so the Hero always has a second line.
   const heroLocation = user?.location || user?.department || 'Staffbase';
 
-  const subtitle = atlassianLinked
-    ? 'I can pull live Staffbase intranet posts, check HR/IT info, and search your Confluence + Jira.'
-    : 'I can pull live Staffbase intranet posts and check HR/IT info. Link Atlassian to add Confluence + Jira.';
+  // Atlassian is in scope only when the admin has it `connected` AND the
+  // user has OAuth-linked. Studio admin disable hides the hackathon chip
+  // from every user, even those with OAuth — admin wins.
+  const atlassianInScope = !!(heroData?.connectors || []).find((c) => c.id === 'atlassian');
+  const atlassianAvailable = atlassianInScope && atlassianLinked;
+  const atlassianNeedsAuth = !!(heroData?.needsAuth || []).find((c) => c.provider === 'atlassian');
 
-  const chips = atlassianLinked ? FULL_SAMPLES : MOCKED_ONLY_SAMPLES;
+  const subtitle = atlassianAvailable
+    ? 'I can pull live Staffbase intranet posts, check HR/IT info, and search your Confluence + Jira.'
+    : atlassianNeedsAuth
+      ? 'I can pull live Staffbase intranet posts and check HR/IT info. Link Atlassian to add Confluence + Jira.'
+      : 'I can pull live Staffbase intranet posts and check HR/IT info.';
+
+  // Studio-driven chips when available — surface admin-authored assistants
+  // and active flows as one-tap launchpad chips. Fall back to legacy
+  // hardcoded chips when Studio is empty / unreachable.
+  let chips;
+  if (heroData && (heroData.assistants?.length || heroData.flows?.length)) {
+    const asstChips = (heroData.assistants || []).slice(0, 4).map((a) => ({
+      label: `${a.icon || '✨'} Ask the ${a.name}`,
+      prompt: a.description
+        ? `Help me with ${a.name.toLowerCase()} — ${a.description.toLowerCase()}`
+        : `Help me with something for the ${a.name}.`,
+    }));
+    const flowChips = (heroData.flows || []).slice(0, 3).map((f) => ({
+      label: `▶ ${f.name}`,
+      prompt: f.goal ? `I want to start the ${f.name} flow — ${f.goal}` : `Start: ${f.name}`,
+    }));
+    chips = [...asstChips, ...flowChips];
+  } else {
+    chips = (atlassianAvailable ? FULL_SAMPLES : MOCKED_ONLY_SAMPLES).map((l) => ({ label: l, prompt: l }));
+  }
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px 16px 12px' }}>
@@ -560,7 +675,7 @@ function Hero({ user, atlassianLinked, onPick, onConnect }) {
 
       {/* Featured action card(s) + round chips */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {atlassianLinked && (
+        {atlassianAvailable && (
           <button
             onClick={() => onPick("I want to submit my hackathon entry — let's take the quiz!")}
             style={{
@@ -582,7 +697,7 @@ function Hero({ user, atlassianLinked, onPick, onConnect }) {
             <span style={{ fontSize: 9, fontWeight: 800, color: '#D97706', background: 'rgba(245,158,11,0.15)', padding: '2px 7px', borderRadius: 8, border: '1px solid rgba(245,158,11,0.3)', letterSpacing: '0.05em' }}>HACKATHON</span>
           </button>
         )}
-        {!atlassianLinked && (
+        {atlassianNeedsAuth && !atlassianLinked && (
           <button
             onClick={onConnect}
             style={{
@@ -599,16 +714,16 @@ function Hero({ user, atlassianLinked, onPick, onConnect }) {
               <div style={{ width: 26, height: 26, borderRadius: 7, background: '#0052CC', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Building2 size={12} color="white" />
               </div>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: '#003E99' }}>Connect Atlassian (needed for the hackathon)</span>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: '#003E99' }}>Connect Atlassian to add Confluence + Jira</span>
             </div>
             <span style={{ fontSize: 9, fontWeight: 800, color: '#0052CC', background: 'rgba(0,82,204,0.15)', padding: '2px 7px', borderRadius: 8, border: '1px solid rgba(0,82,204,0.3)', letterSpacing: '0.05em' }}>OAUTH</span>
           </button>
         )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, justifyContent: 'center' }}>
-          {chips.map((label) => (
+          {chips.map((chip) => (
             <button
-              key={label}
-              onClick={() => onPick(label)}
+              key={chip.label}
+              onClick={() => onPick(chip.prompt)}
               style={{
                 padding: '8px 13px', borderRadius: 20,
                 background: 'rgba(255,255,255,0.82)', backdropFilter: 'blur(10px)',
@@ -621,7 +736,7 @@ function Hero({ user, atlassianLinked, onPick, onConnect }) {
               onMouseEnter={(e) => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = '#7C3AED'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.82)'; e.currentTarget.style.color = '#111827'; }}
             >
-              {label}
+              {chip.label}
             </button>
           ))}
         </div>
@@ -1184,10 +1299,88 @@ function TriviaResult({ result }) {
 
 // ── Item renderer ───────────────────────────────────────────────────────────
 
+function ActiveContextPill({ context, onClear }) {
+  if (!context) return null;
+  const isFlow = context.kind === 'flow';
+  const icon = isFlow ? '▶' : (context.icon || '✨');
+  const label = isFlow
+    ? `Flow: ${context.name}`
+    : `Active assistant: ${context.name}`;
+  const required = isFlow && context.mode === 'required';
+  return (
+    <div style={{
+      position: 'sticky', top: 0, zIndex: 5,
+      display: 'inline-flex', alignSelf: 'flex-start', marginBottom: 4,
+      alignItems: 'center', gap: 6,
+      padding: '4px 10px', borderRadius: 999,
+      background: isFlow ? 'rgba(0,199,178,0.10)' : 'rgba(124,58,237,0.10)',
+      border: isFlow ? '1px solid rgba(0,199,178,0.30)' : '1px solid rgba(124,58,237,0.30)',
+      fontSize: 11, fontWeight: 600,
+      color: isFlow ? '#0F766E' : '#5B21B6',
+      backdropFilter: 'blur(8px)',
+    }}>
+      <span style={{ fontSize: 13 }}>{icon}</span>
+      <span>{label}</span>
+      {required && (
+        <span style={{
+          fontSize: 8.5, fontWeight: 800, letterSpacing: '0.05em',
+          padding: '1px 4px', borderRadius: 3,
+          background: '#0F766E', color: 'white',
+        }}>
+          REQUIRED
+        </span>
+      )}
+      {!required && onClear && (
+        <button
+          type="button"
+          onClick={onClear}
+          title="Clear active context"
+          style={{
+            border: 'none', background: 'transparent', cursor: 'pointer',
+            color: 'inherit', padding: 0, marginLeft: 2,
+            display: 'inline-flex', alignItems: 'center',
+          }}
+        >
+          <X size={11} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false, sources = [], onOpenSources }) {
-  if (item.kind === 'trace') return <TraceCard intent={item.intent} connectors={item.connectors} />;
+  if (item.kind === 'trace') {
+    return <TraceCard route={item.route} intent={item.intent} connectors={item.connectors} />;
+  }
+  if (item.kind === 'flow') return <FlowCard flow={item} />;
+  if (item.kind === 'agent_handoff') {
+    return (
+      <div style={{
+        margin: '6px 0', padding: '6px 10px',
+        background: 'linear-gradient(90deg, rgba(0,199,178,0.08), rgba(124,58,237,0.06))',
+        border: '1px solid rgba(0,199,178,0.2)', borderRadius: 8,
+        fontSize: 11.5, color: '#0F766E', fontWeight: 600,
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+      }}>
+        <Sparkles size={11} />
+        Handed off to <b>{item.agentName || item.agentId}</b>
+      </div>
+    );
+  }
   if (item.kind === 'tool') {
-    return <ToolCallCard name={item.name} args={item.args} result={item.result} status={item.status} connector={item.connector} />;
+    return (
+      <ToolCallCard
+        name={item.name}
+        args={item.args}
+        result={item.result}
+        status={item.status}
+        connector={item.connector}
+        connectorName={item.connectorName}
+        connectorColor={item.connectorColor}
+        degraded={item.degraded}
+        citations={item.citations}
+      />
+    );
   }
   if (item.kind === 'connector_error') {
     return (
@@ -1245,7 +1438,9 @@ function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false, s
       <div className="cw-msg-body" style={{ maxWidth: '100%' }}>
         <div className="cw-bubble cw-ai" style={{ fontSize: 13, lineHeight: 1.5 }}>
           {item.text ? (
-            <ReactMarkdown components={markdownComponents}>{item.text}</ReactMarkdown>
+            <ReactMarkdown components={markdownComponents}>
+              {sanitizeStreamingMarkdown(item.text, item.streaming)}
+            </ReactMarkdown>
           ) : (item.streaming ? <span style={{ color: '#A1A1AA' }}>…</span> : null)}
         </div>
         {!item.streaming && (() => {

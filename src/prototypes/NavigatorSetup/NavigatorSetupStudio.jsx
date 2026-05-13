@@ -60,7 +60,7 @@ const slug = (s) =>
   (s || 'cluster').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32)
 
 export default function NavigatorSetupStudio() {
-  const { setAssistants, setKnowledgeBases, setConfig } = useConfigStore()
+  const { setAssistants, setConnectors, setConfig } = useConfigStore()
 
   const [phase, setPhase] = useState('loading') // loading | idle | discovering | ready | error
   const [discovery, setDiscovery] = useState(null)
@@ -248,17 +248,33 @@ export default function NavigatorSetupStudio() {
     const now = Date.now()
     const channelById = new Map(discovery.channels.map((c) => [c.id, c]))
 
+    // KBs created by the Setup wizard are full Connector objects (kind: 'kb')
+    // wired to the generic /api/mcp-kb endpoint. They'll show up in the
+    // Connectors tab and be selectable in any AssistantDetail picker.
     const newKbs = selected
       .filter((a) => (a.knowledgeSources || []).length > 0)
-      .map((a, i) => ({
-        id: `kb-setup-${slug(a.name)}-${now}-${i}`,
-        name: a.clusterName === 'Universal' ? a.name : a.clusterName,
-        source: 'Staffbase Channels',
-        articleCount: (a.knowledgeSources || []).reduce((sum, ks) => {
-          const ch = channelById.get(ks.channelId)
-          return sum + (ch?.sampledPostCount || 0)
-        }, 0),
-      }))
+      .map((a, i) => {
+        const id = `kb-setup-${slug(a.name)}-${now}-${i}`
+        return {
+          id,
+          kind: 'kb',
+          catalogId: 'kb_setup',
+          name: a.clusterName === 'Universal' ? a.name : a.clusterName,
+          description: 'Discovered from Staffbase channels during Setup.',
+          endpoint: `/api/mcp-kb?kbId=${id}`,
+          authMethod: 'SSO (demo)',
+          status: 'connected',
+          source: 'Staffbase Channels',
+          domains: [],
+          writeTools: [],
+          articleCount: (a.knowledgeSources || []).reduce((sum, ks) => {
+            const ch = channelById.get(ks.channelId)
+            return sum + (ch?.sampledPostCount || 0)
+          }, 0),
+          addedAt: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+          tools: [{ id: 'search', name: 'search', description: 'Search this knowledge base.' }],
+        }
+      })
 
     const kbByAssistant = new Map()
     let kbIdx = 0
@@ -287,15 +303,13 @@ export default function NavigatorSetupStudio() {
         icon: emojiForIcon(a.lucideIcon),
         description: a.description,
         instructions: `${mainBlock}${glossaryBlock}# Role\n\n${a.systemPromptSnippet}${sourceLines ? `\n\n# Knowledge sources\n\n${sourceLines}` : ''}`,
-        mcpConnectorIds: [],
-        externalAgentIds: [],
-        knowledgeBaseIds: kb ? [kb.id] : [],
-        audience: { everyone: true, roles: [], locations: [] },
+        connectorIds: kb ? [kb.id] : [],
+        audience: { everyone: true, groups: [], roles: [], locations: [] },
         status: 'active',
       }
     })
 
-    if (newKbs.length) setKnowledgeBases((prev) => [...(prev || []), ...newKbs])
+    if (newKbs.length) setConnectors((prev) => [...(prev || []), ...newKbs])
     if (newAssistants.length) setAssistants((prev) => [...(prev || []), ...newAssistants])
 
     if (includeWorkspaceConfig) {

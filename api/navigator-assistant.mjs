@@ -18,11 +18,13 @@ import {
   getBlueprint,
   listAssistants,
   createAssistant,
+  updateAssistant,
   deleteAssistant,
 } from '../lib/blueprints.mjs';
 import { embed, rankByTopic } from '../lib/embeddings.mjs';
 import { listTemplates, getTemplate } from '../lib/assistant-templates.mjs';
 import { dbConfigured } from '../lib/db.mjs';
+import { pairwiseAssistantOverlap } from '../lib/navigator-health.mjs';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -35,6 +37,7 @@ export default async function handler(req, res) {
     if (action === 'create-from-description') return await handleCreateFromDescription(req, res);
     if (action === 'check-conflicts')         return await handleCheckConflicts(req, res);
     if (action === 'save')                    return await handleSave(req, res);
+    if (action === 'bulk-save')               return await handleBulkSave(req, res);
     if (action === 'delete')                  return await handleDelete(req, res, url);
     res.status(400).json({ error: 'unknown action' });
   } catch (err) {
@@ -169,9 +172,7 @@ async function handleCreateFromTemplate(req, res) {
     description: tpl.shortDescription,
     instructions,
     audience: audienceOverride || tpl.suggestedAudience,
-    knowledgeBaseIds: [],
-    mcpConnectorIds: [],
-    externalAgentIds: [],
+    connectorIds: [],
     status: 'active',
     // UI-only, not persisted:
     _matchedPages: matchedPages,
@@ -302,9 +303,7 @@ Return strict JSON: { "promptBody": "..." }`,
       description: naming.shortDescription || '',
       instructions,
       audience,
-      knowledgeBaseIds: [],
-      mcpConnectorIds: [],
-      externalAgentIds: [],
+      connectorIds: [],
       status: 'active',
       _matchedPages: matchedPages,
     };
@@ -330,52 +329,11 @@ async function handleCheckConflicts(req, res) {
   return res.status(200).json({ conflicts });
 }
 
+// Thin wrapper kept for callers that still import detectConflicts. The
+// actual LLM judge lives in lib/navigator-health.mjs so the Health Tab
+// and the AI creator share one implementation.
 async function detectConflicts(existing, candidate) {
-  if (!existing.length) return [];
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return [];
-  const client = new OpenAI({ apiKey });
-
-  // Summarize existing Assistants compactly: name + description + first ~80 chars of instructions.
-  const compactExisting = existing.map((a) => ({
-    id: a.id,
-    name: a.name,
-    description: a.description || '',
-    instructionsHead: (a.instructions || '').slice(0, 300),
-  }));
-
-  const resp = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
-    temperature: 0,
-    response_format: { type: 'json_object' },
-    messages: [
-      {
-        role: 'system',
-        content: `Detect topic/audience overlap between a proposed new Assistant and existing Navigator Assistants. Return STRICT JSON:
-{ "conflicts": [ { "withAssistantId": "id of existing", "withAssistantName": "...", "severity": "low" | "medium" | "high", "reason": "1-2 sentences", "suggestion": "concrete rename or scope-narrowing tip" } ] }
-
-Severity guide:
-- high: the new Assistant covers essentially the same scope as an existing one (employees wouldn't know which to ask). Block the add.
-- medium: meaningful overlap in topics or audience but distinguishable. Add with a warning.
-- low: minor overlap; mention but allow.
-
-Return an empty array if there are no conflicts.`,
-      },
-      {
-        role: 'user',
-        content: JSON.stringify({
-          candidate: {
-            name: candidate.name,
-            description: candidate.description,
-            promptBody: (candidate.promptBody || candidate.instructions || '').slice(0, 600),
-          },
-          existing: compactExisting,
-        }),
-      },
-    ],
-  });
-  const parsed = JSON.parse(resp.choices[0].message.content || '{}');
-  return Array.isArray(parsed.conflicts) ? parsed.conflicts : [];
+  return pairwiseAssistantOverlap(existing, candidate);
 }
 
 // ── save ───────────────────────────────────────────────────────────────────
@@ -395,6 +353,70 @@ async function handleSave(req, res) {
     userId: null,
   });
   return res.status(200).json({ assistant: saved });
+}
+
+// ── bulk-save ──────────────────────────────────────────────────────────────
+// Reconcile a full assistants array against the DB: upsert anything in the
+// payload, delete anything in DB that's not in the payload. Used by the
+// Studio's useConfigStore to push every local change through to the canonical
+// store. Preserves DB-assigned UUIDs by matching on the `id` field.
+//
+// Payload shape: { assistants: [{ id?, name, icon, description, instructions,
+//   connectorIds, audience, status, source?, templateId? }, ...] }
+async function handleBulkSave(req, res) {
+  if (req.method !== 'POST' && req.method !== 'PUT') {
+    return res.status(405).json({ error: 'method_not_allowed' });
+  }
+  if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
+  const body = await readJsonBody(req);
+  const incoming = Array.isArray(body.assistants) ? body.assistants : null;
+  if (!incoming) return res.status(400).json({ error: 'assistants array required' });
+  const branchId = await getActiveBranchId();
+  if (!branchId) return res.status(503).json({ error: 'branch_unavailable' });
+
+  const existing = await listAssistants(branchId);
+  const existingById = new Map(existing.map((a) => [a.id, a]));
+  const incomingIds = new Set(incoming.map((a) => a.id).filter(Boolean));
+
+  // Upsert each incoming row.
+  const saved = [];
+  for (const a of incoming) {
+    if (!a?.name) continue;
+    if (a.id && existingById.has(a.id)) {
+      const updated = await updateAssistant({
+        branchId,
+        id: a.id,
+        patch: {
+          name: a.name,
+          icon: a.icon,
+          description: a.description,
+          instructions: a.instructions,
+          audience: a.audience,
+          connectorIds: a.connectorIds || [],
+          status: a.status,
+        },
+      });
+      if (updated) saved.push(updated);
+    } else {
+      const created = await createAssistant({
+        branchId,
+        assistant: a,
+        source: a.source || 'manual',
+        templateId: a.templateId || null,
+        userId: null,
+      });
+      saved.push(created);
+    }
+  }
+
+  // Delete anything that fell out of the payload.
+  for (const a of existing) {
+    if (!incomingIds.has(a.id)) {
+      await deleteAssistant({ branchId, id: a.id });
+    }
+  }
+
+  return res.status(200).json({ branchId, assistants: saved });
 }
 
 // ── delete ─────────────────────────────────────────────────────────────────

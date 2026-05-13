@@ -1,23 +1,22 @@
 import React from 'react'
 import { Routes, Route, useParams, useNavigate, Link } from 'react-router-dom'
-import { Sparkles, BarChart2, MessageCircle, Building2 } from 'lucide-react'
+import { Sparkles, BarChart2, MessageCircle } from 'lucide-react'
 import NavigatorStudio from './prototypes/Navigator/NavigatorStudio'
 import NavigatorSetupStudio from './prototypes/NavigatorSetup/NavigatorSetupStudio'
-import NavigatorOrchestratorStudio from './prototypes/NavigatorOrchestrator/NavigatorOrchestratorStudio'
 import NavigatorAnalyticsDashboard from './prototypes/NavigatorAnalytics/NavigatorAnalyticsDashboard'
 import StaffbaseCompanion from './prototypes/StaffbaseCompanion'
 import MCPDemoStudio from './prototypes/MCPDemo/MCPDemoStudio'
 import A2ADemoStudio from './prototypes/A2ADemo/A2ADemoStudio'
 
 // ── Registry ──────────────────────────────────────────────────────────
-// Four prototypes, all anchored to one canonical Staffbase Intranet workspace:
+// Three prototypes, all anchored to one canonical Staffbase Intranet workspace:
 //
 //   /navigator-studio           — admin: assistants, connectors, agents, KBs,
 //                                  flows, workspace settings, Setup tab.
-//   /navigator-employee         — employee-facing chat (orchestrator).
-//                                  Reflects everything the Studio has wired up.
-//   /staffbase-companion        — production-grade Google login + Atlassian
-//                                  MCP. Hosts real per-user OAuth + write gate.
+//   /staffbase-companion        — employee-facing chat. Real Staffbase auth,
+//                                  Studio-driven Tier-1/Tier-2 orchestration,
+//                                  per-user OAuth for external MCPs,
+//                                  write actions gated by confirmation.
 //                                  (Route MUST stay at this path — registered
 //                                   OAuth callback URLs depend on it.)
 //   /navigator-analytics-dashboard — analytics spec (unchanged, externally linked).
@@ -36,21 +35,12 @@ const PROTOTYPES = [
     component: NavigatorStudio
   },
   {
-    id: "navigator-employee",
-    title: "Navigator — Employee Chat",
-    description: "Production-grade Staffbase Intranet chat. Streaming LLM, intent classification trace, flow detection, tool-call result cards, role-aware launchpad chips, and the Campsite Intranet at your fingertips.",
-    epic: "Navigator",
-    status: "ready",
-    icon: MessageCircle,
-    component: NavigatorOrchestratorStudio
-  },
-  {
     id: "staffbase-companion",
-    title: "Staffbase Companion — Real Atlassian MCP",
-    description: "Sign in with your real Staffbase Google account and chat against live Confluence + Jira via the official Atlassian Remote MCP. Per-user OAuth, write actions gated by explicit confirmation. The real-systems anchor for the Employee Chat.",
+    title: "Staffbase Companion — Employee Chat",
+    description: "The employee-facing chat. Studio-driven two-tier orchestration (flow / assistant routing → scoped tool catalog), live Campsite Intranet, HR / IT / Atlassian MCPs, A2A handoff to the Onboarding Agent, and per-user OAuth for external connectors.",
     epic: "Navigator",
     status: "live",
-    icon: Building2,
+    icon: MessageCircle,
     component: StaffbaseCompanion
   },
   {
@@ -65,15 +55,17 @@ const PROTOTYPES = [
 ];
 
 // Routes that stay reachable but aren't surfaced as gallery cards:
-//   - navigator-setup: folded into Studio's Setup tab; standalone wizard
-//     still linkable.
+//   - navigator-discovery: the discovery wizard, launched from Studio's
+//     Home tab. (The legacy `navigator-setup` slug is kept as an alias so
+//     external links and any existing bookmarks keep working.)
 //   - mcp-demo, a2a-demo: surfaced inside Studio as "Custom Integration"
 //     cards on the MCP Connectors / External Agents tabs, so the protocol
 //     showcase stays one click away from the workspace context.
 const HIDDEN_ROUTES = [
-  { id: "navigator-setup", component: NavigatorSetupStudio },
-  { id: "mcp-demo",        component: MCPDemoStudio        },
-  { id: "a2a-demo",        component: A2ADemoStudio        },
+  { id: "navigator-discovery", component: NavigatorSetupStudio },
+  { id: "navigator-setup",     component: NavigatorSetupStudio }, // legacy alias
+  { id: "mcp-demo",            component: MCPDemoStudio         },
+  { id: "a2a-demo",            component: A2ADemoStudio         },
 ];
 
 // ── Shared Gallery Component ──────────────────────────────────────────

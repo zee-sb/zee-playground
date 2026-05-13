@@ -1,31 +1,38 @@
 import React, { useState, useMemo } from 'react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
-import { Eye, RotateCcw, Bot, Wrench, BookOpen, Sparkles, Users, AlertCircle, ChevronRight, Building2, MapPin, Send, ChevronDown, ClipboardList, Workflow, Compass } from 'lucide-react'
+import { Eye, RotateCcw, Bot, Wrench, BookOpen, Sparkles, Users, AlertCircle, ChevronRight, Building2, MapPin, Send, ChevronDown, ClipboardList, Workflow, Compass, ShieldCheck, Home } from 'lucide-react'
 import { StudioShell } from '../../components/StudioShell'
 import { useConfigStore } from '../AIAssistant/useConfigStore'
 import { deriveLiveOrchestrator, deriveLiveOrchestratorFor, assistantVisibleTo } from '../AIAssistant/configStore'
-import { pickRoleChips } from '../NavigatorOrchestrator/chipRules'
+import { pickRoleChips } from './chipRules'
 import { LogoChip } from './components/Catalog'
+import HealthBadge from './components/HealthBadge'
+import { useNavigatorHealth } from './hooks/useNavigatorHealth'
 
 import AssistantsList from './tabs/AssistantsList'
 import AssistantDetail from './tabs/AssistantDetail'
 import TemplatesGallery from './tabs/TemplatesGallery'
 import AssistantAiCreator from './tabs/AssistantAiCreator'
-import MCPConnectorsList from './tabs/MCPConnectorsList'
-import ExternalAgentsList from './tabs/ExternalAgentsList'
-import KnowledgeBasesList from './tabs/KnowledgeBasesList'
+import ConnectorsList from './tabs/ConnectorsList'
 import WorkspaceTab from './tabs/WorkspaceTab'
 import FlowsList from './tabs/FlowsList'
 import FlowDetail from './tabs/FlowDetail'
+import HomeTab from './tabs/HomeTab'
+import SystemPromptEditor from './tabs/SystemPromptEditor'
 
+// Tabs:
+//   home       — overview, system prompt, health summary, discovery link
+//   assistants — list + detail CRUD
+//   connectors — MCPs, agents, KBs
+//   flows      — admin-defined flows
+//   workspace  — employee directory + tenant settings
+// (The previous standalone Health tab is folded into Home.)
 const TABS = [
-  { id: 'setup',      label: 'Setup',            icon: Compass  },
-  { id: 'assistants', label: 'Assistants',       icon: Sparkles },
-  { id: 'agents',     label: 'External Agents',  icon: Bot      },
-  { id: 'mcp',        label: 'MCP Connectors',   icon: Wrench   },
-  { id: 'kb',         label: 'Knowledge',        icon: BookOpen },
-  { id: 'flows',      label: 'Flows',            icon: Workflow },
-  { id: 'workspace',  label: 'Workspace',        icon: Building2 },
+  { id: 'home',       label: 'Home',        icon: Home     },
+  { id: 'assistants', label: 'Assistants',  icon: Sparkles },
+  { id: 'connectors', label: 'Connectors',  icon: Wrench   },
+  { id: 'flows',      label: 'Flows',       icon: Workflow },
+  { id: 'workspace',  label: 'Workspace',   icon: Building2 },
 ]
 
 /**
@@ -42,19 +49,31 @@ export default function NavigatorStudio() {
 
   const {
     config,
-    setMcpConnectors,
-    setExternalAgents,
+    blueprint,
+    setConnectors,
     setAssistants,
-    setKnowledgeBases,
     setFlows,
     resetConfig,
+    reseed,
+    saveMainInstructions,
+    optimizeMainInstructions,
   } = useConfigStore()
+  const [resetting, setResetting] = useState(false)
+  const [promptEditorOpen, setPromptEditorOpen] = useState(false)
+
+  // Workspace-wide health rollup — drives the top banner + per-tab badge.
+  // Same hook the Health tab uses, so toggling `deep` there is live everywhere.
+  const health = useNavigatorHealth()
 
   // Parse route
   const pathParts = location.pathname.split('/').filter(Boolean)
   const protoIdx = pathParts.indexOf('navigator-studio')
   const basePath = protoIdx !== -1 ? '/' + pathParts.slice(0, protoIdx + 1).join('/') : '/prototypes/navigator-studio'
-  const activeTabId = pathParts[protoIdx + 1] || 'assistants'
+  // Default tab is now Home (was 'assistants' in earlier revs; Setup was always
+  // a sibling). Legacy URLs hitting /setup or /health redirect transparently
+  // to /home so existing bookmarks keep working.
+  const rawTabId = pathParts[protoIdx + 1] || 'home'
+  const activeTabId = (rawTabId === 'setup' || rawTabId === 'health') ? 'home' : rawTabId
   const detailId = pathParts[protoIdx + 2] || null
 
   // Audience preview state — drives the right-rail "View as" selector.
@@ -116,10 +135,22 @@ export default function NavigatorStudio() {
     navigate(`${basePath}/flows`)
   }
 
-  function handleResetDemo() {
-    if (window.confirm('Reset all Navigator config to defaults? Clears your saved Studio state.')) {
-      resetConfig()
+  async function handleResetDemo() {
+    if (resetting) return
+    const ok = window.confirm(
+      'Reset Navigator to the default workspace? This wipes MCPs, Agents, KBs, Flows, and Assistants on the server and re-seeds them. Discovery, OAuth connections, and conversation history are preserved.'
+    )
+    if (!ok) return
+    setResetting(true)
+    try {
+      const success = await reseed()
+      if (!success) {
+        // Server unreachable — fell back to local reset. Surface that.
+        console.warn('[NavigatorStudio] reseed: server unreachable, used local reset')
+      }
       navigate(`${basePath}/assistants`)
+    } finally {
+      setResetting(false)
     }
   }
 
@@ -139,10 +170,8 @@ export default function NavigatorStudio() {
         icon: '✨',
         description: '',
         instructions: '',
-        mcpConnectorIds: [],
-        externalAgentIds: [],
-        knowledgeBaseIds: [],
-        audience: { everyone: true, roles: [], locations: [] },
+        connectorIds: [],
+        audience: { everyone: true, groups: [], roles: [], locations: [] },
         status: 'active',
       }
     } else {
@@ -197,13 +226,23 @@ export default function NavigatorStudio() {
                   <p className="text-[12px] text-[#6B7280] font-mono mt-1">{tenant.workspace || 'campsite.staffbase.com'}</p>
                 </div>
               </div>
-              <ConfigSummary config={config} />
+              <button
+                onClick={handleResetDemo}
+                disabled={resetting}
+                title="Reset MCPs, agents, KBs, flows, and assistants to the canonical seed. Discovery and OAuth connections are preserved."
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#E5E7EB] bg-white hover:border-[#7C3AED] hover:text-[#7C3AED] text-[12px] font-semibold text-[#374151] disabled:opacity-50 transition-colors"
+              >
+                <RotateCcw size={13} className={resetting ? 'animate-spin' : ''} />
+                {resetting ? 'Resetting…' : 'Reset to defaults'}
+              </button>
             </div>
 
             <nav className="flex gap-1">
               {TABS.map((t) => {
                 const Icon = t.icon
                 const active = activeTabId === t.id
+                // Health rollup now hangs off the Home tab since Health is folded in.
+                const isHome = t.id === 'home'
                 return (
                   <Link
                     key={t.id}
@@ -216,20 +255,36 @@ export default function NavigatorStudio() {
                   >
                     <Icon size={14} />
                     {t.label}
+                    {isHome && health.summary && (health.summary.errors > 0 || health.summary.warnings > 0) && (
+                      <HealthBadge summary={health.summary} />
+                    )}
                   </Link>
                 )
               })}
             </nav>
           </div>
 
+          {/* Health banner — sticky top warning when errors exist. */}
+          {health.summary?.errors > 0 && activeTabId !== 'home' && (
+            <button
+              onClick={() => navigate(`${basePath}/home`)}
+              className="w-full flex items-center justify-between gap-2 px-8 py-2 bg-[#FEF2F2] border-b border-[#FCA5A5] text-[#991B1B] text-[12.5px] font-semibold hover:bg-[#FEE2E2] transition-colors"
+            >
+              <span className="inline-flex items-center gap-2">
+                <AlertCircle size={14} />
+                Navigator has {health.summary.errors} error{health.summary.errors === 1 ? '' : 's'}
+                {health.summary.warnings > 0 ? ` and ${health.summary.warnings} warning${health.summary.warnings === 1 ? '' : 's'}` : ''} — review now
+              </span>
+              <ChevronRight size={14} />
+            </button>
+          )}
+
           {/* Tab content */}
           <div className="flex-1 overflow-y-auto px-8 py-6">
             {activeTabId === 'assistants' && !detailAssistant && !isTemplatesView && !isAiCreatorView && (
               <AssistantsList
                 assistants={config.assistants}
-                mcpConnectors={config.mcpConnectors}
-                externalAgents={config.externalAgents}
-                knowledgeBases={config.knowledgeBases}
+                connectors={config.connectors}
                 onSelect={handleSelectAssistant}
                 onCreate={handleCreateAssistant}
                 onOpenTemplates={handleOpenTemplates}
@@ -268,9 +323,7 @@ export default function NavigatorStudio() {
               <AssistantDetail
                 assistant={detailAssistant}
                 isNew={detailIsNew}
-                mcpConnectors={config.mcpConnectors}
-                externalAgents={config.externalAgents}
-                knowledgeBases={config.knowledgeBases}
+                connectors={config.connectors}
                 tenant={tenant}
                 demoUsers={demoUsers}
                 onBack={() => navigate(`${basePath}/assistants`)}
@@ -278,25 +331,11 @@ export default function NavigatorStudio() {
                 onDelete={handleDeleteAssistant}
               />
             )}
-            {activeTabId === 'agents' && (
-              <ExternalAgentsList
-                externalAgents={config.externalAgents}
+            {activeTabId === 'connectors' && (
+              <ConnectorsList
+                connectors={config.connectors}
                 assistants={config.assistants}
-                onExternalAgentsChange={setExternalAgents}
-              />
-            )}
-            {activeTabId === 'mcp' && (
-              <MCPConnectorsList
-                mcpConnectors={config.mcpConnectors}
-                assistants={config.assistants}
-                onMcpConnectorsChange={setMcpConnectors}
-              />
-            )}
-            {activeTabId === 'kb' && (
-              <KnowledgeBasesList
-                knowledgeBases={config.knowledgeBases}
-                assistants={config.assistants}
-                onKnowledgeBasesChange={setKnowledgeBases}
+                onConnectorsChange={setConnectors}
               />
             )}
             {activeTabId === 'flows' && !detailFlow && (
@@ -310,26 +349,22 @@ export default function NavigatorStudio() {
               <FlowDetail
                 flow={detailFlow}
                 isNew={detailFlowIsNew}
-                mcpConnectors={config.mcpConnectors || []}
-                externalAgents={config.externalAgents || []}
+                connectors={config.connectors || []}
                 onBack={() => navigate(`${basePath}/flows`)}
                 onSave={handleSaveFlow}
                 onDelete={handleDeleteFlow}
               />
             )}
             {activeTabId === 'workspace' && (
-              <WorkspaceTab
-                tenant={tenant}
-                demoUsers={demoUsers}
-                onReset={handleResetDemo}
-              />
+              <WorkspaceTab tenant={tenant} demoUsers={demoUsers} />
             )}
-            {activeTabId === 'setup' && (
-              <SetupTab
+            {activeTabId === 'home' && (
+              <HomeTab
                 tenant={tenant}
-                assistantsCount={(config.assistants || []).length}
-                connectorsCount={(config.mcpConnectors || []).length}
-                flowsCount={(config.flows || []).length}
+                config={config}
+                blueprint={blueprint}
+                basePath={basePath}
+                onEditSystemPrompt={() => setPromptEditorOpen(true)}
               />
             )}
           </div>
@@ -356,23 +391,25 @@ export default function NavigatorStudio() {
 
           <div className="px-5 py-4 border-t border-[#E5E7EB] mt-auto bg-white">
             <Link
-              to="/prototypes/navigator-employee"
+              to="/prototypes/staffbase-companion"
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#111827] text-white text-[13px] font-bold rounded-lg hover:bg-[#1F2937] transition-colors"
             >
               <Eye size={14} />
-              Open Employee experience
+              Open Companion
               <ChevronRight size={14} />
             </Link>
-            <button
-              onClick={handleResetDemo}
-              className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 text-[12px] font-semibold text-[#6B7280] hover:text-[#111827] transition-colors"
-            >
-              <RotateCcw size={12} />
-              Reset demo
-            </button>
           </div>
         </aside>
       </div>
+
+      {promptEditorOpen && (
+        <SystemPromptEditor
+          initialText={blueprint?.blueprint?.workspace?.mainInstructions || ''}
+          onClose={() => setPromptEditorOpen(false)}
+          onSave={saveMainInstructions}
+          onOptimize={optimizeMainInstructions}
+        />
+      )}
     </StudioShell>
   )
 }
@@ -412,10 +449,7 @@ function ViewAsPicker({ value, onChange, demoUsers }) {
  * Mirrors the Employee launchpad logic 1:1 via the shared `chipRules.js`.
  */
 function AudiencePreviewPanel({ user, live, config }) {
-  const capabilityIds = new Set([
-    ...live.mcps.map(m => m.id),
-    ...live.agents.map(a => a.id),
-  ])
+  const capabilityIds = new Set((live.connectors || []).map((c) => c.id))
   const activeFlows = (config.flows || []).filter(f => f.status === 'active')
   const chips = pickRoleChips({
     role: user.role,
@@ -499,32 +533,26 @@ function AudiencePreviewPanel({ user, live, config }) {
             ))}
       </ImpactSection>
 
-      <ImpactSection icon={<Wrench size={11} />} title="MCPs reachable" count={live.mcps.length}>
-        {live.mcps.length === 0
-          ? <Empty>No MCPs reachable</Empty>
-          : live.mcps.map(c => (
-              <ImpactRow key={c.id}>
-                <LogoChip name={c.name} color="#7C3AED" size={20} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-[12px] font-semibold text-[#111827] truncate">{c.name}</div>
-                  <div className="text-[10px] text-[#94A3B8]">{c.tools?.length || 0} tools</div>
-                </div>
-              </ImpactRow>
-            ))}
-      </ImpactSection>
-
-      <ImpactSection icon={<Bot size={11} />} title="Agents reachable" count={live.agents.length}>
-        {live.agents.length === 0
-          ? <Empty>No agents reachable</Empty>
-          : live.agents.map(a => (
-              <ImpactRow key={a.id}>
-                <LogoChip name={a.name} color="#F59E0B" size={20} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-[12px] font-semibold text-[#111827] truncate">{a.name}</div>
-                  <div className="text-[10px] text-[#94A3B8] truncate">{a.protocol || 'native'} · {a.capabilities?.length || 0} skills</div>
-                </div>
-              </ImpactRow>
-            ))}
+      <ImpactSection icon={<Wrench size={11} />} title="Connectors reachable" count={(live.connectors || []).length}>
+        {(live.connectors || []).length === 0
+          ? <Empty>No connectors reachable</Empty>
+          : (live.connectors || []).map(c => {
+              const color = c.kind === 'agent' ? '#F59E0B' : c.kind === 'kb' ? '#2563EB' : '#7C3AED'
+              const sub = c.kind === 'mcp'
+                ? `MCP · ${c.tools?.length || 0} tools`
+                : c.kind === 'agent'
+                  ? `Agent · ${c.protocol || 'native'}`
+                  : `Knowledge · ${c.source || 'corpus'}`
+              return (
+                <ImpactRow key={c.id}>
+                  <LogoChip name={c.name} color={color} size={20} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12px] font-semibold text-[#111827] truncate">{c.name}</div>
+                    <div className="text-[10px] text-[#94A3B8] truncate">{sub}</div>
+                  </div>
+                </ImpactRow>
+              )
+            })}
       </ImpactSection>
     </div>
   )
@@ -538,11 +566,12 @@ function AudiencePreviewPanel({ user, live, config }) {
 function OrchestratorImpactPanel({ live, config }) {
   const activeAssistants = (config.assistants || []).filter(a => a.status === 'active')
   const activeFlows = (config.flows || []).filter(f => f.status === 'active')
-  const orphanMcps = (config.mcpConnectors || []).filter(c =>
-    c.status === 'connected' && !live.mcps.find(x => x.id === c.id)
-  )
-  const orphanAgents = (config.externalAgents || []).filter(a =>
-    a.status === 'connected' && !live.agents.find(x => x.id === a.id)
+  const liveConnectors = live.connectors || []
+  const mcps = liveConnectors.filter((c) => c.kind === 'mcp')
+  const agents = liveConnectors.filter((c) => c.kind === 'agent')
+  const kbs = liveConnectors.filter((c) => c.kind === 'kb')
+  const orphan = (config.connectors || []).filter((c) =>
+    c.status === 'connected' && !liveConnectors.find((x) => x.id === c.id)
   )
 
   return (
@@ -585,44 +614,54 @@ function OrchestratorImpactPanel({ live, config }) {
             ))}
       </ImpactSection>
 
-      <ImpactSection icon={<Wrench size={11} />} title="MCPs the chat can call" count={live.mcps.length}>
-        {live.mcps.length === 0 ? (
-          <Empty>No MCPs reachable</Empty>
-        ) : (
-          live.mcps.map(c => (
-            <ImpactRow key={c.id}>
-              <LogoChip name={c.name} color="#7C3AED" size={20} />
-              <div className="flex-1 min-w-0">
-                <div className="text-[12px] font-semibold text-[#111827] truncate">{c.name}</div>
-                <div className="text-[10px] text-[#94A3B8]">{c.tools?.length || 0} tools</div>
-              </div>
-            </ImpactRow>
-          ))
-        )}
+      <ImpactSection icon={<Wrench size={11} />} title="MCPs the chat can call" count={mcps.length}>
+        {mcps.length === 0
+          ? <Empty>No MCPs reachable</Empty>
+          : mcps.map(c => (
+              <ImpactRow key={c.id}>
+                <LogoChip name={c.name} color="#7C3AED" size={20} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-semibold text-[#111827] truncate">{c.name}</div>
+                  <div className="text-[10px] text-[#94A3B8]">{c.tools?.length || 0} tools</div>
+                </div>
+              </ImpactRow>
+            ))}
       </ImpactSection>
 
-      <ImpactSection icon={<Bot size={11} />} title="Agents the chat can hand off to" count={live.agents.length}>
-        {live.agents.length === 0 ? (
-          <Empty>No agents reachable</Empty>
-        ) : (
-          live.agents.map(a => (
-            <ImpactRow key={a.id}>
-              <LogoChip name={a.name} color="#F59E0B" size={20} />
-              <div className="flex-1 min-w-0">
-                <div className="text-[12px] font-semibold text-[#111827] truncate">{a.name}</div>
-                <div className="text-[10px] text-[#94A3B8] truncate">{a.protocol || 'native'} · {a.capabilities?.length || 0} skills</div>
-              </div>
-            </ImpactRow>
-          ))
-        )}
+      <ImpactSection icon={<Bot size={11} />} title="Agents the chat can hand off to" count={agents.length}>
+        {agents.length === 0
+          ? <Empty>No agents reachable</Empty>
+          : agents.map(c => (
+              <ImpactRow key={c.id}>
+                <LogoChip name={c.name} color="#F59E0B" size={20} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-semibold text-[#111827] truncate">{c.name}</div>
+                  <div className="text-[10px] text-[#94A3B8] truncate">{c.protocol || 'native'} · {c.capabilities?.length || 0} skills</div>
+                </div>
+              </ImpactRow>
+            ))}
       </ImpactSection>
 
-      {(orphanMcps.length > 0 || orphanAgents.length > 0) && (
+      <ImpactSection icon={<BookOpen size={11} />} title="Knowledge bases the chat can search" count={kbs.length}>
+        {kbs.length === 0
+          ? <Empty>No knowledge bases reachable</Empty>
+          : kbs.map(c => (
+              <ImpactRow key={c.id}>
+                <LogoChip name={c.name} color="#2563EB" size={20} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-semibold text-[#111827] truncate">{c.name}</div>
+                  <div className="text-[10px] text-[#94A3B8] truncate">{c.source || 'Knowledge'} · {c.articleCount || 0} docs</div>
+                </div>
+              </ImpactRow>
+            ))}
+      </ImpactSection>
+
+      {orphan.length > 0 && (
         <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-lg px-3 py-2 flex items-start gap-2">
           <AlertCircle size={12} className="text-[#D97706] mt-0.5 shrink-0" />
           <div className="text-[11px] text-[#92400E] leading-relaxed">
-            <strong>{orphanMcps.length + orphanAgents.length} connected but unused.</strong>{' '}
-            Assign them to an assistant to reach the chat.
+            <strong>{orphan.length} connected but unused.</strong>{' '}
+            Link them to an assistant or flow to reach the chat.
           </div>
         </div>
       )}
@@ -706,113 +745,43 @@ function planRoute(query, config, viewAsUser) {
 
   // Try each active assistant's connected sub-agents/MCPs in order.
   for (const asst of activeAssistants) {
-    // Try A2A agents first — they handle whole-domain dialogs.
-    for (const agentId of (asst.externalAgentIds || [])) {
-      const agent = (config.externalAgents || []).find(a => a.id === agentId && a.status === 'connected')
-      if (!agent) continue
-      const caps = [...(agent.capabilities || []), ...(agent.domains || [])]
-      if (caps.some(c => q.includes(c.toLowerCase()))) {
+    // Walk linked connectors. Agents first (whole-domain dialogs), then
+    // MCPs/KBs by domain match.
+    const linked = (asst.connectorIds || [])
+      .map((id) => (config.connectors || []).find((c) => c.id === id && c.status === 'connected'))
+      .filter(Boolean)
+    for (const c of linked.filter((x) => x.kind === 'agent')) {
+      const caps = [...(c.capabilities || []), ...(c.domains || [])]
+      if (caps.some((cap) => q.includes(String(cap).toLowerCase()))) {
         return {
-          intent: caps.find(c => q.includes(c.toLowerCase())) || 'task',
+          intent: caps.find((cap) => q.includes(String(cap).toLowerCase())) || 'task',
           assistant: asst,
-          target: agent,
-          tool: `${agent.id} (A2A delegate)`,
+          target: c,
+          tool: `${c.id}__invoke`,
           kind: 'a2a',
         }
       }
     }
-    // Then MCP connectors.
-    for (const mcpId of (asst.mcpConnectorIds || [])) {
-      const mcp = (config.mcpConnectors || []).find(m => m.id === mcpId && m.status === 'connected')
-      if (!mcp) continue
-      const domains = mcp.domains || []
-      const hit = domains.find(d => q.includes(d.toLowerCase()))
+    for (const c of linked.filter((x) => x.kind !== 'agent')) {
+      const domains = c.domains || []
+      const hit = domains.find((d) => q.includes(String(d).toLowerCase()))
       if (hit) {
-        // Pick a tool whose name's tokens appear in the query, else the first.
-        const tool = (mcp.tools || []).find(t => q.includes(t.name.toLowerCase().slice(0, 5))) || (mcp.tools || [])[0]
+        const tool = c.kind === 'kb'
+          ? `${c.id}__search`
+          : ((c.tools || []).find((t) => q.includes(t.name.toLowerCase().slice(0, 5))) || (c.tools || [])[0])
+              ? `${c.id}__${((c.tools || []).find((t) => q.includes(t.name.toLowerCase().slice(0, 5))) || (c.tools || [])[0]).name}`
+              : `${c.id}.(tools/list)`
         return {
           intent: hit,
           assistant: asst,
-          target: mcp,
-          tool: tool ? `${mcp.id}.${tool.name}` : `${mcp.id}.(tools/list)`,
-          kind: 'mcp',
+          target: c,
+          tool,
+          kind: c.kind,
         }
       }
     }
   }
   return { notRoutable: true }
-}
-
-function SetupTab({ tenant = {}, assistantsCount, connectorsCount, flowsCount }) {
-  return (
-    <div>
-      <div className="mb-6">
-        <h1 className="text-[22px] font-bold text-[#111827]">Setup &amp; Discovery</h1>
-        <p className="text-[13px] text-[#6B7280] mt-1">
-          Bootstrap Navigator from your live Staffbase Intranet. Discovery analyzes channels, posts, pages, groups, and the user directory to propose Assistants grounded in your workspace.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-6">
-        <div className="space-y-4">
-          <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8] mb-1">Current workspace</div>
-            <div className="flex items-center gap-3 mt-2">
-              <div
-                className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-[20px]"
-                style={{ background: tenant.brandColor || '#00C7B2' }}
-              >
-                {(tenant.name || 'S').slice(0, 1)}
-              </div>
-              <div>
-                <div className="text-[16px] font-bold text-[#111827]">{tenant.name || 'Staffbase'}</div>
-                <div className="text-[11px] font-mono text-[#6B7280]">{tenant.workspace || 'campsite.staffbase.com'}</div>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-2 mt-4">
-              <SetupStat label="Assistants" value={assistantsCount} />
-              <SetupStat label="Connectors" value={connectorsCount} />
-              <SetupStat label="Flows" value={flowsCount} />
-            </div>
-          </div>
-
-          <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
-            <div className="text-[12px] font-bold text-[#111827] mb-2">Re-discover workspace</div>
-            <p className="text-[11px] text-[#6B7280] mb-3 leading-relaxed">
-              Re-runs the full discovery pass against the live Staffbase API. Updates the workspace blueprint (channels, pages, groups, glossary) without overwriting your existing Assistants.
-            </p>
-            <Link
-              to="/prototypes/navigator-setup"
-              className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-[#00C7B2] hover:bg-[#00A899] px-3 py-2 rounded-lg"
-            >
-              <Compass size={13} />
-              Open Setup Wizard
-            </Link>
-          </div>
-        </div>
-
-        <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
-          <div className="text-[12px] font-bold text-[#111827] mb-3">What the wizard does</div>
-          <ul className="space-y-2 text-[12px] text-[#374151]">
-            <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">1.</span> Pulls channels, recent posts, pages, groups, and user directory from the Staffbase API.</li>
-            <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">2.</span> Runs a multi-pass LLM analysis to extract company name, mission, tone, glossary, and a workspace-level system prompt.</li>
-            <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">3.</span> Clusters content into topic areas and proposes 5–9 grounded Assistants (HR, IT, Onboarding, Travel, Campsite + workspace-specific clusters).</li>
-            <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">4.</span> Persists the workspace blueprint to Postgres so subsequent loads are instant.</li>
-            <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">5.</span> You pick which proposed Assistants to apply, then they're created in <strong>navigator_assistants</strong> and visible in the Assistants tab.</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function SetupStat({ label, value }) {
-  return (
-    <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg px-3 py-2">
-      <div className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">{label}</div>
-      <div className="text-[18px] font-bold text-[#111827] mt-0.5">{value}</div>
-    </div>
-  )
 }
 
 function ImpactSection({ icon, title, count, children }) {
@@ -838,27 +807,8 @@ function Empty({ children }) {
   return <div className="text-[11px] text-[#94A3B8] italic px-2 py-1.5">{children}</div>
 }
 
-function ConfigSummary({ config }) {
-  const stats = [
-    { label: 'Assistants', value: config.assistants?.length || 0, icon: Sparkles },
-    { label: 'Agents',     value: config.externalAgents?.filter(a => a.status === 'connected').length || 0, icon: Bot },
-    { label: 'MCPs',       value: config.mcpConnectors?.filter(c => c.status === 'connected').length || 0, icon: Wrench },
-    { label: 'KBs',        value: config.knowledgeBases?.length || 0, icon: BookOpen },
-    { label: 'Flows',      value: (config.flows || []).filter(f => f.status === 'active').length, icon: Workflow },
-    { label: 'Users',      value: config.demoUsers?.length || 0, icon: Users },
-  ]
-  return (
-    <div className="flex items-center gap-4">
-      {stats.map(s => {
-        const Icon = s.icon
-        return (
-          <div key={s.label} className="flex items-center gap-1.5 text-[12px]">
-            <Icon size={12} className="text-[#94A3B8]" />
-            <span className="font-bold text-[#111827]">{s.value}</span>
-            <span className="text-[#6B7280]">{s.label}</span>
-          </div>
-        )
-      })}
-    </div>
-  )
+// (ConfigSummary removed in v7 — counts now live in the Setup tab's
+// "Workspace overview" card, not the global header.)
+function _ConfigSummaryRemoved() {
+  return null
 }

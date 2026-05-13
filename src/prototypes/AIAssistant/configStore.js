@@ -1,50 +1,38 @@
 /**
- * configStore v5 — single source of truth for the Navigator Studio + Employee
+ * configStore v7 — single source of truth for the Navigator Studio + Companion
  * prototypes, simulating one canonical Staffbase Intranet workspace.
  *
- * Persists to localStorage under one key today. Phase 3 will wire it to
- * navigator_config in Postgres (server canonical, localStorage cache).
+ * v7 unification: connectors (MCPs / agents / KBs) collapse into one list
+ * with a `kind` discriminator. Source-of-truth is server-side
+ * (`navigator_config` + `navigator_assistants`); localStorage is an
+ * offline-friendly cache. The seed itself lives in `lib/seed.mjs` and is
+ * imported by both client and server.
  *
- * Data model:
- *   mcpConnectors    — MCP tool servers (Zendesk, ServiceNow, GitHub, ...)
- *   externalAgents   — full conversational agents (Gemini, Copilot Studio, ...)
- *   assistants       — user-facing personas with sub-agent links
- *                      (mcpConnectorIds + externalAgentIds + knowledge bases)
- *   knowledgeBases   — content sources an assistant can ground answers in
- *   flows            — admin-defined workflows
- *
- * State machine values (canonical):
- *   assistant.status / flow.status              : draft | active | archived
- *   mcpConnector.status / externalAgent.status  : disconnected | connected | degraded
- *
- * v4 → v5 (this version): Rebrand from Acme to Staffbase. Catalog IDs
- *   (acme_hr → staffbase_hr, etc.) rewritten on load. Synthetic demoUsers /
- *   tenant.roles / tenant.locations arrays dropped — real workspace members
- *   come from the Staffbase API in Phase 3.
+ * What lives here:
+ *   - Storage key + version constants
+ *   - `buildSeedConfig()` — calls into lib/seed.mjs + adds client-only
+ *     demoUsers (kept here because they're prototype-only).
+ *   - `loadConfig()` / `saveConfig()` / `clearConfig()` — localStorage
+ *     adapters. No migrations — older snapshots are discarded (hard
+ *     cutover, prototype-only).
+ *   - Derived selectors (`deriveLiveOrchestrator`, `assistantVisibleTo`)
+ *     used by the Studio "View as" preview and the runtime.
+ *   - `flowMatchesText` / `notableWordsFromTrigger` — heuristics the
+ *     orchestrator's Tier-1 pre-pass also imports server-side
+ *     (lib/studio-config.mjs has a server copy to avoid pulling browser
+ *     code into Vercel functions).
  */
 
+import { buildSeedClientConfig } from '../../../lib/seed.mjs'
+
 export const STORAGE_KEY = 'staffbase.navigator.config'
-export const CONFIG_VERSION = 5
+export const CONFIG_VERSION = 7
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tenant — the Staffbase Intranet workspace. Tone modeled on Campsite, the
-// real Staffbase Intranet. `groups` replaces the old `roles`/`locations`
-// arrays — populated from the Staffbase API discovery (workspace_blueprints)
-// in Phase 3.
+// Demo users — client-only roster for the standalone "Sign in as" picker.
+// In production the Companion uses real Google OAuth via /api/auth/me.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SEED_TENANT = {
-  name: 'Staffbase',
-  brandColor: '#00C7B2',
-  workspace: 'campsite.staffbase.com',
-  groups: [],
-}
-
-// A small set of Staffbase team demo personas so the standalone Employee
-// Chat works locally without needing the real Staffbase Google OAuth flow.
-// In production, the Companion shell uses the real signed-in identity from
-// `/api/auth/me`; these personas are only the fallback roster for the
-// Employee Chat "sign in as" picker.
 const SEED_DEMO_USERS = [
   { email: 'zee@staffbase.com',     name: 'Zee Sherif',      role: 'Product',           group: 'Product',          location: 'NYC',           avatar: 'ZS', color: '#00C7B2',
     subtitle: 'I can help you ship — PRDs, roadmap, customer feedback, and team coordination.', daysSinceHire: 412 },
@@ -58,396 +46,30 @@ const SEED_DEMO_USERS = [
     subtitle: 'Day One — pick up MacBook, set up SSO, complete HR profile, meet manager.', daysSinceHire: 1 },
 ]
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Catalogs — read-only menus the admin picks from when adding a connector / agent
-// ─────────────────────────────────────────────────────────────────────────────
-
-// MCP catalog — the menu of enterprise apps an admin can bring online.
-// Three entries (`staffbase_hr`, `staffbase_it`, `staffbase_intranet`) point at
-// the orchestrator backend's real MCP servers (`/api/mcp`, `/api/mcp-it`,
-// `/api/mcp-intranet`); seeded connectors keep stable internal `id` values
-// (`hr_portal`, `it_helpdesk`, `intranet`) verbatim so the orchestrator can
-// route real tool calls. Other catalog entries are generic templates.
-export const MCP_CATALOG = [
-  { id: 'staffbase_hr',       name: 'Staffbase HR',          color: '#00C7B2', tagline: 'Employee directory · PTO · policies',     auth: 'SSO',              backend: '/api/mcp'           },
-  { id: 'staffbase_it',       name: 'Staffbase IT Helpdesk', color: '#2563EB', tagline: 'Tickets · equipment · access',            auth: 'SSO',              backend: '/api/mcp-it'        },
-  { id: 'staffbase_intranet', name: 'Campsite Intranet',     color: '#0EA5E9', tagline: 'News · memos · team wikis · events',      auth: 'SSO',              backend: '/api/mcp-intranet'  },
-  { id: 'zendesk',     name: 'Zendesk',         color: '#03363D', tagline: 'Support tickets · knowledge base',     auth: 'OAuth 2.0' },
-  { id: 'servicenow',  name: 'ServiceNow',      color: '#62D84E', tagline: 'IT incidents · change requests',       auth: 'OAuth 2.0' },
-  { id: 'workday',     name: 'Workday',         color: '#F38B00', tagline: 'HR records · time-off · payroll',      auth: 'Service account' },
-  { id: 'github',      name: 'GitHub',          color: '#181717', tagline: 'Repos · issues · pull requests',       auth: 'GitHub App' },
-  { id: 'jira',        name: 'Jira',            color: '#0052CC', tagline: 'Issues · sprints · projects',          auth: 'OAuth 2.0' },
-  { id: 'confluence',  name: 'Confluence',      color: '#0052CC', tagline: 'Pages · spaces · search',              auth: 'OAuth 2.0' },
-  { id: 'slack',       name: 'Slack',           color: '#4A154B', tagline: 'Channels · messages · search',         auth: 'OAuth 2.0' },
-  { id: 'notion',      name: 'Notion',          color: '#000000', tagline: 'Pages · databases · search',           auth: 'OAuth 2.0' },
-  { id: 'sharepoint',  name: 'SharePoint',      color: '#0078D4', tagline: 'Sites · documents · lists',            auth: 'Entra ID' },
-  { id: 'salesforce',  name: 'Salesforce',      color: '#00A1E0', tagline: 'Accounts · opportunities · leads',     auth: 'OAuth 2.0' },
-  { id: 'custom',      name: 'Custom MCP',      color: '#475569', tagline: 'Bring your own MCP endpoint',          auth: 'Configurable' },
-]
-
-// Agent catalog. `a2a` is the protocol the orchestrator's Store Ops Agent uses;
-// keeping the catalogId means seeded agents can be matched back to the live A2A
-// backend by `protocol === 'a2a'`.
-export const AGENT_CATALOG = [
-  { id: 'a2a',            name: 'Custom A2A Agent',          color: '#F59E0B', tagline: 'Google Agent-to-Agent protocol',            auth: 'Configurable',     protocol: 'a2a' },
-  { id: 'gemini',         name: 'Google Gemini',             color: '#1A73E8', tagline: 'Vertex AI / Gemini agents',                  auth: 'Service account', protocol: 'native' },
-  { id: 'copilot_studio', name: 'Microsoft Copilot Studio',  color: '#0078D4', tagline: 'Power Platform copilots',                   auth: 'Entra ID',         protocol: 'native' },
-  { id: 'claude',         name: 'Anthropic Claude',          color: '#C15F3C', tagline: 'Claude API agents',                         auth: 'API key',          protocol: 'native' },
-  { id: 'openai',         name: 'OpenAI Assistants',         color: '#10A37F', tagline: 'GPT-4 / GPT-5 assistants',                  auth: 'API key',          protocol: 'native' },
-]
-
-// Tool fixtures by catalog id — used to populate `tools[]` when a connector is added
-const MCP_TOOLS_BY_CATALOG = {
-  staffbase_hr: [
-    { id: 'getEmployee',     name: 'getEmployee',     description: 'Look up employee profile by email or id' },
-    { id: 'getDirectReports', name: 'getDirectReports', description: 'Manager → direct reports' },
-    { id: 'getPtoBalance',   name: 'getPtoBalance',   description: 'Read PTO balance for an employee' },
-    { id: 'requestPto',      name: 'requestPto',      description: 'Submit a PTO request' },
-    { id: 'searchPolicies',  name: 'searchPolicies',  description: 'Semantic search across HR policies' },
-  ],
-  staffbase_it: [
-    { id: 'listTickets',     name: 'listTickets',     description: 'Find current IT tickets for the user' },
-    { id: 'getTicket',       name: 'getTicket',       description: 'Read full ticket details' },
-    { id: 'createTicket',    name: 'createTicket',    description: 'Open a new IT support ticket' },
-    { id: 'getEquipment',    name: 'getEquipment',    description: 'Equipment assigned to the user' },
-    { id: 'requestSoftware', name: 'requestSoftware', description: 'Submit a software access request' },
-  ],
-  staffbase_intranet: [
-    { id: 'searchArticles', name: 'searchArticles', description: 'Keyword search across intranet articles' },
-    { id: 'getArticle',     name: 'getArticle',     description: 'Fetch the full body of an intranet article' },
-    { id: 'listRecent',     name: 'listRecent',     description: 'List the most recent intranet articles by category' },
-  ],
-  zendesk: [
-    { id: 'create_ticket',   name: 'create_ticket',   description: 'Open a new support ticket' },
-    { id: 'search_kb',       name: 'search_kb',       description: 'Search Zendesk Help Center' },
-    { id: 'get_ticket',      name: 'get_ticket',      description: 'Look up ticket status & history' },
-    { id: 'add_comment',     name: 'add_comment',     description: 'Comment on an existing ticket' },
-  ],
-  servicenow: [
-    { id: 'create_incident',     name: 'create_incident',     description: 'File an IT incident' },
-    { id: 'get_incident_status', name: 'get_incident_status', description: 'Check incident progress' },
-    { id: 'reset_password',      name: 'reset_password',      description: 'Reset a user password' },
-    { id: 'request_access',      name: 'request_access',      description: 'Submit an access request' },
-  ],
-  workday: [
-    { id: 'get_leave_balance', name: 'get_leave_balance', description: 'Read time-off balances' },
-    { id: 'submit_leave',      name: 'submit_leave',      description: 'Submit a time-off request' },
-    { id: 'get_payslip',       name: 'get_payslip',       description: 'Fetch the latest payslip' },
-  ],
-  github: [
-    { id: 'list_repos',     name: 'list_repos',     description: 'List repositories' },
-    { id: 'search_code',    name: 'search_code',    description: 'Search across code' },
-    { id: 'create_issue',   name: 'create_issue',   description: 'File an issue' },
-  ],
-  jira: [
-    { id: 'create_issue',  name: 'create_issue',  description: 'Create a Jira issue' },
-    { id: 'search_issues', name: 'search_issues', description: 'JQL search' },
-  ],
-  confluence: [
-    { id: 'search_pages', name: 'search_pages', description: 'Search Confluence pages' },
-    { id: 'get_page',     name: 'get_page',     description: 'Read page contents' },
-  ],
-  slack: [
-    { id: 'search_messages', name: 'search_messages', description: 'Search messages' },
-    { id: 'post_message',    name: 'post_message',    description: 'Post to a channel' },
-  ],
-  notion: [
-    { id: 'search', name: 'search', description: 'Search workspace' },
-  ],
-  sharepoint: [
-    { id: 'search_documents', name: 'search_documents', description: 'Search SharePoint sites' },
-  ],
-  salesforce: [
-    { id: 'query_records', name: 'query_records', description: 'SOQL query' },
-  ],
-  custom: [],
-}
-
-export function toolsForCatalogId(catalogId) {
-  return (MCP_TOOLS_BY_CATALOG[catalogId] || []).map(t => ({ ...t }))
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MCP fixtures — "what's inside" stats and a canned Test-connector response.
-// Purely cosmetic, keyed by catalogId. Lets Studio show admins a believable
-// snapshot of each connector ("256 employees · 47 policies") rather than a
-// bare endpoint URL. No network calls.
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const MCP_FIXTURES = {
-  staffbase_hr: {
-    stats: [
-      { label: 'Employees',  value: '850+' },
-      { label: 'Policies',   value: '47'  },
-      { label: 'Last sync',  value: '3m ago' },
-    ],
-    sample: {
-      tool: 'getPtoBalance',
-      query: '{ "employee": "zee@staffbase.com" }',
-      result: '{ "employee": "Zee Sherif", "ptoBalance": 19, "used": 6, "accrual": 1.66 }',
-    },
-  },
-  staffbase_it: {
-    stats: [
-      { label: 'Open tickets',   value: '38'   },
-      { label: 'Resolved (Q)',   value: '1,243' },
-      { label: 'SLA',            value: '89%'  },
-    ],
-    sample: {
-      tool: 'listTickets',
-      query: '{ "user": "zee@staffbase.com" }',
-      result: '[ { "id": "INC-4821", "title": "MacBook keyboard replacement", "priority": "medium", "status": "open" } ]',
-    },
-  },
-  staffbase_intranet: {
-    stats: [
-      { label: 'Articles',  value: '18'      },
-      { label: 'Categories', value: '6'       },
-      { label: 'Last post', value: '12h ago' },
-    ],
-    sample: {
-      tool: 'listRecent',
-      query: '{ "category": "leadership", "limit": 3 }',
-      result: '[ { "id": "art-q2-priorities", "title": "Q2 priorities from the ELT", "category": "leadership", "publishedAt": "2 days ago" } ]',
-    },
-  },
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Seed — what a freshly-installed Navigator looks like
-// ─────────────────────────────────────────────────────────────────────────────
-
-// IMPORTANT: ids must equal the orchestrator backend's MCP server ids
-// (`hr_portal`, `it_helpdesk`) for tool routing to work. The clean-slug
-// catalogIds are just for icon/branding lookup.
-const SEED_MCP_CONNECTORS = [
-  {
-    id: 'hr_portal',
-    catalogId: 'staffbase_hr',
-    name: 'Staffbase HR',
-    description: 'Employee directory · PTO · policies · org chart',
-    endpoint: '/api/mcp',
-    authMethod: 'SSO (demo)',
-    status: 'connected',
-    domains: ['hr', 'pto', 'employees', 'policies'],
-    addedAt: 'Mar 1, 2026',
-    tools: toolsForCatalogId('staffbase_hr'),
-  },
-  {
-    id: 'it_helpdesk',
-    catalogId: 'staffbase_it',
-    name: 'Staffbase IT Helpdesk',
-    description: 'Tickets · equipment · software access',
-    endpoint: '/api/mcp-it',
-    authMethod: 'SSO (demo)',
-    status: 'connected',
-    domains: ['it', 'tickets', 'equipment', 'access'],
-    addedAt: 'Mar 1, 2026',
-    tools: toolsForCatalogId('staffbase_it'),
-  },
-  {
-    id: 'intranet',
-    catalogId: 'staffbase_intranet',
-    name: 'Campsite Intranet',
-    description: 'Campsite posts · channels · leadership memos · product updates · employee spotlights',
-    endpoint: '/api/mcp-intranet',
-    authMethod: 'SSO (demo)',
-    status: 'connected',
-    domains: ['intranet', 'campsite', 'news', 'announcement', 'memo', 'spotlight', 'erg', 'leadership', 'wiki', 'event'],
-    addedAt: 'May 10, 2026',
-    tools: toolsForCatalogId('staffbase_intranet'),
-  },
-]
-
-// External agents seeded by default. The Staffbase Onboarding Agent is wired
-// to the live A2A backend at /api/a2a — it identifies the new hire from the
-// session and streams a Day One / First Week / First Month checklist back.
-// `id: 'staffbase_onboarding_agent'` matches lib/a2a-registry.mjs; `protocol:
-// 'a2a'` flips the orchestrator into A2A delegation mode.
-const SEED_EXTERNAL_AGENTS = [
-  {
-    id: 'staffbase_onboarding_agent',
-    catalogId: 'a2a',
-    name: 'Staffbase Onboarding Agent',
-    description: 'Stage-aware onboarding checklist for new Staffbase hires (Day One / First Week / First Month) — runs over Google\'s Agent-to-Agent protocol.',
-    endpoint: '/api/a2a',
-    authMethod: 'Bearer (session token)',
-    status: 'connected',
-    protocol: 'a2a',
-    capabilities: ['onboarding', 'new hire', 'day one', 'first week', 'first month', 'macbook', 'benefits enrollment'],
-    domains: ['onboarding', 'new hire', 'day one', 'first week', 'first month', 'macbook', 'welcome', 'benefits enrollment'],
-    addedAt: 'May 13, 2026',
-  },
-]
-
-const SEED_KNOWLEDGE_BASES = [
-  { id: 'kb-hr',       name: 'HR Policies',       source: 'Confluence',  articleCount: 142 },
-  { id: 'kb-it',       name: 'IT Wiki',           source: 'SharePoint',  articleCount: 318 },
-  { id: 'kb-onboard',  name: 'Onboarding Guide',  source: 'Notion',      articleCount: 47  },
-  { id: 'kb-travel',   name: 'Travel Policies',   source: 'Confluence',  articleCount: 23  },
-  { id: 'kb-intranet', name: 'Campsite Articles', source: 'Internal CMS', articleCount: 18 },
-]
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Flows — admin-defined, goal-driven workflows the Navigator brain can invoke
-// when an employee's intent matches. Workspace-wide for this prototype.
-// `tools[]` entries are either `{ connectorId, toolId }` (an MCP tool) or a
-// bare agentId string (the whole external agent).
-// ─────────────────────────────────────────────────────────────────────────────
-
-const SEED_FLOWS = [
-  {
-    id: 'flow-laptop',
-    name: 'Laptop Request',
-    trigger: 'Employee asks for a new laptop, new equipment, or mentions their computer is broken',
-    goal: 'IT ticket submitted with laptop model, OS preference, and delivery address confirmed',
-    tools: [
-      { connectorId: 'it_helpdesk', toolId: 'createTicket' },
-      { connectorId: 'it_helpdesk', toolId: 'getEquipment' },
-    ],
-    mode: 'suggested',
-    instructions: 'Ask for role first to recommend the right laptop tier.',
-    onComplete: null,
-    status: 'active',
-  },
-  {
-    id: 'flow-pto',
-    name: 'Request Time Off',
-    trigger: 'Employee wants to book leave, holiday, or PTO',
-    goal: 'PTO request submitted with dates confirmed and balance verified',
-    tools: [
-      { connectorId: 'hr_portal', toolId: 'requestPto' },
-      { connectorId: 'hr_portal', toolId: 'getPtoBalance' },
-    ],
-    mode: 'suggested',
-    instructions: '',
-    onComplete: null,
-    status: 'active',
-  },
-  {
-    id: 'flow-onboarding',
-    name: 'New Joiner Onboarding',
-    trigger: 'Employee just joined or says they are new, or asks what they need to do to get started',
-    goal: 'New hire has HR profile reviewed, IT ticket filed for equipment, and core software access requested',
-    tools: [
-      { connectorId: 'hr_portal',   toolId: 'getEmployee' },
-      { connectorId: 'it_helpdesk', toolId: 'createTicket' },
-      { connectorId: 'it_helpdesk', toolId: 'requestSoftware' },
-    ],
-    mode: 'required',
-    instructions: 'Check HR first to understand their role. Work through one step at a time.',
-    onComplete: null,
-    status: 'active',
-  },
-]
-
-const SEED_ASSISTANTS = [
-  {
-    id: 'asst-hr',
-    name: 'HR Assistant',
-    icon: '👥',
-    description: 'Leave, benefits, and HR policy questions.',
-    instructions: 'You are the Staffbase HR assistant. Use the Staffbase HR MCP for PTO, employee data, and policy search. Ground answers in HR Policies.',
-    mcpConnectorIds: ['hr_portal'],
-    externalAgentIds: [],
-    knowledgeBaseIds: ['kb-hr'],
-    audience: { everyone: true, groups: [] },
-    status: 'active',
-  },
-  {
-    id: 'asst-it',
-    name: 'IT Support',
-    icon: '💻',
-    description: 'Devices, software, tickets, and access requests.',
-    instructions: 'You are the Staffbase IT support assistant. Use the IT Helpdesk MCP for tickets, equipment, and software access. Ground in IT Wiki.',
-    mcpConnectorIds: ['it_helpdesk'],
-    externalAgentIds: [],
-    knowledgeBaseIds: ['kb-it'],
-    audience: { everyone: true, groups: [] },
-    status: 'active',
-  },
-  {
-    id: 'asst-onboarding',
-    name: 'Onboarding',
-    icon: '🚀',
-    description: 'First 30 days — paperwork, intros, MacBook pickup, and benefits enrollment.',
-    instructions: 'Help new Staffbase employees during their first 30 days. For any "Day One", "First Week", "First Month", "what should I do today", "onboarding checklist", or "MacBook pickup" question, hand off to the Staffbase Onboarding Agent (A2A) — it will identify the user from their session and stream the right stage of checklist. For general "how do I do X at Staffbase" questions, ground in the Onboarding Guide.',
-    mcpConnectorIds: [],
-    externalAgentIds: ['staffbase_onboarding_agent'],
-    knowledgeBaseIds: ['kb-onboard'],
-    audience: { everyone: true, groups: [] },
-    status: 'active',
-  },
-  {
-    id: 'asst-travel',
-    name: 'Travel & Expenses',
-    icon: '✈️',
-    description: 'Booking, policies, and expense reimbursement.',
-    instructions: 'Help with travel booking and expenses. Ground in Travel Policies.',
-    mcpConnectorIds: [],
-    externalAgentIds: [],
-    knowledgeBaseIds: ['kb-travel'],
-    audience: { everyone: true, groups: [] },
-    status: 'active',
-  },
-  {
-    id: 'asst-intranet',
-    name: 'Campsite Assistant',
-    icon: '📰',
-    description: 'Posts, channels, leadership memos, product launches, and team updates from Campsite.',
-    instructions: 'You are the Campsite Intranet assistant for Staffbase employees. Use the Campsite Intranet MCP (searchArticles, getArticle, listRecent) to answer questions about company news, leadership memos, product launches, team wikis, events, ERGs, and employee spotlights. Always ground answers in retrieved articles and cite them.',
-    mcpConnectorIds: ['intranet'],
-    externalAgentIds: [],
-    knowledgeBaseIds: ['kb-intranet'],
-    audience: { everyone: true, groups: [] },
-    status: 'active',
-  },
-]
-
 export function buildSeedConfig() {
+  const seed = buildSeedClientConfig()
   return {
+    ...seed,
     version: CONFIG_VERSION,
-    tenant: {
-      ...SEED_TENANT,
-      groups: [...(SEED_TENANT.groups || [])],
-    },
-    demoUsers: SEED_DEMO_USERS.map(u => ({ ...u })),
-    mcpConnectors: SEED_MCP_CONNECTORS.map(c => ({ ...c, tools: c.tools.map(t => ({ ...t })) })),
-    externalAgents: SEED_EXTERNAL_AGENTS.map(a => ({ ...a, capabilities: [...(a.capabilities || [])] })),
-    assistants: SEED_ASSISTANTS.map(a => ({
-      ...a,
-      mcpConnectorIds: [...a.mcpConnectorIds],
-      externalAgentIds: [...a.externalAgentIds],
-      knowledgeBaseIds: [...a.knowledgeBaseIds],
-      audience: {
-        everyone: a.audience?.everyone ?? true,
-        groups: [...(a.audience?.groups || [])],
-      },
-    })),
-    knowledgeBases: SEED_KNOWLEDGE_BASES.map(kb => ({ ...kb })),
-    flows: SEED_FLOWS.map(f => ({
-      ...f,
-      tools: (f.tools || []).map(t => (typeof t === 'string' ? t : { ...t })),
-    })),
+    demoUsers: SEED_DEMO_USERS.map((u) => ({ ...u })),
   }
 }
 
-// Notable-word heuristic shared with the orchestrator. Mirrors the spirit of
-// `planRoute()` — strip punctuation, drop stop-words, keep tokens > 4 chars,
-// match any of them against the inbound text. Cheap and good enough for a demo.
+// ─────────────────────────────────────────────────────────────────────────────
+// Flow trigger heuristic — also re-implemented in lib/studio-config.mjs for
+// the server side. Keep the stop-word list in sync.
+// ─────────────────────────────────────────────────────────────────────────────
+
 const FLOW_STOPWORDS = new Set([
   'employee','employees','asks','wants','says','their','they','the','and','for',
   'that','this','about','have','with','what','when','to','on','of','in','a','an',
   'or','is','are','be','do','need','needs','help','want','wants','start','starts',
-  'mentions','mention','their','them','from','just','some',
+  'mentions','mention','from','just','some',
 ])
 
 export function notableWordsFromTrigger(trigger = '') {
   return Array.from(new Set(
-    String(trigger)
-      .toLowerCase()
-      .replace(/[^a-z0-9 ]+/g, ' ')
-      .split(/\s+/)
+    String(trigger).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/)
       .filter((w) => w.length > 4 && !FLOW_STOPWORDS.has(w))
   ))
 }
@@ -459,115 +81,9 @@ export function flowMatchesText(text, flow) {
   return words.some((w) => t.includes(w))
 }
 
-// v4 → v5: Rebrand Acme → Staffbase. Rewrite catalog IDs (acme_* → staffbase_*)
-// in any persisted state, swap tenant.name/workspace defaults if still on Acme,
-// drop the old role/location audience fields in favor of groups[], and remove
-// the synthetic demoUsers array (real workspace members come from Staffbase
-// discovery in Phase 3).
-//
-// We do NOT touch user-customized fields: if an admin renamed an MCP connector
-// to "Internal HR", that name stays. Display names are only rewritten when they
-// still match the v4 seed string ("Acme HR Portal", etc.).
-const V4_TO_V5_CATALOG_RENAMES = {
-  acme_hr: 'staffbase_hr',
-  acme_it: 'staffbase_it',
-  acme_intranet: 'staffbase_intranet',
-}
-const V4_TO_V5_NAME_RENAMES = {
-  'Acme HR Portal': 'Staffbase HR',
-  'Acme Intranet': 'Campsite Intranet',
-  'Acme': 'Staffbase',
-}
-function rebrandV4Name(name) {
-  return V4_TO_V5_NAME_RENAMES[name] || name
-}
-function migrateV4toV5(parsed) {
-  if (!parsed || parsed.version !== 4) return null
-  const seed = buildSeedConfig()
-  const tenant = parsed.tenant || seed.tenant
-  return {
-    version: CONFIG_VERSION,
-    tenant: {
-      name: tenant.name === 'Acme' ? 'Staffbase' : (tenant.name || 'Staffbase'),
-      brandColor: tenant.brandColor === '#7C3AED' ? '#00C7B2' : (tenant.brandColor || '#00C7B2'),
-      workspace: tenant.workspace === 'acme.staffbase.com' ? 'campsite.staffbase.com' : (tenant.workspace || 'campsite.staffbase.com'),
-      groups: Array.isArray(tenant.groups) ? tenant.groups : [],
-      // Legacy fields retained as empty arrays so any consumer that still reads
-      // them doesn't crash. Phase 3 removes the remaining readers.
-      roles: [],
-      locations: [],
-    },
-    demoUsers: [],
-    mcpConnectors: (parsed.mcpConnectors || []).map(c => ({
-      ...c,
-      catalogId: V4_TO_V5_CATALOG_RENAMES[c.catalogId] || c.catalogId,
-      name: rebrandV4Name(c.name),
-    })),
-    externalAgents: (parsed.externalAgents || []).filter(a => a.id !== 'store_ops_agent').map(a => ({ ...a })),
-    knowledgeBases: (parsed.knowledgeBases || []).map(kb => ({
-      ...kb,
-      name: rebrandV4Name(kb.name),
-    })),
-    assistants: (parsed.assistants || [])
-      // Drop the retail-only Shift assistant — Staffbase team isn't a retail workspace.
-      .filter(a => a.id !== 'asst-shift')
-      .map(a => ({
-        ...a,
-        externalAgentIds: (a.externalAgentIds || []).filter(id => id !== 'store_ops_agent'),
-        instructions: (a.instructions || '')
-          .replaceAll('Acme HR Portal MCP', 'Staffbase HR MCP')
-          .replaceAll('Acme Intranet MCP', 'Campsite Intranet MCP')
-          .replaceAll('Acme intranet', 'Campsite intranet')
-          .replaceAll('Acme', 'Staffbase'),
-        audience: {
-          everyone: a.audience?.everyone ?? true,
-          // Migrate role/location audiences to empty groups[]. Phase 3 surfaces
-          // real Staffbase groups for the admin to re-pick.
-          groups: Array.isArray(a.audience?.groups) ? a.audience.groups : [],
-        },
-      })),
-    flows: parsed.flows || seed.flows,
-  }
-}
-
-// v3 → v4: graft `flows` onto a v3 config. Seed defaults if missing so existing
-// workspaces get the demo flows without losing their other customizations.
-function migrateV3toV4(parsed) {
-  if (!parsed || parsed.version !== 3) return null
-  const seed = buildSeedConfig()
-  return {
-    ...parsed,
-    version: 4,
-    flows: parsed.flows || seed.flows,
-  }
-}
-
-// v2 → v3: drop `targetGroups`, add `audience` defaulting to {everyone:true},
-// and graft on `tenant` + `demoUsers` so the rest of the app can rely on them.
-// Anyone who customized assistants in v2 keeps their connector/agent/KB links;
-// they just need to re-pick audience explicitly to scope below "everyone".
-function migrateV2toV3(parsed) {
-  if (!parsed || parsed.version !== 2) return null
-  const seed = buildSeedConfig()
-  return {
-    version: 3,
-    tenant: parsed.tenant || seed.tenant,
-    demoUsers: parsed.demoUsers || seed.demoUsers,
-    mcpConnectors: parsed.mcpConnectors || seed.mcpConnectors,
-    externalAgents: parsed.externalAgents || seed.externalAgents,
-    knowledgeBases: parsed.knowledgeBases || seed.knowledgeBases,
-    assistants: (parsed.assistants || []).map(a => {
-      const { targetGroups, ...rest } = a
-      return {
-        ...rest,
-        audience: a.audience || { everyone: true, roles: [], locations: [] },
-      }
-    }),
-  }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-// Persistence
+// Persistence — localStorage adapters. Hard cutover: any snapshot whose
+// version doesn't match CONFIG_VERSION is discarded. Server is canonical.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function isBrowser() {
@@ -580,26 +96,8 @@ export function loadConfig() {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    if (!parsed) return null
-    if (parsed.version === CONFIG_VERSION) return parsed
-    let working = parsed
-    if (working.version === 2) {
-      const v3 = migrateV2toV3(working)
-      if (v3) working = v3
-    }
-    if (working.version === 3) {
-      const v4 = migrateV3toV4(working)
-      if (v4) working = v4
-    }
-    if (working.version === 4) {
-      const v5 = migrateV4toV5(working)
-      if (v5) working = v5
-    }
-    if (working.version === CONFIG_VERSION) {
-      saveConfig(working)
-      return working
-    }
-    return null
+    if (!parsed || parsed.version !== CONFIG_VERSION) return null
+    return parsed
   } catch (err) {
     console.warn('[configStore] load failed, falling back to seed:', err)
     return null
@@ -621,56 +119,22 @@ export function clearConfig() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Derived selectors — used by the chat to translate config → ChatWidget props
+// Derived selectors — single source of truth for "what does the chat see".
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * The ChatWidget gates scenarios via `enabledActions`. An external agent is
- * "available" when it's connected AND at least one assistant references it.
- * (If no assistant uses the agent, the chat shouldn't pretend it's there.)
- */
-export function deriveEnabledActions(config) {
-  if (!config) return []
-  const assistantAgentIds = new Set(
-    (config.assistants || [])
-      .filter(a => a.status === 'active')
-      .flatMap(a => a.externalAgentIds || [])
-  )
-  return (config.externalAgents || [])
-    .filter(a => a.status === 'connected' && assistantAgentIds.has(a.id) && a.chatActionId)
-    .map(a => a.chatActionId)
-}
-
-/**
- * Find which assistant routes a given chat scenario — used to decorate the
- * employee chat with provenance ("answered by HR Assistant via HR Workday Agent").
- */
-export function findAssistantForExternalAgent(config, externalAgentId) {
-  if (!config) return null
-  return (config.assistants || []).find(a =>
-    a.status === 'active' && (a.externalAgentIds || []).includes(externalAgentId)
-  ) || null
-}
-
-/**
- * The orchestrator's view of the world — only MCPs and agents that are
- * (a) connected and (b) referenced by at least one active assistant.
- *
- * This is the single source of truth that drives the orchestrator's REGISTRY
- * and A2A_AGENTS lists at runtime. Disconnect a connector OR drop its sub-agent
- * link from every assistant → it disappears from the employee chat.
+ * Live orchestrator scope (workspace-wide) — connectors that are connected
+ * AND referenced by at least one active assistant. Unified shape: returns
+ * `{ connectors, assistants }`. Kind-specific filtering happens at the
+ * consumer.
  */
 export function deriveLiveOrchestrator(config) {
-  if (!config) return { mcps: [], agents: [], assistants: [] }
-  const activeAssistants = (config.assistants || []).filter(a => a.status === 'active')
-  const referencedMcps = new Set(activeAssistants.flatMap(a => a.mcpConnectorIds || []))
-  const referencedAgents = new Set(activeAssistants.flatMap(a => a.externalAgentIds || []))
+  if (!config) return { connectors: [], assistants: [] }
+  const activeAssistants = (config.assistants || []).filter((a) => a.status === 'active')
+  const referenced = new Set(activeAssistants.flatMap((a) => a.connectorIds || []))
   return {
-    mcps: (config.mcpConnectors || []).filter(c =>
-      c.status === 'connected' && referencedMcps.has(c.id)
-    ),
-    agents: (config.externalAgents || []).filter(a =>
-      a.status === 'connected' && referencedAgents.has(a.id)
+    connectors: (config.connectors || []).filter((c) =>
+      c.status === 'connected' && referenced.has(c.id)
     ),
     assistants: activeAssistants,
   }
@@ -678,11 +142,10 @@ export function deriveLiveOrchestrator(config) {
 
 /**
  * Audience check — does this assistant reach this user?
- * `everyone: true` short-circuits true. Otherwise the user matches if they
- * belong to one of the assistant's `groups`. Legacy `roles`/`locations` fields
- * are still honored as fallbacks during the v4→v5 transition. Empty audience
- * falls back to true so an admin flipping "everyone" off without picking
- * doesn't lock everyone out.
+ *   - everyone: true → always reach
+ *   - otherwise, user must match at least one group/role/location
+ *   - empty audience falls back to true so a half-configured assistant
+ *     doesn't accidentally hide from everyone.
  */
 export function assistantVisibleTo(assistant, user) {
   if (!assistant) return false
@@ -701,27 +164,20 @@ export function assistantVisibleTo(assistant, user) {
 }
 
 /**
- * Same as `deriveLiveOrchestrator`, but first filters active assistants down
- * to those whose audience includes `user`. Used by the Employee chat to scope
- * the live registry per logged-in user, and by Studio's "View as" preview.
- *
- * If `user` is null, behaves identically to `deriveLiveOrchestrator` (anonymous
- * = see workspace-wide capability, useful for pre-login banners).
+ * Same as `deriveLiveOrchestrator`, but first filters to assistants whose
+ * audience includes `user`. Used by Studio's "View as" right rail and by
+ * the Companion to scope per-user.
  */
 export function deriveLiveOrchestratorFor(config, user) {
-  if (!config) return { mcps: [], agents: [], assistants: [] }
+  if (!config) return { connectors: [], assistants: [] }
   if (!user) return deriveLiveOrchestrator(config)
   const visibleAssistants = (config.assistants || []).filter(
-    a => a.status === 'active' && assistantVisibleTo(a, user)
+    (a) => a.status === 'active' && assistantVisibleTo(a, user)
   )
-  const referencedMcps = new Set(visibleAssistants.flatMap(a => a.mcpConnectorIds || []))
-  const referencedAgents = new Set(visibleAssistants.flatMap(a => a.externalAgentIds || []))
+  const referenced = new Set(visibleAssistants.flatMap((a) => a.connectorIds || []))
   return {
-    mcps: (config.mcpConnectors || []).filter(c =>
-      c.status === 'connected' && referencedMcps.has(c.id)
-    ),
-    agents: (config.externalAgents || []).filter(a =>
-      a.status === 'connected' && referencedAgents.has(a.id)
+    connectors: (config.connectors || []).filter((c) =>
+      c.status === 'connected' && referenced.has(c.id)
     ),
     assistants: visibleAssistants,
   }

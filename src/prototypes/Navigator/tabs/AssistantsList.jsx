@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { Plus, ChevronRight, ChevronDown, Wrench, Bot, BookOpen, Users, Sparkles, LayoutGrid, FileText } from 'lucide-react'
-import { MCP_CATALOG, AGENT_CATALOG } from '../../AIAssistant/configStore'
 import { LogoChip, StatusPill } from '../components/Catalog'
+
+const KIND_COLOR = { mcp: '#7C3AED', agent: '#F59E0B', kb: '#2563EB' }
 
 /**
  * Assistants page — internal personas with sub-agent linking.
@@ -15,16 +16,13 @@ import { LogoChip, StatusPill } from '../components/Catalog'
  */
 export default function AssistantsList({
   assistants = [],
-  mcpConnectors = [],
-  externalAgents = [],
-  knowledgeBases = [],
+  connectors = [],
   onSelect,
   onCreate,
   onOpenTemplates,
   onOpenAiCreator,
 }) {
-  const mcpById = new Map(mcpConnectors.map(c => [c.id, c]))
-  const agentById = new Map(externalAgents.map(a => [a.id, a]))
+  const connectorById = new Map(connectors.map((c) => [c.id, c]))
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
 
@@ -90,9 +88,11 @@ export default function AssistantsList({
       ) : (
         <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
           {assistants.map((a, i) => {
-            const linkedMcps = (a.mcpConnectorIds || []).map(id => mcpById.get(id)).filter(Boolean)
-            const linkedAgents = (a.externalAgentIds || []).map(id => agentById.get(id)).filter(Boolean)
-            const kbCount = (a.knowledgeBaseIds || []).length
+            const linked = (a.connectorIds || []).map((id) => connectorById.get(id)).filter(Boolean)
+            const linkedMcps = linked.filter((c) => c.kind === 'mcp')
+            const linkedAgents = linked.filter((c) => c.kind === 'agent')
+            const linkedKbs = linked.filter((c) => c.kind === 'kb')
+            const kbCount = linkedKbs.length
             return (
               <button
                 key={a.id}
@@ -112,25 +112,18 @@ export default function AssistantsList({
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
                       {linkedAgents.length > 0 && (
                         <ChipGroup icon={<Bot size={11} />} label={`${linkedAgents.length} agent${linkedAgents.length === 1 ? '' : 's'}`}>
-                          {linkedAgents.map(g => {
-                            const cat = AGENT_CATALOG.find(c => c.id === g.catalogId)
-                            return <Chip key={g.id} name={g.name} color={cat?.color} />
-                          })}
+                          {linkedAgents.map(c => <Chip key={c.id} name={c.name} color={KIND_COLOR.agent} />)}
                         </ChipGroup>
                       )}
                       {linkedMcps.length > 0 && (
                         <ChipGroup icon={<Wrench size={11} />} label={`${linkedMcps.length} MCP${linkedMcps.length === 1 ? '' : 's'}`}>
-                          {linkedMcps.map(m => {
-                            const cat = MCP_CATALOG.find(c => c.id === m.catalogId)
-                            return <Chip key={m.id} name={m.name} color={cat?.color} />
-                          })}
+                          {linkedMcps.map(c => <Chip key={c.id} name={c.name} color={KIND_COLOR.mcp} />)}
                         </ChipGroup>
                       )}
-                      {kbCount > 0 && (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-[#6B7280]">
-                          <BookOpen size={11} />
-                          {kbCount} KB{kbCount === 1 ? '' : 's'}
-                        </span>
+                      {linkedKbs.length > 0 && (
+                        <ChipGroup icon={<BookOpen size={11} />} label={`${linkedKbs.length} KB${linkedKbs.length === 1 ? '' : 's'}`}>
+                          {linkedKbs.map(c => <Chip key={c.id} name={c.name} color={KIND_COLOR.kb} />)}
+                        </ChipGroup>
                       )}
                       {linkedAgents.length === 0 && linkedMcps.length === 0 && kbCount === 0 && (
                         <span className="text-[11px] text-[#94A3B8] italic">No sub-agents linked yet</span>

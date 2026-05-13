@@ -15,6 +15,7 @@ import authHandler from '../../lib/mcp-servers/auth.mjs';
 import intranetHandler from '../../lib/mcp-servers/intranet.mjs';
 import itHandler from '../../lib/mcp-servers/it.mjs';
 import staffbaseHandler from '../../lib/mcp-servers/staffbase.mjs';
+import kbHandler from '../../lib/mcp-servers/kb.mjs';
 
 const HANDLERS = {
   hr: hrHandler,
@@ -23,6 +24,7 @@ const HANDLERS = {
   intranet: intranetHandler,
   it: itHandler,
   staffbase: staffbaseHandler,
+  kb: kbHandler,
 };
 
 function resolveFlavor(req) {

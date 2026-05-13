@@ -1,21 +1,18 @@
 import React, { useState, useMemo } from 'react'
-import { ArrowLeft, Save, Trash2, Wrench, Bot, Workflow, Check, Sparkles } from 'lucide-react'
-import { MCP_CATALOG, AGENT_CATALOG } from '../../AIAssistant/configStore'
+import { ArrowLeft, Save, Trash2, Wrench, Bot, BookOpen, Workflow, Check, Sparkles } from 'lucide-react'
 import { LogoChip } from '../components/Catalog'
 
 /**
- * Flow detail editor — name, mode (suggested/required), trigger, goal,
- * instructions, completion hook, and a grouped tool picker drawn from
- * currently-connected MCP connectors and external agents.
+ * Flow detail editor (v7 unified).
  *
- * Right column shows a live read-only "flow definition" (dark terminal block)
- * and a small trace simulation of what the employee would see.
+ * Tool picker walks the unified connectors list. For MCPs we show every
+ * tool; for agents we show one `invoke` row; for KBs we show one `search`
+ * row. Selected tools always shape as `{connectorId, toolId}`.
  */
 export default function FlowDetail({
   flow,
   isNew = false,
-  mcpConnectors = [],
-  externalAgents = [],
+  connectors = [],
   onBack,
   onSave,
   onDelete,
@@ -27,41 +24,23 @@ export default function FlowDetail({
   const [goal, setGoal] = useState(flow.goal || '')
   const [instructions, setInstructions] = useState(flow.instructions || '')
   const [onComplete, setOnComplete] = useState(flow.onComplete || '')
+  // Normalize legacy bare agent ids to {connectorId, toolId: 'invoke'} on load.
   const [tools, setTools] = useState(() =>
-    (flow.tools || []).map((t) => (typeof t === 'string' ? t : { ...t }))
+    (flow.tools || []).map((t) =>
+      typeof t === 'string' ? { connectorId: t, toolId: 'invoke' } : { ...t }
+    )
   )
 
-  const connectedMcps = useMemo(
-    () => mcpConnectors.filter((c) => c.status === 'connected'),
-    [mcpConnectors]
-  )
-  const connectedAgents = useMemo(
-    () => externalAgents.filter((a) => a.status === 'connected'),
-    [externalAgents]
-  )
+  const connected = useMemo(() => connectors.filter((c) => c.status === 'connected'), [connectors])
 
   function isToolSelected(connectorId, toolId) {
-    return tools.some(
-      (t) => typeof t !== 'string' && t.connectorId === connectorId && t.toolId === toolId
-    )
-  }
-  function isAgentSelected(agentId) {
-    return tools.some((t) => typeof t === 'string' && t === agentId)
+    return tools.some((t) => t.connectorId === connectorId && t.toolId === toolId)
   }
   function toggleTool(connectorId, toolId) {
     setTools((prev) => {
-      const hit = prev.findIndex(
-        (t) => typeof t !== 'string' && t.connectorId === connectorId && t.toolId === toolId
-      )
+      const hit = prev.findIndex((t) => t.connectorId === connectorId && t.toolId === toolId)
       if (hit !== -1) return prev.filter((_, i) => i !== hit)
       return [...prev, { connectorId, toolId }]
-    })
-  }
-  function toggleAgent(agentId) {
-    setTools((prev) => {
-      const hit = prev.findIndex((t) => typeof t === 'string' && t === agentId)
-      if (hit !== -1) return prev.filter((_, i) => i !== hit)
-      return [...prev, agentId]
     })
   }
 
@@ -79,7 +58,7 @@ export default function FlowDetail({
     })
   }
 
-  const toolSummary = useMemo(() => formatToolSummary(tools, mcpConnectors, externalAgents), [tools, mcpConnectors, externalAgents])
+  const toolSummary = useMemo(() => formatToolSummary(tools, connectors), [tools, connectors])
 
   return (
     <div>
@@ -204,35 +183,40 @@ export default function FlowDetail({
           <Section
             title="Tools available in this flow"
             icon={<Wrench size={14} className="text-[#7C3AED]" />}
-            description="Select from your connected MCPs and agents. The Navigator brain can only use what you give it."
+            description="Select from your connected connectors. The Navigator brain can only use what you give it."
           >
-            {connectedMcps.length === 0 && connectedAgents.length === 0 ? (
+            {connected.length === 0 ? (
               <div className="text-[12px] text-[#94A3B8] italic px-3 py-3 bg-[#F9FAFB] rounded-lg">
-                No connectors connected yet — go to MCP Connectors to add some.
+                No connectors connected yet — go to Connectors to add some.
               </div>
             ) : (
-              <div className="space-y-4">
-                {connectedMcps.map((c) => {
-                  const cat = MCP_CATALOG.find((x) => x.id === c.catalogId)
-                  if (!c.tools || c.tools.length === 0) return null
+              <div className="space-y-3">
+                {connected.map((c) => {
+                  // Tool rows depend on kind. For agents, one synthetic invoke;
+                  // for KBs, one synthetic search; for MCPs, the declared list.
+                  const rows = c.kind === 'mcp'
+                    ? (c.tools || [])
+                    : [{ id: c.kind === 'agent' ? 'invoke' : 'search', name: c.kind === 'agent' ? 'invoke' : 'search', description: c.kind === 'agent' ? 'Hand off the conversation to this agent.' : 'Search the corpus.' }]
+                  const headerColor = c.kind === 'agent' ? '#F59E0B' : c.kind === 'kb' ? '#2563EB' : '#7C3AED'
+                  const HeaderIcon = c.kind === 'agent' ? Bot : c.kind === 'kb' ? BookOpen : Wrench
                   return (
                     <div key={c.id} className="border border-[#E5E7EB] rounded-lg overflow-hidden">
                       <div className="flex items-center gap-2 px-3 py-2 bg-[#F9FAFB] border-b border-[#E5E7EB]">
-                        <LogoChip name={c.name} color={cat?.color || '#7C3AED'} size={22} />
+                        <HeaderIcon size={13} style={{ color: headerColor }} />
+                        <LogoChip name={c.name} color={headerColor} size={22} />
                         <span className="text-[12px] font-semibold text-[#111827]">{c.name}</span>
-                        <span className="text-[10px] font-bold text-[#94A3B8] ml-auto">{c.tools.length} tools</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ml-auto" style={{ color: headerColor, background: `${headerColor}1a` }}>
+                          {c.kind === 'agent' ? 'Agent' : c.kind === 'kb' ? 'Knowledge' : 'MCP'}
+                        </span>
                       </div>
                       <div className="divide-y divide-[#F1F5F9]">
-                        {c.tools.map((t) => {
+                        {rows.map((t) => {
                           const sel = isToolSelected(c.id, t.id)
                           return (
-                            <button
-                              key={t.id}
-                              onClick={() => toggleTool(c.id, t.id)}
+                            <button key={t.id} onClick={() => toggleTool(c.id, t.id)}
                               className={`w-full text-left flex items-center gap-3 px-3 py-2 transition-colors ${
                                 sel ? 'bg-[#F5F3FF]' : 'bg-white hover:bg-[#F9FAFB]'
-                              }`}
-                            >
+                              }`}>
                               <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
                                 sel ? 'bg-[#7C3AED] border-[#7C3AED]' : 'border-[#CBD5E1]'
                               }`}>
@@ -249,42 +233,6 @@ export default function FlowDetail({
                     </div>
                   )
                 })}
-
-                {connectedAgents.length > 0 && (
-                  <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
-                    <div className="flex items-center gap-2 px-3 py-2 bg-[#F9FAFB] border-b border-[#E5E7EB]">
-                      <Bot size={14} className="text-[#F59E0B]" />
-                      <span className="text-[12px] font-semibold text-[#111827]">External Agents</span>
-                      <span className="text-[10px] font-bold text-[#94A3B8] ml-auto">{connectedAgents.length} agents</span>
-                    </div>
-                    <div className="divide-y divide-[#F1F5F9]">
-                      {connectedAgents.map((a) => {
-                        const cat = AGENT_CATALOG.find((x) => x.id === a.catalogId)
-                        const sel = isAgentSelected(a.id)
-                        return (
-                          <button
-                            key={a.id}
-                            onClick={() => toggleAgent(a.id)}
-                            className={`w-full text-left flex items-center gap-3 px-3 py-2 transition-colors ${
-                              sel ? 'bg-[#FFFBEB]' : 'bg-white hover:bg-[#F9FAFB]'
-                            }`}
-                          >
-                            <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
-                              sel ? 'bg-[#F59E0B] border-[#F59E0B]' : 'border-[#CBD5E1]'
-                            }`}>
-                              {sel && <Check size={11} className="text-white" />}
-                            </div>
-                            <LogoChip name={a.name} color={cat?.color || '#F59E0B'} size={22} />
-                            <div className="min-w-0 flex-1">
-                              <div className="text-[12px] font-semibold text-[#111827]">{a.name}</div>
-                              <div className="text-[11px] text-[#6B7280] truncate">{a.description}</div>
-                            </div>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </Section>
@@ -357,15 +305,13 @@ function formatDefinition({ trigger, goal, tools, mode, instructions, onComplete
     .join('\n')
 }
 
-function formatToolSummary(tools, mcpConnectors, externalAgents) {
+function formatToolSummary(tools, connectors) {
   if (!tools || tools.length === 0) return ''
   return tools
     .map((t) => {
-      if (typeof t === 'string') {
-        const a = externalAgents.find((x) => x.id === t)
-        return a ? a.name : t
-      }
-      return `${t.connectorId}.${t.toolId}`
+      const c = connectors.find((x) => x.id === t.connectorId)
+      const label = c?.name || t.connectorId
+      return `${label}.${t.toolId}`
     })
     .join(', ')
 }

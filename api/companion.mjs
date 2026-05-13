@@ -12,6 +12,8 @@ import { getUserFromReq } from '../lib/session.mjs';
 import { sql, dbConfigured } from '../lib/db.mjs';
 import { runOrchestratedTurn } from '../lib/orchestrator.mjs';
 import { CONNECTORS } from '../lib/connector-registry.mjs';
+import { loadStudio, materializeActiveScope, userToAudience } from '../lib/studio-config.mjs';
+import { listConnectionsForUser } from '../lib/connections.mjs';
 
 function baseUrlOf(req) {
   const proto = req.headers['x-forwarded-proto'] || 'http';
@@ -48,6 +50,7 @@ export default async function handler(req, res) {
     if (path === '/api/companion/messages')      return await messages(req, res);
     if (path === '/api/companion/chat')          return await chat(req, res);
     if (path === '/api/companion/confirm')       return await confirm(req, res);
+    if (path === '/api/companion/hero')          return await hero(req, res);
     // DELETE /api/companion/conversations/:id — owner-only.
     const delMatch = path.match(/^\/api\/companion\/conversations\/([^/]+)$/);
     if (delMatch && req.method === 'DELETE') return await deleteConversation(req, res, delMatch[1]);
@@ -254,6 +257,18 @@ async function chat(req, res) {
         values (${conversationId}, 'system', ${JSON.stringify(content)}::jsonb)
       `;
     };
+    // Load Studio config + the user's OAuth connection list. Both feed into
+    // the orchestrator: Studio decides admin-enabled connectors, connections
+    // decide which provider-gated connectors the user can actually call.
+    const [studio, connections] = await Promise.all([
+      loadStudio({}).catch((err) => {
+        console.warn('[companion/chat] loadStudio failed:', err.message);
+        return null;
+      }),
+      listConnectionsForUser(session.userId).catch(() => []),
+    ]);
+    const userConnectionProviders = new Set((connections || []).map((c) => c.provider));
+
     const result = await runOrchestratedTurn({
       openai,
       userId: session.userId,
@@ -265,6 +280,9 @@ async function chat(req, res) {
       onAssistantMessage,
       onToolResult,
       onSystemMessage,
+      studio,
+      branchId: studio?.branchId || null,
+      userConnections: userConnectionProviders,
     });
     if (result.status === 'await_confirm') {
       await sql`
@@ -326,9 +344,16 @@ async function confirm(req, res) {
 
   const base = baseUrlOf(req);
 
+  // For Studio-driven flows, the write-confirm endpoint must also resolve
+  // against admin-authored connectors — not just the legacy registry.
+  const studio = await loadStudio({}).catch(() => null);
+  const studioConnectors = studio?.config?.connectors || [];
+
   try {
     for (const tc of pending.toolCalls) {
-      const connector = CONNECTORS.find((c) => c.id === (tc.connector || 'atlassian'));
+      const connector =
+        studioConnectors.find((c) => c.id === tc.connector)
+        || CONNECTORS.find((c) => c.id === (tc.connector || 'atlassian'));
       const endpoint = connector?.endpoint;
       let result;
       if (decision === 'confirm') {
@@ -393,6 +418,73 @@ async function confirm(req, res) {
   } finally {
     res.end();
   }
+}
+
+// ── GET /api/companion/hero ────────────────────────────────────────────
+// Returns the user-filtered visible assistants + active flows so the Hero
+// state can render dynamic launchpad chips driven by Studio config. Falls
+// back to an empty payload when Studio is empty or unreachable — the UI
+// already has its own legacy chip set in that case.
+async function hero(req, res) {
+  if (req.method !== 'GET') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  let userProfile = null;
+  let userConnections = new Set();
+  try {
+    if (dbConfigured()) {
+      const session = await getUserFromReq(req);
+      if (session) {
+        const [userRows, connRows] = await Promise.all([
+          sql`select email, display_name, department, title from users where id = ${session.userId} limit 1`,
+          listConnectionsForUser(session.userId).catch(() => []),
+        ]);
+        if (userRows[0]) {
+          userProfile = {
+            email: userRows[0].email,
+            name: userRows[0].display_name,
+            department: userRows[0].department,
+            title: userRows[0].title,
+          };
+        }
+        userConnections = new Set((connRows || []).map((c) => c.provider));
+      }
+    }
+  } catch (err) {
+    console.warn('[companion/hero] user lookup failed:', err.message);
+  }
+  let studio = null;
+  try { studio = await loadStudio({}); }
+  catch (err) { console.warn('[companion/hero] loadStudio failed:', err.message); }
+
+  if (!studio) {
+    res.status(200).json({ assistants: [], flows: [], connectors: [], needsAuth: [], studioEmpty: true });
+    return;
+  }
+  const scope = materializeActiveScope({
+    config: studio.config,
+    assistants: studio.assistants,
+    user: userToAudience(userProfile),
+    userConnections,
+  });
+  res.status(200).json({
+    assistants: scope.assistants.map((a) => ({
+      id: a.id, name: a.name, icon: a.icon || '✨', description: a.description || '',
+    })),
+    flows: scope.flows.map((f) => ({
+      id: f.id, name: f.name, mode: f.mode || 'suggested', goal: f.goal || '',
+    })),
+    connectors: scope.connectors.map((c) => ({
+      id: c.id, kind: c.kind, name: c.name, provider: c.provider || null, source: c.source || null,
+    })),
+    needsAuth: (scope.needsAuth || []).map((c) => ({
+      id: c.id, kind: c.kind, name: c.name, provider: c.provider, description: c.description || '',
+    })),
+    tenant: { name: studio.config?.tenantOverrides?.name || 'Staffbase' },
+    studioEmpty: false,
+  });
 }
 
 async function rpc(baseUrl, endpoint, method, params, userId) {
