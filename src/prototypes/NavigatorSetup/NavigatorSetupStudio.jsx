@@ -232,11 +232,15 @@ export default function NavigatorSetupStudio() {
             locations: [...new Set([...(prevTenant.locations || []), ...discoveredLocations])],
             roles: [...new Set([...(prevTenant.roles || []), ...discoveredRoles])],
             // New fields — additive, won't break older Navigator Studio code that ignores them.
+            companyName: discovery.workspace?.companyName || prevTenant.companyName || '',
+            companyMission: discovery.workspace?.companyMission || prevTenant.companyMission || '',
             languages: discovery.languages || [],
             glossary: discovery.workspace?.glossary || [],
             systemPrompt: editedMainInstructions.trim(),
             workspaceFacts: discovery.workspace?.workspaceFacts || [],
             tone: discovery.workspace?.tone || [],
+            questionTypes: discovery.workspace?.questionTypes || [],
+            totalUsers: discovery.orgSignals?.totalUsers || prevTenant.totalUsers || null,
           },
         }
       })
@@ -453,11 +457,15 @@ function SectionDivider({ title, subtitle }) {
 // ── Workspace Overview ─────────────────────────────────────────────────────
 
 function WorkspaceOverview({ discovery }) {
-  const { orgSignals, languages, workspace } = discovery
+  const { orgSignals, languages, workspace, pages, groups, channels } = discovery
   const totalUsers = orgSignals?.totalUsers || 0
+  const sampledUsers = orgSignals?.sampledUsers || 0
   const departments = orgSignals?.departments || []
   const locations = orgSignals?.locations || []
   const topAuthors = orgSignals?.topAuthors || []
+  const totalChannels = channels?.length || 0
+  const totalPages = pages?.length || 0
+  const totalGroups = groups?.length || 0
 
   return (
     <div className="space-y-4">
@@ -469,6 +477,9 @@ function WorkspaceOverview({ discovery }) {
             </div>
             <div className="flex-1">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">AI summary</div>
+              {workspace.companyName && workspace.companyName !== 'this company' && (
+                <div className="text-[15px] font-bold text-[#18181B] mt-1">{workspace.companyName}{workspace.companyMission ? ` — ${workspace.companyMission}` : ''}</div>
+              )}
               <p className="text-[14px] text-[#18181B] mt-1 leading-relaxed">{workspace.overview}</p>
               {workspace.tone?.length > 0 && (
                 <div className="flex gap-1.5 mt-3 flex-wrap">
@@ -483,10 +494,12 @@ function WorkspaceOverview({ discovery }) {
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-3">
-        <StatCard icon={Users} label="Users in directory" value={totalUsers} hint={totalUsers >= 200 ? '200-user sample' : null} />
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+        <StatCard icon={Users} label="Users" value={totalUsers.toLocaleString()} hint={sampledUsers ? `${sampledUsers}-user sample analyzed` : null} />
         <StatCard icon={Building2} label="Departments" value={departments.length} hint={departments.length === 15 ? 'top 15' : null} />
         <StatCard icon={MapIcon} label="Locations" value={locations.length} hint={locations.length === 15 ? 'top 15' : null} />
+        <StatCard icon={Newspaper} label="Channels" value={totalChannels} />
+        <StatCard icon={BookOpen} label="Pages" value={totalPages} />
         <StatCard icon={Languages} label="Languages" value={languages.length} hint={languages.length > 0 ? languages.slice(0, 2).map(localeLabel).join(', ') + (languages.length > 2 ? '…' : '') : null} />
       </div>
 
@@ -510,6 +523,18 @@ function WorkspaceOverview({ discovery }) {
           items={topAuthors.slice(0, 8).map((a) => ({ label: a.name, value: `${a.postCount} ${a.postCount === 1 ? 'post' : 'posts'}` }))}
         />
       </div>
+
+      {totalGroups > 0 && (
+        <GroupsCard groups={groups} />
+      )}
+
+      {totalPages > 0 && (
+        <PagesCard pages={pages} />
+      )}
+
+      {workspace?.questionTypes?.length > 0 && (
+        <QuestionTypesCard questionTypes={workspace.questionTypes} />
+      )}
 
       {(orgSignals?.customFieldKeys?.length > 0 || workspace?.workspaceFacts?.length > 0) && (
         <div className="grid lg:grid-cols-2 gap-4">
@@ -578,6 +603,101 @@ function ListCard({ icon: Icon, title, items, empty }) {
           ))}
         </ul>
       )}
+    </div>
+  )
+}
+
+// ── Groups ─────────────────────────────────────────────────────────────────
+
+function GroupsCard({ groups }) {
+  const deptGroups = groups.filter((g) => g.isDepartmentGroup)
+  const otherGroups = groups.filter((g) => !g.isDepartmentGroup)
+  return (
+    <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
+      <div className="flex items-center gap-2 mb-3">
+        <Users size={14} className="text-[#7C3AED]" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">{groups.length} user {groups.length === 1 ? 'group' : 'groups'}</span>
+      </div>
+      <p className="text-[12px] text-[#71717A] mb-3">Departments + program/ERG opt-ins. Strong signal for org segmentation.</p>
+      <div className="grid md:grid-cols-2 gap-x-6 gap-y-2">
+        {deptGroups.length > 0 && (
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-[#5B21B6] mb-1.5">Departments</div>
+            <ul className="space-y-1">
+              {deptGroups.map((g) => (
+                <li key={g.id} className="flex items-center gap-2 text-[13px]">
+                  <Building2 size={11} className="text-[#7C3AED] shrink-0" />
+                  <span className="text-[#18181B] truncate">{g.name.replace(/^Dep\.?\s*/i, '')}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {otherGroups.length > 0 && (
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A] mb-1.5">Programs &amp; opt-ins</div>
+            <ul className="space-y-1">
+              {otherGroups.map((g) => (
+                <li key={g.id} className="flex items-center gap-2 text-[13px]">
+                  <Hash size={11} className="text-[#71717A] shrink-0" />
+                  <span className="text-[#18181B] truncate" title={g.description || ''}>{g.name}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Pages ──────────────────────────────────────────────────────────────────
+
+function PagesCard({ pages }) {
+  return (
+    <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
+      <div className="flex items-center gap-2 mb-3">
+        <BookOpen size={14} className="text-[#7C3AED]" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">{pages.length} {pages.length === 1 ? 'page' : 'pages'}</span>
+      </div>
+      <p className="text-[12px] text-[#71717A] mb-3">Reference content (hubs, policies, guides) — deeper than news posts, ideal as Assistant knowledge sources.</p>
+      <ul className="space-y-2 max-h-80 overflow-y-auto -mr-2 pr-2">
+        {pages.map((p) => (
+          <li key={p.id} className="flex items-start gap-3 py-1.5">
+            <div className="w-7 h-7 rounded-md bg-[#F0F9FF] grid place-items-center shrink-0 mt-0.5">
+              <BookOpen size={13} className="text-[#0284C7]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13.5px] font-semibold text-[#18181B] truncate">{p.title || '(untitled page)'}</div>
+              {p.description && <div className="text-[12px] text-[#71717A] line-clamp-1">{p.description}</div>}
+            </div>
+            {p.bodyLength > 0 && (
+              <span className="text-[10.5px] text-[#52525B] bg-[#F5F5F7] border border-[#E4E4E7] rounded-md px-1.5 py-0.5 shrink-0 whitespace-nowrap" title="Content length">
+                ~{Math.round(p.bodyLength / 100) * 100} chars
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// ── Question types ─────────────────────────────────────────────────────────
+
+function QuestionTypesCard({ questionTypes }) {
+  return (
+    <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
+      <div className="flex items-center gap-2 mb-3">
+        <MessageCircle size={14} className="text-[#7C3AED]" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">{questionTypes.length} question categories</span>
+      </div>
+      <p className="text-[12px] text-[#71717A] mb-3">What Navigator will handle, derived from the workspace content mix.</p>
+      <div className="flex flex-wrap gap-2">
+        {questionTypes.map((q, i) => (
+          <span key={i} className="text-[12.5px] px-2.5 py-1 rounded-full bg-[#F5F3FF] border border-[#DDD6FE] text-[#5B21B6] font-medium">{q}</span>
+        ))}
+      </div>
     </div>
   )
 }
