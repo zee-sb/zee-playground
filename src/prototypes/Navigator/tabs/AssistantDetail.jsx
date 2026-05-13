@@ -27,7 +27,7 @@ export default function AssistantDetail({
   const [mcpConnectorIds, setMcpConnectorIds] = useState(assistant.mcpConnectorIds || [])
   const [externalAgentIds, setExternalAgentIds] = useState(assistant.externalAgentIds || [])
   const [knowledgeBaseIds, setKnowledgeBaseIds] = useState(assistant.knowledgeBaseIds || [])
-  const [audience, setAudience] = useState(assistant.audience || { everyone: true, roles: [], locations: [] })
+  const [audience, setAudience] = useState(assistant.audience || { everyone: true, groups: [], roles: [], locations: [] })
   const [status, setStatus] = useState(assistant.status || 'active')
 
   function toggle(arr, id) {
@@ -37,12 +37,23 @@ export default function AssistantDetail({
   function setEveryone(everyone) {
     setAudience(prev => ({ ...prev, everyone }))
   }
+  function toggleGroup(g) {
+    setAudience(prev => ({ ...prev, groups: toggle(prev.groups || [], g) }))
+  }
   function toggleRole(r) {
     setAudience(prev => ({ ...prev, roles: toggle(prev.roles || [], r) }))
   }
   function toggleLocation(l) {
     setAudience(prev => ({ ...prev, locations: toggle(prev.locations || [], l) }))
   }
+
+  // Available groups: union of workspace tenant.groups + every group that
+  // appears on a demo user. Lets the picker work whether groups come from
+  // the seed roster, the cached blueprint, or hand-edited config.
+  const availableGroups = Array.from(new Set([
+    ...((tenant.groups) || []),
+    ...((demoUsers || []).map(u => u.group).filter(Boolean)),
+  ])).sort()
 
   // Live preview — how many demo users would actually see this assistant?
   const visibleUsers = demoUsers.filter(u => assistantVisibleTo({ audience }, u))
@@ -59,6 +70,7 @@ export default function AssistantDetail({
       knowledgeBaseIds,
       audience: {
         everyone: !!audience.everyone,
+        groups: audience.groups || [],
         roles: audience.roles || [],
         locations: audience.locations || [],
       },
@@ -264,53 +276,86 @@ export default function AssistantDetail({
               </button>
             </div>
 
-            {/* Role + location checklists, dimmed when "everyone" is on */}
+            {/* Groups (primary) + legacy roles/locations (only if tenant has them) */}
             <div className={audience.everyone ? 'opacity-40 pointer-events-none' : ''}>
               <div className="mb-3">
                 <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wide mb-1.5">
-                  <ShieldCheck size={11} className="text-[#7B5CE3]" />
-                  Roles
+                  <ShieldCheck size={11} className="text-[#00C7B2]" />
+                  Groups
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {(tenant.roles || []).map(r => {
-                    const selected = (audience.roles || []).includes(r)
-                    return (
-                      <button
-                        key={r}
-                        onClick={() => toggleRole(r)}
-                        className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
-                          selected ? 'bg-[#7C3AED] text-white' : 'bg-white border border-[#E5E7EB] text-[#475569] hover:border-[#CBD5E1]'
-                        }`}
-                      >
-                        {r}
-                      </button>
-                    )
-                  })}
-                </div>
+                {availableGroups.length === 0 ? (
+                  <div className="text-[11px] text-[#94A3B8] italic px-2 py-1.5 bg-[#F9FAFB] border border-dashed border-[#E5E7EB] rounded">
+                    No groups yet. Run discovery in the Setup tab to sync Staffbase groups from your directory.
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {availableGroups.map(g => {
+                      const selected = (audience.groups || []).includes(g)
+                      return (
+                        <button
+                          key={g}
+                          onClick={() => toggleGroup(g)}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
+                            selected ? 'bg-[#00C7B2] text-white' : 'bg-white border border-[#E5E7EB] text-[#475569] hover:border-[#CBD5E1]'
+                          }`}
+                        >
+                          {g}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
-              <div>
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wide mb-1.5">
-                  <MapPin size={11} className="text-[#2563EB]" />
-                  Locations
+              {(tenant.roles?.length > 0) && (
+                <div className="mb-3">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wide mb-1.5">
+                    <ShieldCheck size={11} className="text-[#7B5CE3]" />
+                    Roles <span className="font-normal italic text-[10px] text-[#94A3B8]">(legacy)</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(tenant.roles || []).map(r => {
+                      const selected = (audience.roles || []).includes(r)
+                      return (
+                        <button
+                          key={r}
+                          onClick={() => toggleRole(r)}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
+                            selected ? 'bg-[#7C3AED] text-white' : 'bg-white border border-[#E5E7EB] text-[#475569] hover:border-[#CBD5E1]'
+                          }`}
+                        >
+                          {r}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {(tenant.locations || []).map(l => {
-                    const selected = (audience.locations || []).includes(l)
-                    return (
-                      <button
-                        key={l}
-                        onClick={() => toggleLocation(l)}
-                        className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
-                          selected ? 'bg-[#2563EB] text-white' : 'bg-white border border-[#E5E7EB] text-[#475569] hover:border-[#CBD5E1]'
-                        }`}
-                      >
-                        {l}
-                      </button>
-                    )
-                  })}
+              )}
+
+              {(tenant.locations?.length > 0) && (
+                <div>
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#6B7280] uppercase tracking-wide mb-1.5">
+                    <MapPin size={11} className="text-[#2563EB]" />
+                    Locations <span className="font-normal italic text-[10px] text-[#94A3B8]">(legacy)</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(tenant.locations || []).map(l => {
+                      const selected = (audience.locations || []).includes(l)
+                      return (
+                        <button
+                          key={l}
+                          onClick={() => toggleLocation(l)}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
+                            selected ? 'bg-[#2563EB] text-white' : 'bg-white border border-[#E5E7EB] text-[#475569] hover:border-[#CBD5E1]'
+                          }`}
+                        >
+                          {l}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Visibility footer — concrete count of demo users reached */}

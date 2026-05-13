@@ -22,12 +22,18 @@ export default function StaffbaseCompanion({ onBack }) {
     try {
       const me = await getMe();
       if (me?.user) {
-        setState((prev) => ({ ...prev, status: 'signed_in', user: me.user, connections: me.connections || [] }));
+        setState((prev) => ({
+          ...prev,
+          status: 'signed_in',
+          user: me.user,
+          connections: me.connections || [],
+          staffbase: me.staffbase || null,
+        }));
       } else {
-        setState((prev) => ({ status: 'signed_out', user: null, connections: [], authError: prev.authError }));
+        setState((prev) => ({ status: 'signed_out', user: null, connections: [], staffbase: null, authError: prev.authError }));
       }
     } catch (err) {
-      setState({ status: 'signed_out', user: null, connections: [], authError: err.message });
+      setState({ status: 'signed_out', user: null, connections: [], staffbase: null, authError: err.message });
     }
   }, []);
 
@@ -59,8 +65,9 @@ export default function StaffbaseCompanion({ onBack }) {
     <CompanionShell
       user={state.user}
       connections={state.connections}
+      staffbase={state.staffbase}
       onBack={onBack}
-      onSignedOut={() => setState({ status: 'signed_out', user: null, connections: [], authError: null })}
+      onSignedOut={() => setState({ status: 'signed_out', user: null, connections: [], staffbase: null, authError: null })}
       onMeRefresh={refresh}
     />
   );

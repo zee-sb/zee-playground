@@ -51,6 +51,8 @@ export default async function handler(req, res) {
     if (path === '/api/auth/google/login')     return await googleLogin(req, res);
     if (path === '/api/auth/google/callback')  return await googleCallback(req, res);
     if (path === '/api/auth/me')               return await me(req, res);
+    if (path === '/api/auth/refresh-profile')  return await refreshProfile(req, res);
+    if (path === '/api/auth/avatar')           return await avatarProxy(req, res);
     if (path === '/api/auth/logout')           return await logout(req, res);
     if (path === '/api/auth/staffbase/login')  return await staffbaseLogin(req, res);
     res.status(404).json({ error: 'not_found', path });
@@ -117,25 +119,37 @@ async function googleCallback(req, res) {
     }
     const identity = resolveStaffbaseIdentity(info);
     // Look up the real Staffbase profile by email and override the canned
-    // seed values for name / title / department / avatar wherever the live
-    // API has something better. Falls back to the seed for fields that the
-    // intranet doesn't populate so we never display a blank profile.
+    // seed values for name / title / department / location / avatar /
+    // customFields wherever the live API has something better. Falls back to
+    // the seed for fields the intranet doesn't populate so we never display
+    // a blank profile.
     const live = await findStaffbaseUserByEmail(info.email);
-    const displayName = live?.name      || identity.name;
-    const department  = live?.department || identity.department;
-    const title       = live?.title      || identity.title;
-    const avatarInit  = identity.avatar;                 // gradient-initials fallback
-    const avatarUrl   = live?.avatar      || null;       // real Staffbase photo
+    const displayName  = live?.name       || identity.name;
+    const department   = live?.department || identity.department;
+    const title        = live?.title      || identity.title;
+    const location     = live?.location   || null;
+    const avatarInit   = identity.avatar;                  // gradient-initials fallback
+    const avatarUrl    = live?.avatar     || null;         // real Staffbase photo
+    const customFields = live?.customFields || {};
     const rows = await sql`
-      insert into users (staffbase_user_id, email, display_name, department, title, avatar_initials, avatar_url, last_login_at)
-      values (${identity.id}, ${identity.email}, ${displayName}, ${department}, ${title}, ${avatarInit}, ${avatarUrl}, now())
+      insert into users (staffbase_user_id, email, display_name, department, title, location, avatar_initials, avatar_url, custom_fields, last_login_at)
+      values (${identity.id}, ${identity.email}, ${displayName}, ${department}, ${title}, ${location}, ${avatarInit}, ${avatarUrl}, ${JSON.stringify(customFields)}::jsonb, now())
       on conflict (staffbase_user_id) do update
         set email           = excluded.email,
             display_name    = excluded.display_name,
+            -- For these, prefer live values when present, retain stored on null.
             department      = coalesce(excluded.department, users.department),
-            title           = coalesce(excluded.title, users.title),
+            title           = coalesce(excluded.title,      users.title),
+            location        = coalesce(excluded.location,   users.location),
             avatar_initials = excluded.avatar_initials,
             avatar_url      = coalesce(excluded.avatar_url, users.avatar_url),
+            -- custom_fields: overwrite when the live lookup returned anything
+            -- (empty jsonb means "no live data" → keep what we have).
+            custom_fields   = case
+              when jsonb_typeof(excluded.custom_fields) = 'object' and excluded.custom_fields <> '{}'::jsonb
+                then excluded.custom_fields
+              else users.custom_fields
+            end,
             last_login_at   = now()
       returning id
     `;
@@ -167,7 +181,8 @@ async function me(req, res) {
     return;
   }
   const rows = await sql`
-    select id, staffbase_user_id, email, display_name, department, title, avatar_initials, avatar_url
+    select id, staffbase_user_id, email, display_name, department, title, location,
+           avatar_initials, avatar_url, custom_fields
     from users where id = ${session.userId}
   `;
   if (!rows.length) {
@@ -176,6 +191,14 @@ async function me(req, res) {
   }
   const u = rows[0];
   const connections = await listConnectionsForUser(u.id);
+  // Campsite SAML SSO entry point — the URL Staffbase publishes for this
+  // workspace's SAML configuration (configurable per env). Surfacing it on
+  // /me lets the Companion render a "Continue to Campsite" affordance that
+  // initiates SP-initiated SAML SSO: Campsite sees no session, bounces to
+  // Google IdP, Google asserts the user (already signed in via our own
+  // Google OAuth), Campsite mints a Staffbase web session.
+  const staffbaseSsoUrl = process.env.STAFFBASE_SSO_URL
+    || 'https://campsite.staffbase.com/auth/saml/staffpranos';
   res.status(200).json({
     user: {
       id: u.id,
@@ -184,8 +207,19 @@ async function me(req, res) {
       displayName: u.display_name,
       department: u.department,
       title: u.title,
+      location: u.location,
       avatarInitials: u.avatar_initials,
-      avatarUrl: u.avatar_url,
+      // `avatar_url` in the DB is the secure Campsite URL (requires the
+      // platform API token to fetch). Expose the public-facing path our
+      // server-side proxy serves so <img> elements can render it directly.
+      avatarUrl: u.avatar_url ? '/api/auth/avatar' : null,
+      avatarSourceUrl: u.avatar_url || null,
+      customFields: u.custom_fields || {},
+    },
+    staffbase: {
+      ssoUrl: staffbaseSsoUrl,
+      workspace: 'campsite.staffbase.com',
+      ssoConfigId: (staffbaseSsoUrl.match(/\/auth\/saml\/([^/]+)/) || [])[1] || null,
     },
     connections: connections.map((c) => ({
       provider: c.provider,
@@ -194,6 +228,111 @@ async function me(req, res) {
       metadata: c.metadata,
       connectedAt: c.created_at,
     })),
+  });
+}
+
+// ── GET /api/auth/avatar ───────────────────────────────────────────────
+//
+// Server-side proxy for the signed-in user's avatar. The Campsite directory
+// returns avatar URLs of the form
+// `https://campsite.staffbase.com/api/media/secure/external/v2/image/...`,
+// which require Authorization on the originating request and can't be loaded
+// directly by the browser. We fetch them with the platform API token and
+// stream the binary back to the browser, with aggressive Cache-Control so
+// the asset only round-trips once per session.
+async function avatarProxy(req, res) {
+  if (req.method !== 'GET') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+  const session = await getUserFromReq(req);
+  if (!session) {
+    res.status(401).json({ error: 'not_signed_in' });
+    return;
+  }
+  const rows = await sql`select avatar_url from users where id = ${session.userId}`;
+  const avatarUrl = rows[0]?.avatar_url;
+  if (!avatarUrl) {
+    res.status(404).json({ error: 'no_avatar' });
+    return;
+  }
+  const token = process.env.STAFFBASE_API_TOKEN;
+  if (!token) {
+    res.status(503).json({ error: 'staffbase_token_missing' });
+    return;
+  }
+  try {
+    const upstream = await fetch(avatarUrl, {
+      headers: { Authorization: `Basic ${token}` },
+    });
+    if (!upstream.ok) {
+      res.status(upstream.status).json({ error: 'upstream_avatar_failed', status: upstream.status });
+      return;
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    const ct = upstream.headers.get('content-type') || 'image/png';
+    res.setHeader('Content-Type', ct);
+    // Cache aggressively in the browser; new sign-in re-issues a fresh URL.
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.status(200).send(buf);
+  } catch (err) {
+    console.error('[auth/avatar] fetch failed:', err.message);
+    res.status(502).json({ error: 'avatar_proxy_failed' });
+  }
+}
+
+// ── POST /api/auth/refresh-profile ─────────────────────────────────────
+//
+// Re-pulls the signed-in user's profile from the live Staffbase Directory
+// and overwrites the cached title / department / location / avatar / custom
+// fields on the users row. Used when an admin updates Campsite and wants
+// the change reflected in Companion without forcing a re-login.
+async function refreshProfile(req, res) {
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+  if (!dbConfigured()) {
+    res.status(503).json({ error: 'db_not_configured' });
+    return;
+  }
+  const session = await getUserFromReq(req);
+  if (!session) {
+    res.status(401).json({ error: 'not_signed_in' });
+    return;
+  }
+  const row = await sql`select id, email from users where id = ${session.userId}`;
+  if (!row.length) {
+    res.status(401).json({ error: 'user_not_found' });
+    return;
+  }
+  const { email } = row[0];
+  const live = await findStaffbaseUserByEmail(email);
+  if (!live) {
+    res.status(404).json({ error: 'profile_not_found_in_directory', email });
+    return;
+  }
+  await sql`
+    update users set
+      display_name  = coalesce(${live.name},       display_name),
+      department    = coalesce(${live.department}, department),
+      title         = coalesce(${live.title},      title),
+      location      = coalesce(${live.location},   location),
+      avatar_url    = coalesce(${live.avatar},     avatar_url),
+      custom_fields = ${JSON.stringify(live.customFields || {})}::jsonb,
+      last_login_at = last_login_at
+    where id = ${session.userId}
+  `;
+  res.status(200).json({
+    ok: true,
+    refreshed: {
+      name: live.name,
+      title: live.title,
+      department: live.department,
+      location: live.location,
+      avatarPresent: !!live.avatar,
+      customFieldsCount: Object.keys(live.customFields || {}).length,
+    },
   });
 }
 

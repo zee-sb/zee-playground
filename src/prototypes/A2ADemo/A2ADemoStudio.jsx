@@ -510,7 +510,7 @@ function TaskRunnerTab() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <ClipboardList size={14} className="text-[#F59E0B]" />
-              <span className="text-xs font-medium text-[#374151]">Acme Store Operations Agent</span>
+              <span className="text-xs font-medium text-[#374151]">Staffbase Onboarding Agent</span>
             </div>
             <div className="flex items-center gap-2">
               {taskId && <span className="text-[10px] text-[#9CA3AF] font-mono">{taskId}</span>}
@@ -709,7 +709,7 @@ export default function A2ADemoStudio({ onBack }) {
               </div>
               <div>
                 <h1 className="font-semibold text-[#111827] text-sm leading-tight">A2A Protocol Demo</h1>
-                <p className="text-xs text-[#6B7280]">Acme Store Operations Agent · Google Agent-to-Agent</p>
+                <p className="text-xs text-[#6B7280]">Staffbase Onboarding Agent · Google Agent-to-Agent</p>
               </div>
             </div>
           </div>

@@ -1,17 +1,18 @@
 import React, { useState } from 'react'
-import { Plus, Trash2, Bot, ChevronRight, ClipboardList, Camera, Thermometer, Hash, Check } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Plus, Trash2, Bot, ChevronRight, ClipboardList, Camera, Thermometer, Hash, Check, FlaskConical } from 'lucide-react'
 import { AGENT_CATALOG } from '../../AIAssistant/configStore'
 import { CatalogGrid, LogoChip, StatusPill } from '../components/Catalog'
 import { CatalogDrawer } from './MCPConnectorsList'
 
-// Per-role × phase checklist task counts. Mirrors the fixtures the Store Ops
-// A2A backend serves to the Employee chat — kept here as a static preview so
-// admins can see what's behind the agent before linking it to an assistant.
-const STORE_OPS_MATRIX = {
-  'Branch Manager':   { opening: { count: 7, types: ['checkbox', 'count', 'photo'] },     midshift: { count: 4, types: ['checkbox', 'photo'] },          closing: { count: 8, types: ['checkbox', 'count', 'photo'] } },
-  'Line Cook':        { opening: { count: 6, types: ['checkbox', 'temp_log', 'photo'] },  midshift: { count: 5, types: ['checkbox', 'temp_log'] },       closing: { count: 7, types: ['checkbox', 'temp_log', 'count'] } },
-  'Shift Supervisor': { opening: { count: 5, types: ['checkbox', 'count'] },               midshift: { count: 3, types: ['checkbox'] },                   closing: { count: 6, types: ['checkbox', 'count', 'photo'] } },
-  'Cleaning Staff':   { opening: { count: 4, types: ['checkbox', 'photo'] },               midshift: { count: 3, types: ['checkbox'] },                   closing: { count: 5, types: ['checkbox', 'photo'] } },
+// Stage × task counts for the Staffbase Onboarding Agent. Mirrors the fixtures
+// the /api/a2a backend streams to the Employee chat — kept here as a static
+// preview so admins can see what's behind the agent before linking it to an
+// assistant.
+const ONBOARDING_MATRIX = {
+  'Day One':       { count: 6, types: ['checkbox', 'photo'] },
+  'First Week':    { count: 6, types: ['checkbox'] },
+  'First Month':   { count: 6, types: ['checkbox'] },
 }
 
 const TASK_TYPE_META = {
@@ -39,7 +40,7 @@ export default function ExternalAgentsList({ externalAgents = [], assistants = [
       catalogId: catalogItem.id,
       name: `${catalogItem.name} Agent`,
       description: 'New external agent. Configure capabilities and endpoint.',
-      endpoint: `https://agents.acme.internal/${catalogItem.id}/v1/chat`,
+      endpoint: `https://agents.staffbase.internal/${catalogItem.id}/v1/chat`,
       authMethod: catalogItem.auth,
       status: 'connected',
       capabilities: [],
@@ -181,6 +182,31 @@ export default function ExternalAgentsList({ externalAgents = [], assistants = [
         </div>
       )}
 
+      {/* Custom Integrations — protocol showcase */}
+      <div className="mt-8">
+        <div className="flex items-center gap-2 mb-3">
+          <FlaskConical size={14} className="text-[#7C3AED]" />
+          <h2 className="text-[12px] font-bold text-[#6B7280] uppercase tracking-wider">Custom integrations</h2>
+        </div>
+        <Link
+          to="/prototypes/a2a-demo"
+          className="group flex items-center gap-4 p-4 bg-white border border-[#E5E7EB] rounded-xl hover:border-[#F59E0B] hover:shadow-sm transition-all"
+        >
+          <div className="w-11 h-11 rounded-lg grid place-items-center bg-[#FFFBEB] shrink-0">
+            <Bot size={20} className="text-[#F59E0B]" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[14px] font-bold text-[#111827] group-hover:text-[#F59E0B]">
+              A2A Protocol Showcase
+            </div>
+            <div className="text-[12px] text-[#6B7280] mt-0.5">
+              Google's Agent-to-Agent protocol — Agent Card discovery, JSON-RPC task delegation, and streaming task updates. The Staffbase Onboarding Agent runs on this protocol.
+            </div>
+          </div>
+          <ChevronRight size={16} className="text-[#94A3B8] group-hover:text-[#F59E0B] shrink-0" />
+        </Link>
+      </div>
+
       {showCatalog && (
         <CatalogDrawer onClose={() => setShowCatalog(false)} title="Add an external agent">
           <CatalogGrid items={AGENT_CATALOG} onPick={handleAdd} ctaLabel="Connect" />
@@ -191,7 +217,7 @@ export default function ExternalAgentsList({ externalAgents = [], assistants = [
 }
 
 function AgentDetail({ agent }) {
-  const showStoreOpsMatrix = agent.id === 'store_ops_agent' || agent.protocol === 'a2a'
+  const showOnboardingMatrix = agent.id === 'staffbase_onboarding_agent' || agent.protocol === 'a2a'
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -218,32 +244,28 @@ function AgentDetail({ agent }) {
         </div>
       </div>
 
-      {showStoreOpsMatrix && agent.id === 'store_ops_agent' && (
+      {showOnboardingMatrix && agent.id === 'staffbase_onboarding_agent' && (
         <div className="bg-white rounded-lg border border-[#E5E7EB] p-3">
           <div className="flex items-center gap-2 mb-3">
-            <ClipboardList size={13} className="text-[#F59E0B]" />
-            <div className="text-[11px] font-bold text-[#6B7280] uppercase tracking-widest">Shift checklist matrix</div>
-            <span className="text-[10px] text-[#94A3B8]">— read-only preview of what employees see per role × phase</span>
+            <ClipboardList size={13} className="text-[#00C7B2]" />
+            <div className="text-[11px] font-bold text-[#6B7280] uppercase tracking-widest">Onboarding checklist matrix</div>
+            <span className="text-[10px] text-[#94A3B8]">— read-only preview of what new hires see per stage</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-[12px]">
               <thead>
                 <tr className="text-left">
-                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">Role</th>
-                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">Opening</th>
-                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">Mid-shift</th>
-                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">Closing</th>
+                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">Stage</th>
+                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">Tasks</th>
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(STORE_OPS_MATRIX).map(([role, phases]) => (
-                  <tr key={role} className="border-t border-[#F1F5F9]">
-                    <td className="px-2 py-2 font-semibold text-[#111827]">{role}</td>
-                    {['opening', 'midshift', 'closing'].map(phase => (
-                      <td key={phase} className="px-2 py-2">
-                        <PhaseCell data={phases[phase]} />
-                      </td>
-                    ))}
+                {Object.entries(ONBOARDING_MATRIX).map(([stage, data]) => (
+                  <tr key={stage} className="border-t border-[#F1F5F9]">
+                    <td className="px-2 py-2 font-semibold text-[#111827]">{stage}</td>
+                    <td className="px-2 py-2">
+                      <PhaseCell data={data} />
+                    </td>
                   </tr>
                 ))}
               </tbody>

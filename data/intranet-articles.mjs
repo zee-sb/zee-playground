@@ -1,4 +1,4 @@
-// Acme Intranet — mock corpus of company content (leadership memos,
+// Staffbase Intranet — mock corpus of company content (leadership memos,
 // product updates, team wikis, events, ERG pages, spotlights).
 // Used by the intranet MCP server (api/mcp-intranet.mjs) to back a
 // keyword-search RAG demo. English only for the prototype.
@@ -121,7 +121,7 @@ Nine months. 47 customer interviews. Three full redesigns. We're launching self-
 12 customers in the closed beta. Sales, send any candidates to Sara Patel by May 16. Success, you'll get the dashboard for monitoring beta progress on May 19.
 
 ## What this unlocks
-This is the foundation for product-led growth in H2. The smaller the gap between "I heard about Acme" and "I'm getting value", the more we can invest in self-serve acquisition channels.
+This is the foundation for product-led growth in H2. The smaller the gap between "I heard about Staffbase" and "I'm getting value", the more we can invest in self-serve acquisition channels.
 
 ## Resources
 - [Internal demo recording] in the All-Hands deck
@@ -173,7 +173,7 @@ We're moving from "we have an API" to "we have first-class integrations." Salesf
 A new analytics workspace for admins — usage, adoption, ROI views. Replaces the three half-finished dashboards we have today.
 
 ## 3. AI for admins
-Every admin gets an "Ask Acme" assistant in-product. Natural-language queries against their own data, with safe guardrails. Connected to the new MCP layer the platform team has been building.
+Every admin gets an "Ask Staffbase" assistant in-product. Natural-language queries against their own data, with safe guardrails. Connected to the new MCP layer the platform team has been building.
 
 ## What's NOT on the list
 - No platform rewrite.
@@ -227,7 +227,7 @@ This is the front door to how the engineering team works.
     author: 'Dave Wilson',
     authorTitle: 'UX Designer',
     publishedAt: '2026-02-20',
-    summary: 'How design works at Acme — research cadence, the design-system contract, and how to brief a designer.',
+    summary: 'How design works at Staffbase — research cadence, the design-system contract, and how to brief a designer.',
     tags: ['design', 'ux', 'team', 'wiki', 'research', 'design system'],
     body: `# Design Team Wiki
 
@@ -322,14 +322,14 @@ Three inputs, equally weighted: usage, sentiment, executive engagement. Anything
   // ── Events ────────────────────────────────────────────────────────────────
   {
     id: 'summit-2026-recap',
-    title: 'Acme Summit 2026 — Recap',
+    title: 'Staffbase Summit 2026 — Recap',
     category: 'event',
     author: 'Priya Shah',
     authorTitle: 'Events',
     publishedAt: '2026-03-25',
     summary: 'Three days, 412 customers, 28 sessions. Top-rated talk: the platform engineering keynote. Photos, recordings, and on-stage demo links inside.',
     tags: ['summit', 'event', 'conference', 'recap', '2026'],
-    body: `# Acme Summit 2026 — Recap
+    body: `# Staffbase Summit 2026 — Recap
 
 Three days in Lisbon, 412 customers, 28 breakout sessions, and one karaoke night nobody is going to forget.
 
@@ -381,22 +381,22 @@ The engineering all-team offsite is in Lisbon, May 6-8.
 Optional. The hike is the *Roca cliff trail* — 8 km, moderate. Bring shoes that aren't sneakers.
 
 ## Accessibility
-The hotel and main session venue are step-free. If you need any specific accommodation, please email events@acme.com by April 25.`,
+The hotel and main session venue are step-free. If you need any specific accommodation, please email events@staffbase.com by April 25.`,
   },
 
   // ── ERG / culture ─────────────────────────────────────────────────────────
   {
-    id: 'erg-women-at-acme',
-    title: 'Women at Acme — ERG Page',
+    id: 'erg-women-at-staffbase',
+    title: 'Women at Staffbase — ERG Page',
     category: 'erg',
     author: 'Alice Chen',
     authorTitle: 'HR Manager',
     publishedAt: '2026-02-01',
-    summary: 'The Women at Acme ERG: monthly meet-ups, mentorship circles, and our annual leadership-track sponsorship programme.',
+    summary: 'The Women at Staffbase ERG: monthly meet-ups, mentorship circles, and our annual leadership-track sponsorship programme.',
     tags: ['erg', 'women', 'culture', 'mentorship', 'community'],
-    body: `# Women at Acme — Employee Resource Group
+    body: `# Women at Staffbase — Employee Resource Group
 
-Welcome. Women at Acme is for women, non-binary folks, and allies across the company.
+Welcome. Women at Staffbase is for women, non-binary folks, and allies across the company.
 
 ## What we do
 - **Monthly meet-ups** — first Thursday of each month, in-person + remote bridge.
@@ -405,28 +405,28 @@ Welcome. Women at Acme is for women, non-binary folks, and allies across the com
 - **Allyship 101 sessions** — quarterly, open to anyone.
 
 ## How to join
-- Join #erg-women-at-acme in Slack.
+- Join #erg-women-at-staffbase in Slack.
 - Sign up for the next meet-up via the Events page on the intranet.
 - Mentorship season starts twice a year (Feb, Aug).
 
 ## Co-leads
-Alice Chen (people@acme.com), Sara Patel, Lin Wei.
+Alice Chen (people@staffbase.com), Sara Patel, Lin Wei.
 
 ## Budget
 The ERG has a quarterly budget of $5,000 for events, speakers, and external sponsorships. Approval lives with the co-leads.`,
   },
   {
     id: 'erg-pride-month',
-    title: 'Pride Month at Acme — June 2026',
+    title: 'Pride Month at Staffbase — June 2026',
     category: 'erg',
     author: 'Frank Lee',
     authorTitle: 'Engineer & Pride co-lead',
     publishedAt: '2026-05-08',
-    summary: 'Pride Month at Acme — speaker series, the annual donation match, and our company commitment to LGBTQ+ inclusion.',
+    summary: 'Pride Month at Staffbase — speaker series, the annual donation match, and our company commitment to LGBTQ+ inclusion.',
     tags: ['pride', 'erg', 'lgbtq', 'culture', 'june', 'community'],
-    body: `# Pride Month at Acme — June 2026
+    body: `# Pride Month at Staffbase — June 2026
 
-Pride Month is in June. Here's how Acme is showing up.
+Pride Month is in June. Here's how Staffbase is showing up.
 
 ## Speaker series
 - **June 4** — "Out at Work: Then and Now" — fireside with senior leaders.
@@ -435,7 +435,7 @@ Pride Month is in June. Here's how Acme is showing up.
 - **June 25** — closing celebration.
 
 ## Donation match
-Acme will match employee donations to LGBTQ+ orgs up to $500/employee. Use the Benevity portal — link in #erg-pride.
+Staffbase will match employee donations to LGBTQ+ orgs up to $500/employee. Use the Benevity portal — link in #erg-pride.
 
 ## Beyond June
 - Pronoun fields are now optional everywhere we have a name field.
@@ -460,13 +460,13 @@ If you went to Summit 2026, you saw Priya's work everywhere.
 ## Role
 Events lead. Owns Summit, our customer roadshow series, and the engineering offsite logistics.
 
-## Joined Acme
+## Joined Staffbase
 2022.
 
 ## What people don't know
 She trained as a structural engineer before pivoting to events. *"Bridges and conferences both fall over if you skip the load-bearing work."*
 
-## Favourite Acme moment
+## Favourite Staffbase moment
 "The first time we had a customer cry happy tears in a session — Summit 2024. That's when I knew this job was different."
 
 ## Outside work
@@ -530,7 +530,7 @@ Soft-open late June. Official opening event in early July.
 - People Ops contact for German employment matters: Alice Chen.
 
 ## How to relocate
-We have a small relocation budget for current employees who want to move. Email people@acme.com with your situation; we'll work through it case by case.`,
+We have a small relocation budget for current employees who want to move. Email people@staffbase.com with your situation; we'll work through it case by case.`,
   },
   {
     id: 'ai-tool-policy-v2',
@@ -552,7 +552,7 @@ The updated AI Tool Usage Policy is live as of April 15.
 4. **Data classification reminder** — *Confidential* or *Restricted* data must not be pasted into any AI tool, period.
 
 ## Where to read it
-The full policy is in the IT wiki. If you have questions, post in #ai-tools or email security@acme.com.`,
+The full policy is in the IT wiki. If you have questions, post in #ai-tools or email security@staffbase.com.`,
   },
 ];
 
@@ -628,7 +628,7 @@ function publicShape(a, includeBody) {
     summary: a.summary,
     tags: a.tags || [],
     excerpt: a.summary || makeExcerpt(a.body),
-    uri: `acme://intranet/${a.id}`,
+    uri: `staffbase://intranet/${a.id}`,
     ...(includeBody ? { body: a.body } : {}),
   };
 }

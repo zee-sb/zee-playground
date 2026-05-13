@@ -1,12 +1,18 @@
-// Acme Store Operations Agent — A2A Protocol Server
+// Staffbase Onboarding Agent — A2A Protocol Server
 //
-// Context-aware: decodes the Bearer token to identify the user,
-// then returns their role-specific shift checklist.
+// Context-aware: decodes the Bearer token to identify the new hire (email),
+// optionally enriches the profile from the live Staffbase Directory (real
+// title/department/avatar via lib/staffbase.mjs#findUserByEmail when
+// STAFFBASE_API_TOKEN is set), then composes a stage-appropriate checklist
+// that's personalised by department, office, manager, buddy, primary tools,
+// and team Slack channels.
 //
 // GET  /api/a2a          → Agent Card (discovery)
 // POST /api/a2a          → JSON-RPC 2.0
 //   tasks/send           → synchronous: return full checklist
 //   tasks/sendSubscribe  → streaming SSE: stream tasks one by one
+
+import { findUserByEmail } from '../lib/staffbase.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,167 +20,328 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
-// ── User context (mirrors Navigator demo users) ───────────────────────────────
-
-const USER_CONTEXT = {
-  alice: { role: 'manager',    name: 'Alice Chen',  location: 'Acme Store — Downtown',        title: 'Branch Manager'   },
-  bob:   { role: 'cook',       name: 'Bob Smith',   location: 'Acme Store — Airport Terminal', title: 'Line Cook'        },
-  carol: { role: 'supervisor', name: 'Carol Davis', location: 'Acme Store — Downtown',         title: 'Shift Supervisor' },
-  dave:  { role: 'cleaner',    name: 'Dave Wilson', location: 'Acme Store — Westfield Mall',   title: 'Cleaning Staff'   },
+// ── Fictional Staffbase team fixture ─────────────────────────────────────────
+// Rich profiles per known email. The agent layers REAL Staffbase API data on
+// top (when STAFFBASE_API_TOKEN is set) — title, department, avatar come from
+// the live directory if available, but `manager`, `buddy`, `slackChannels`,
+// `primaryTools` always come from this fixture (or department-derived
+// defaults) since the prototype doesn't have a real org-graph lookup.
+const STAFFBASE_TEAM_FIXTURE = {
+  'zee@staffbase.com': {
+    name: 'Zee Sherif', department: 'Product', office: 'NYC', title: 'Senior Product Manager',
+    manager: { name: 'Lina Marek',   title: 'VP Product',                slack: '@lina'   },
+    buddy:   { name: 'Yuki Tanaka',  title: 'Product Manager II',        slack: '@yuki'   },
+  },
+  'mira@staffbase.com': {
+    name: 'Mira Okafor', department: 'Engineering', office: 'Chemnitz HQ', title: 'Software Engineer',
+    manager: { name: 'Dan Reichelt', title: 'Engineering Manager',       slack: '@danr'   },
+    buddy:   { name: 'Priya Shah',   title: 'Senior Software Engineer',  slack: '@priya'  },
+  },
+  'jonas@staffbase.com': {
+    name: 'Jonas Becker', department: 'Design', office: 'Berlin', title: 'Product Designer',
+    manager: { name: 'Eva Lindgren', title: 'Design Director',           slack: '@eva'    },
+    buddy:   { name: 'Marcus Chen',  title: 'Senior Product Designer',   slack: '@marcus' },
+  },
+  'sara@staffbase.com': {
+    name: 'Sara Lindqvist', department: 'Customer Success', office: 'Cologne', title: 'Customer Success Manager',
+    manager: { name: 'Olu Adeyemi',  title: 'Head of Customer Success',  slack: '@olu'    },
+    buddy:   { name: 'Thomas Wagner',title: 'Senior CSM',                slack: '@thomas' },
+  },
+  'newhire@staffbase.com': {
+    name: 'Robin Ortega', department: 'People', office: 'Chemnitz HQ', title: 'People Operations Specialist',
+    manager: { name: 'Helena Krüger',title: 'Head of People Operations', slack: '@helena' },
+    buddy:   { name: 'Felix Bauer',  title: 'People Partner',            slack: '@felix'  },
+  },
 };
 
-function getUserContext(token) {
-  try {
-    const decoded = Buffer.from(token, 'base64').toString('utf8');
-    const emailPrefix = decoded.split(':')[0].split('@')[0].toLowerCase();
-    return USER_CONTEXT[emailPrefix] ?? USER_CONTEXT.alice;
-  } catch {
-    return USER_CONTEXT.alice;
-  }
+// Department-derived defaults — used both as the fallback when an email isn't
+// in the fixture AND to overlay primary tools / Slack channels (which the
+// fixture above doesn't carry).
+const DEPARTMENT_DEFAULTS = {
+  Engineering: {
+    primaryTools: ['GitHub', 'AWS', 'PagerDuty', 'Sentry', 'Linear'],
+    slackChannels: ['#eng-all-hands', '#eng-onboarding', '#dev-platform', '#oncall'],
+    firstWin: 'Open your first pull request — even a docs typo counts',
+    qGoalHint: 'Ship 1 feature, complete 1 oncall rotation, contribute to 1 RFC',
+  },
+  Design: {
+    primaryTools: ['Figma', 'FigJam', 'Notion', 'Maze', 'Loom'],
+    slackChannels: ['#design-team', '#design-crit', '#design-system', '#research'],
+    firstWin: 'Run your first design critique with the team',
+    qGoalHint: 'Ship 2 features, run 1 critique session, contribute 3 design-system additions',
+  },
+  Product: {
+    primaryTools: ['Linear', 'Productboard', 'Mixpanel', 'Maze', 'Notion'],
+    slackChannels: ['#product-team', '#pm-craft', '#roadmap', '#customer-feedback'],
+    firstWin: 'Talk to 3 customers + write your first PRD',
+    qGoalHint: 'Ship 1 feature, run 5 customer interviews, draft 1 strategy doc',
+  },
+  Sales: {
+    primaryTools: ['Salesforce', 'Outreach', 'Gong', 'LinkedIn Sales Nav'],
+    slackChannels: ['#sales-team', '#pipeline', '#wins', '#sales-enablement'],
+    firstWin: 'Shadow 3 demos + own your first discovery call',
+    qGoalHint: 'Close $X pipeline, run 20 discovery calls, complete sales bootcamp',
+  },
+  'Customer Success': {
+    primaryTools: ['Salesforce', 'Gainsight', 'Zendesk', 'Loom'],
+    slackChannels: ['#cs-team', '#escalations', '#renewals', '#customer-wins'],
+    firstWin: 'Shadow 3 customer reviews + co-host your first office hour',
+    qGoalHint: 'Achieve 95% retention, run 10 EBRs, ship 1 customer playbook',
+  },
+  Marketing: {
+    primaryTools: ['HubSpot', 'Brandfolder', 'Mailchimp', 'Webflow'],
+    slackChannels: ['#marketing', '#content', '#brand-assets', '#campaigns'],
+    firstWin: 'Publish your first piece of content',
+    qGoalHint: 'Ship 2 campaigns, publish 4 articles, hit MQL target',
+  },
+  People: {
+    primaryTools: ['Workday', 'Greenhouse', 'Lattice', 'Donut'],
+    slackChannels: ['#people-team', '#new-hires', '#recruiting', '#culture'],
+    firstWin: 'Run your first new-hire intro session',
+    qGoalHint: 'Onboard X new hires, ship 1 People program, run 4 manager trainings',
+  },
+  Staffbase: {
+    primaryTools: ['Campsite', 'Slack', 'Google Workspace'],
+    slackChannels: ['#new-hires', '#all-staffbase', '#campsite-tips'],
+    firstWin: 'Make 3 introductions across teams',
+    qGoalHint: 'Ship 1 measurable outcome aligned to your manager\'s goals',
+  },
+};
+
+const OFFICE_DETAILS = {
+  'Chemnitz HQ': { city: 'Chemnitz',  pickupLocation: 'Chemnitz HQ reception (Annaberger Str. 73)', shipping: false, lunchSpot: 'the canteen on the 2nd floor' },
+  'Berlin':       { city: 'Berlin',     pickupLocation: 'Berlin office (Schlesische Str. 27)',        shipping: false, lunchSpot: 'the rooftop kitchen'         },
+  'Cologne':      { city: 'Cologne',    pickupLocation: 'Cologne office (Im Mediapark 8a)',           shipping: false, lunchSpot: 'the Mediapark cafe'          },
+  'NYC':          { city: 'New York',   pickupLocation: 'NYC office (SoHo, 75 Broad St)',             shipping: false, lunchSpot: 'a coffee chat near the office'},
+  'Remote':       { city: 'remote',     pickupLocation: 'tracked DHL delivery to your home address',  shipping: true,  lunchSpot: 'a virtual coffee chat'       },
+};
+function officeDetails(office) {
+  return OFFICE_DETAILS[office] || OFFICE_DETAILS['Remote'];
 }
 
-// ── Intent + phase detection ─────────────────────────────────────────────────
+function inferDepartment(email) {
+  const local = (email || '').split('@')[0].toLowerCase();
+  if (/^(zee|zyad)/.test(local))                  return 'Product';
+  if (/(eng|dev|sre|infra|^mira$)/.test(local))   return 'Engineering';
+  if (/(des|design|ux|ui|^jonas$)/.test(local))   return 'Design';
+  if (/(marketing|mkt|growth|comms)/.test(local)) return 'Marketing';
+  if (/(sales|ae|account)/.test(local))           return 'Sales';
+  if (/(cs|success|support|^sara$)/.test(local))  return 'Customer Success';
+  if (/(people|hr|recruit|^newhire$|^robin$)/.test(local)) return 'People';
+  return 'Staffbase';
+}
 
-// "Submit / handover / all done" phrases mean: the user is reporting completion,
-// not asking for a fresh checklist. We branch to a different artifact.
-function isHandoverSubmission(text) {
+function prettyName(email) {
+  const local = (email || '').split('@')[0];
+  if (!local) return 'New Joiner';
+  return local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+    .join(' ');
+}
+
+// Resolve the rich user context. Layers:
+//   1. Email parsed from the Bearer token.
+//   2. Fixture lookup by email (rich fictional Staffbase team).
+//   3. Best-effort real Staffbase API enrichment (overrides title/department/
+//      avatar when present).
+//   4. Department defaults for primaryTools/slackChannels/firstWin/qGoalHint.
+async function getUserContext(token) {
+  let email = 'newhire@staffbase.com';
+  try {
+    const decoded = Buffer.from(token, 'base64').toString('utf8');
+    email = decoded.split(':')[0] || email;
+  } catch { /* keep default */ }
+
+  const fixture = STAFFBASE_TEAM_FIXTURE[email] || null;
+  const baseName = fixture?.name || prettyName(email);
+  const baseDepartment = fixture?.department || inferDepartment(email);
+  const baseTitle = fixture?.title || `${baseDepartment} new hire`;
+  const baseOffice = fixture?.office || 'Chemnitz HQ';
+
+  // Best-effort real lookup (no-op when token not set).
+  let real = null;
+  try { real = await findUserByEmail(email); } catch { real = null; }
+
+  const department = real?.department || baseDepartment;
+  const deptDefaults = DEPARTMENT_DEFAULTS[department] || DEPARTMENT_DEFAULTS.Staffbase;
+
+  return {
+    email,
+    name: real?.displayName || baseName,
+    title: real?.title || baseTitle,
+    department,
+    office: baseOffice,
+    avatarUrl: real?.avatar || null,
+    manager: fixture?.manager || { name: 'your manager',  title: 'Manager',         slack: '@manager' },
+    buddy:   fixture?.buddy   || { name: 'your buddy',    title: 'Onboarding Buddy',slack: '@buddy'   },
+    primaryTools: deptDefaults.primaryTools,
+    slackChannels: deptDefaults.slackChannels,
+    firstWin: deptDefaults.firstWin,
+    qGoalHint: deptDefaults.qGoalHint,
+    realProfileLoaded: !!real,
+  };
+}
+
+// ── Intent + stage detection ─────────────────────────────────────────────────
+
+function isCompleteStageSubmission(text) {
   const t = (text || '').toLowerCase();
   if (/all .* tasks complete|all tasks complete/.test(t)) return true;
-  if (/submit (the )?(shift )?(handover|hand[- ]?off|report)/.test(t)) return true;
-  if (/i'?m done with (my )?(shift|tasks|checklist)/.test(t)) return true;
-  if (/sign off (the )?(shift|checklist)/.test(t)) return true;
+  if (/(submit|finish|complete|mark|sign[- ]?off) (the )?(my )?(day one|first week|first month|onboarding|stage|checklist)/.test(t)) return true;
+  if (/i'?m done with (my )?(onboarding|checklist|day one|first week|first month)/.test(t)) return true;
   return false;
 }
 
-function detectPhase(text, clientHour) {
+function detectStage(text, daysSinceHire) {
   const t = (text || '').toLowerCase();
-  if (/closing|close|end of day|night|evening/.test(t)) return 'closing';
-  if (/mid[- ]?shift|midday|afternoon|lunch/.test(t)) return 'midshift';
-  if (/opening|open|morning|start of day|first thing/.test(t)) return 'opening';
-  // Default by client-supplied hour (server time is unreliable on serverless).
-  const hour = Number.isInteger(clientHour) ? clientHour : new Date().getHours();
-  if (hour >= 18) return 'closing';
-  if (hour >= 12) return 'midshift';
-  return 'opening';
+  if (/first month|month one|30 days|month 1|q-?goals|benefits enrollment/.test(t)) return 'first_month';
+  if (/first week|week one|second week|week 1|standup|sprint review|onboarding playlist/.test(t)) return 'first_week';
+  if (/day one|first day|day 1|today|laptop|macbook|first day at staffbase/.test(t)) return 'day_one';
+  const days = Number.isFinite(daysSinceHire) ? daysSinceHire : 0;
+  if (days <= 1)  return 'day_one';
+  if (days <= 7)  return 'first_week';
+  return 'first_month';
 }
 
-function getClientHour(params) {
-  const iso = params?.metadata?.clientTime;
-  if (typeof iso !== 'string') return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.getHours();
+function getClientDaysSinceHire(params) {
+  const n = params?.metadata?.daysSinceHire;
+  return Number.isFinite(n) ? n : 0;
 }
 
-const PHASE_LABELS = { opening: 'Opening', midshift: 'Mid-Shift', closing: 'Closing' };
-const PHASE_EMOJI  = { opening: '🌅',      midshift: '☀️',         closing: '🌙'      };
+const STAGE_LABELS = { day_one: 'Day One', first_week: 'First Week', first_month: 'First Month' };
+const STAGE_EMOJI  = { day_one: '🚀',       first_week: '📅',          first_month: '🌱'         };
 
-// ── Store task data (matches FrontlineOps prototype) ─────────────────────────
+// ── Personalised checklist builder ───────────────────────────────────────────
+//
+// Each stage starts from a base template list, layered with department-
+// specific extras and office-aware substitutions. Task text supports
+// placeholders rendered against the user context:
+//   {office.pickupLocation}, {manager.name}, {buddy.name}, {primaryTools[0]},
+//   {slackChannels[0..]} (joined with ", "), {department}, {firstWin}, etc.
 
-const STORE_TASKS = {
-  manager: {
-    opening: [
-      { title: 'Review overnight sales report',   desc: 'Check daily totals vs. target',              photo: false, critical: false },
-      { title: 'Verify all staff are present',    desc: 'Cross-check schedule vs. clock-ins',         photo: false, critical: true  },
-      { title: 'Inspect front-of-house area',     desc: 'Tables, floor, entrance — all clean?',       photo: true,  critical: false },
-      { title: 'Check cold storage temperatures', desc: 'Fridge ≤4°C · Freezer ≤−18°C',              photo: true,  critical: true  },
-      { title: 'Confirm cash register float',     desc: 'Match opening float to paper log',           photo: false, critical: false },
-    ],
-    midshift: [
-      { title: 'Midday team check-in',            desc: 'Brief standup — performance vs. target',     photo: false, critical: false },
-      { title: 'Review order queue & wait times', desc: 'Target: under 5 minutes average',            photo: false, critical: false },
-      { title: 'Spot-check food quality',         desc: 'Sample from line for taste & presentation',  photo: false, critical: false },
-      { title: 'Restock review',                  desc: 'Flag any shortages to supplier',             photo: false, critical: false },
-    ],
-    closing: [
-      { title: 'Count end-of-day till',           desc: 'Reconcile with POS totals',                  photo: false, critical: true  },
-      { title: 'Lock up & set alarm',             desc: 'Check all entry points are secured',         photo: true,  critical: true  },
-      { title: 'Complete incident log',           desc: 'Note any issues from the shift',             photo: false, critical: false },
-    ],
-  },
-  supervisor: {
-    opening: [
-      { title: 'Brief morning team',              desc: '5-min standup, share daily targets',         photo: false, critical: false },
-      { title: 'Assign stations to staff',        desc: 'Match skills to busiest positions',          photo: false, critical: false },
-      { title: 'Walk-the-line station check',     desc: 'All stations stocked before doors open?',   photo: true,  critical: true  },
-      { title: 'Confirm food safety log complete',desc: 'Verify temps logged by cook',                photo: false, critical: true  },
-    ],
-    midshift: [
-      { title: 'Monitor customer wait times',     desc: 'Flag if consistently over 5 min',           photo: false, critical: false },
-      { title: 'Manage break schedule',           desc: 'No station left unmanned during breaks',     photo: false, critical: false },
-      { title: 'Log any customer complaints',     desc: 'Record in the incident log',                photo: false, critical: false },
-    ],
-    closing: [
-      { title: 'Sign off all task completions',   desc: 'Verify cleaner & cook closing tasks done',  photo: false, critical: true  },
-      { title: 'Prepare shift handover report',   desc: 'Incidents, stock notes, team performance',  photo: false, critical: true  },
-      { title: 'Lock POS terminals',              desc: 'Sign out all staff from registers',         photo: true,  critical: false },
-    ],
-  },
-  cook: {
-    opening: [
-      { title: 'Sanitize all prep surfaces',      desc: 'Use approved food-safe solution',           photo: true,  critical: true  },
-      { title: 'Check stock & date labels',       desc: 'FIFO rotation — discard expired items',     photo: false, critical: true  },
-      { title: 'Preheat grills & fryers',         desc: 'Grill 180°C · Fryer 175°C',                photo: false, critical: false },
-      { title: 'Set up morning prep station',     desc: 'Patties, buns, sauces ready at station',   photo: false, critical: false },
-    ],
-    midshift: [
-      { title: 'Restock station from walk-in',    desc: 'Top up supplies before the lunch rush',     photo: false, critical: false },
-      { title: 'Clean fryer baskets mid-shift',   desc: 'Remove buildup between service periods',    photo: true,  critical: false },
-      { title: 'Log fryer temperatures',          desc: 'Record in paper log and app — required',    photo: false, critical: true  },
-    ],
-    closing: [
-      { title: 'Deep clean grill surface',        desc: 'Scrape, degrease, re-season',               photo: true,  critical: true  },
-      { title: 'Label & store all prepped food',  desc: 'Date/time label on every container',        photo: false, critical: true  },
-      { title: 'Sanitize full prep area',         desc: 'Walls, floors, and all surfaces',           photo: true,  critical: true  },
-      { title: 'Turn off all equipment safely',   desc: 'Fryers, grills, heat lamps, ventilation',   photo: false, critical: false },
-    ],
-  },
-  cleaner: {
-    opening: [
-      { title: 'Mop all dining area floors',      desc: 'Bleach solution · post wet floor signs',   photo: true,  critical: false },
-      { title: 'Clean & restock restrooms',       desc: 'Soap, paper towels, sanitize surfaces',     photo: true,  critical: true  },
-      { title: 'Wipe all tables & chairs',        desc: 'Approved surface sanitiser on all seating', photo: false, critical: false },
-      { title: 'Empty & reline all bins',         desc: 'Use correct bag size for each bin',         photo: false, critical: false },
-    ],
-    midshift: [
-      { title: 'Hourly restroom check',           desc: 'Log time on the door chart',                photo: false, critical: false },
-      { title: 'Spot-clean dining area',          desc: 'Tables, chairs, floor spills',              photo: false, critical: false },
-      { title: 'Clear exterior & entrance',       desc: 'Sweep + remove litter outside',             photo: true,  critical: false },
-    ],
-    closing: [
-      { title: 'Deep clean all restrooms',        desc: 'Toilets, sinks, drains, tiles',             photo: true,  critical: true  },
-      { title: 'Full floor mop (all areas)',       desc: 'Include behind counters & kitchen entry',   photo: true,  critical: true  },
-      { title: 'Clean entrance & mat area',       desc: 'External mat, door handles, glass panels',  photo: false, critical: false },
-      { title: 'Final bin collection',            desc: 'All interior + exterior bins emptied',       photo: false, critical: false },
-    ],
-  },
-};
+function render(template, ctx) {
+  if (typeof template !== 'string') return template;
+  return template
+    .replace(/\{office\.pickupLocation\}/g, ctx._office.pickupLocation)
+    .replace(/\{office\.lunchSpot\}/g, ctx._office.lunchSpot)
+    .replace(/\{office\.city\}/g, ctx._office.city)
+    .replace(/\{manager\.name\}/g, ctx.manager.name)
+    .replace(/\{manager\.title\}/g, ctx.manager.title || 'Manager')
+    .replace(/\{manager\.slack\}/g, ctx.manager.slack)
+    .replace(/\{buddy\.name\}/g, ctx.buddy.name)
+    .replace(/\{buddy\.title\}/g, ctx.buddy.title || 'Buddy')
+    .replace(/\{buddy\.slack\}/g, ctx.buddy.slack)
+    .replace(/\{department\}/g, ctx.department)
+    .replace(/\{firstWin\}/g, ctx.firstWin)
+    .replace(/\{qGoalHint\}/g, ctx.qGoalHint)
+    .replace(/\{primaryTools\[0\]\}/g, ctx.primaryTools[0] || 'your primary tool')
+    .replace(/\{primaryTools\.join\}/g, ctx.primaryTools.slice(0, 3).join(', '))
+    .replace(/\{slackChannels\.join\}/g, ctx.slackChannels.slice(0, 3).join(', '))
+    .replace(/\{name\.first\}/g, (ctx.name || '').split(' ')[0] || 'there')
+    .replace(/\{email\}/g, ctx.email || '')
+    .replace(/\{managerTitle\}/g, ctx.manager.title || 'Manager');
+}
+
+function buildPersonalisedTasks(stage, ctx) {
+  const _office = officeDetails(ctx.office);
+  const enrich = { ...ctx, _office };
+
+  const dayOneBase = [
+    { title: render('Pick up your MacBook', enrich),
+      desc:  render(_office.shipping
+        ? 'Track your MacBook via {office.pickupLocation}. IT shipped it ahead of your start date.'
+        : 'Pick up at {office.pickupLocation}. Your badge will be ready at the same desk.', enrich),
+      photo: true, critical: true },
+    { title: 'Sign in to Google Workspace & Slack',
+      desc:  render('Use your {email} identity. SAML SSO will sign you in to Campsite, Confluence, and Jira automatically.', { ...enrich, email: ctx.email }),
+      photo: false, critical: true },
+    { title: 'Complete your HR profile in Campsite',
+      desc:  'Emergency contact, address, banking info, T-shirt size, and your photo (your buddy will help take a good one).',
+      photo: false, critical: true },
+    { title: 'Read the Staffbase mission & values',
+      desc:  'Pinned on Campsite under "Welcome to Staffbase". 8-minute read.',
+      photo: false, critical: false },
+    { title: render('Lunch with {manager.name}', enrich),
+      desc:  render('Calendar invite already sent — {manager.name} ({manager.slack}), {department} {manager.title}. Meet at {office.lunchSpot}.', enrich),
+      photo: false, critical: false },
+    { title: render('Say hi in {slackChannels.join}', enrich),
+      desc:  render('Your {department} cohort is waiting. Tag {buddy.name} ({buddy.slack}), your onboarding buddy.', enrich),
+      photo: false, critical: false },
+  ];
+
+  const firstWeekBase = [
+    { title: render('Get access to {primaryTools[0]}', enrich),
+      desc:  render('Open IT ticket if not auto-provisioned. Primary {department} tools: {primaryTools.join}.', enrich),
+      photo: false, critical: true },
+    { title: 'Complete the "Campsite Basics" playlist',
+      desc:  'Posts, Channels, Spaces, Search, and Chat — ~45 min total in the Learning hub.',
+      photo: false, critical: true },
+    { title: render('Schedule 1:1 with {buddy.name}', enrich),
+      desc:  render('Your onboarding buddy. 30-min weekly recurring. Ask anything — including dumb questions.', enrich),
+      photo: false, critical: false },
+    { title: 'Schedule 3 cross-functional 1:1s',
+      desc:  render('Your buddy {buddy.name} will suggest names from {department} adjacencies.', enrich),
+      photo: false, critical: false },
+    { title: render('Your first win — {firstWin}', enrich),
+      desc:  render('This is the unofficial "{department} bar" for week one. Low stakes, high signal.', enrich),
+      photo: false, critical: false },
+    { title: 'Attend the weekly all-hands',
+      desc:  'Friday 4pm CET. Recording goes to Campsite if you miss it.',
+      photo: false, critical: false },
+  ];
+
+  const firstMonthBase = [
+    { title: 'Complete benefits enrollment',
+      desc:  'Open enrollment closes day 30. Health, dental, pension, T-shirt size. Workday link in #people-announcements.',
+      photo: false, critical: true },
+    { title: render('Set Q-goals with {manager.name}', enrich),
+      desc:  render('Lattice → Goals. Aim for 3 outcomes. {department} guidance: {qGoalHint}.', enrich),
+      photo: false, critical: true },
+    { title: 'Complete security & compliance training',
+      desc:  'Mandatory — GDPR + ISO27001 + phishing simulation modules in the Learning hub.',
+      photo: false, critical: true },
+    { title: render('Introduce yourself at the next {department} all-hands', enrich),
+      desc:  render('Your manager {manager.name} will queue you for the intro slot. 60-second intro.', enrich),
+      photo: false, critical: false },
+    { title: render('Attend your first {department} retro', enrich),
+      desc:  render('Observe the team rhythm. Bring 1 question + 1 observation. {buddy.name} can pre-brief you.', enrich),
+      photo: false, critical: false },
+    { title: 'Submit 30-day feedback to People',
+      desc:  'Form on Campsite under "Your First 30 Days at Staffbase". Confidential — read by People Ops only.',
+      photo: false, critical: false },
+  ];
+
+  const base = { day_one: dayOneBase, first_week: firstWeekBase, first_month: firstMonthBase }[stage] || dayOneBase;
+  return base.map((t) => ({ ...t, title: render(t.title, enrich), desc: render(t.desc, enrich) }));
+}
 
 // ── Agent Card ────────────────────────────────────────────────────────────────
 
 function buildAgentCard(baseUrl) {
   return {
-    name: 'Acme Store Operations Agent',
-    description: 'Context-aware shift procedure agent for Acme store locations. Identifies each employee\'s role and store from their auth token and delivers the right checklist for their shift phase.',
+    name: 'Staffbase Onboarding Agent',
+    description: 'Context-aware onboarding agent for new Staffbase hires. Identifies the new joiner from their auth token, optionally enriches from the live Staffbase Directory, and streams a fully personalised checklist for their onboarding stage — Day One, First Week, or First Month — branched by department, office, manager, and primary tools.',
     url: `${baseUrl}/api/a2a`,
-    version: '1.0.0',
-    provider: { organization: 'Acme Corp', url: baseUrl },
+    version: '1.1.0',
+    provider: { organization: 'Staffbase', url: baseUrl },
     capabilities: { streaming: true, pushNotifications: false, stateTransitionHistory: false },
     authentication: { schemes: ['Bearer'] },
     defaultInputModes: ['text'],
     defaultOutputModes: ['text', 'data'],
     skills: [
       {
-        id: 'get_shift_checklist',
-        name: 'Get Shift Checklist',
-        description: 'Returns the role-appropriate task checklist for the requested shift phase. Automatically identifies the employee\'s role and store location from their Bearer token.',
-        tags: ['shift', 'checklist', 'store ops', 'procedures', 'tasks'],
+        id: 'get_onboarding_checklist',
+        name: 'Get Onboarding Checklist',
+        description: 'Returns the stage-appropriate, fully personalised onboarding checklist for the requesting new hire. Branches by department, office, manager name, onboarding buddy, primary tools, and team Slack channels.',
+        tags: ['onboarding', 'new hire', 'first day', 'first week', 'first month', 'checklist', 'personalised'],
         examples: [
-          'What are my opening tasks?',
-          'Show me my closing checklist',
-          'What do I need to do today?',
-          'Start my morning shift',
-          'What\'s on my mid-shift list?',
+          'What should I do today? (Day One)',
+          'Show me my first-week checklist',
+          'What\'s left to finish before my first month is up?',
+          'Start my Staffbase onboarding',
+          'What\'s on my onboarding list this week?',
         ],
         inputModes: ['text'],
         outputModes: ['text', 'data'],
@@ -193,28 +360,22 @@ function makeTaskStatus(state, label) {
 }
 
 // ── Task enrichment ──────────────────────────────────────────────────────────
-// Each raw task entry only has {title, desc, photo, critical}. We derive a
-// stable id and an explicit inputType so Navigator's UI can render the right
-// control (checkbox / camera stub / temperature input / count input) and
-// the Operations agent can hand-hold the user through completion.
 
 function slug(s) {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
 function deriveInputType(task) {
-  const t = (task.title + ' ' + (task.desc || '')).toLowerCase();
   if (task.photo) return 'photo';
-  if (/temperature|temp\b|°c|°f|fryer.*temp|fridge|freezer/.test(t)) return 'temp_log';
-  if (/count|float|till|cash/.test(t)) return 'count';
+  const t = (task.title + ' ' + (task.desc || '')).toLowerCase();
+  if (/count|number of|first \d+ pr/.test(t)) return 'count';
   return 'check';
 }
 
 const INPUT_INSTRUCTIONS = {
-  check:    'Render a checkbox row. User taps once to mark complete.',
-  photo:    'Render a checkbox row plus a "📷 Capture photo" button. Both must be completed before marking done.',
-  temp_log: 'Render a checkbox row plus an inline temperature input (°C). Capture the value before marking done.',
-  count:    'Render a checkbox row plus an inline number input. Capture the count before marking done.',
+  check: 'Render a checkbox row. User taps once to mark complete.',
+  photo: 'Render a checkbox row plus a "📷 Capture photo" button. Both must be completed before marking done.',
+  count: 'Render a checkbox row plus an inline number input. Capture the count before marking done.',
 };
 
 function enrichTasks(rawTasks) {
@@ -238,15 +399,14 @@ function enrichTasks(rawTasks) {
 
 // ── Streaming task loader ─────────────────────────────────────────────────────
 
-async function runShiftTasks(userCtx, phase, onStep) {
+async function runOnboardingTasks(userCtx, stage, onStep) {
   const delay = () => new Promise(r => setTimeout(r, 300));
-  const tasks = enrichTasks(STORE_TASKS[userCtx.role]?.[phase] ?? STORE_TASKS.cook.opening);
-  const total = tasks.length + 1; // +1 for the initial context step
+  const tasks = enrichTasks(buildPersonalisedTasks(stage, userCtx));
+  const total = tasks.length + 1;
 
-  // Step 1: context. Tells Navigator to render the checklist header.
-  await onStep(1, total, `Loading ${PHASE_LABELS[phase]} shift checklist for ${userCtx.title} at ${userCtx.location}…`, {
+  await onStep(1, total, `Loading ${STAGE_LABELS[stage]} onboarding checklist for ${userCtx.name} (${userCtx.department}) at ${userCtx.office}…`, {
     kind: 'context',
-    instruction: `Render the Shift Checklist header for ${userCtx.title} at ${userCtx.location}, ${PHASE_LABELS[phase]} phase. ${tasks.length} tasks, ${tasks.filter(t => t.critical).length} critical.`,
+    instruction: `Render the Onboarding Checklist header for ${userCtx.name} — ${userCtx.department}, ${userCtx.office}, ${STAGE_LABELS[stage]}. ${tasks.length} tasks, ${tasks.filter(t => t.critical).length} critical. Manager: ${userCtx.manager.name}. Buddy: ${userCtx.buddy.name}.`,
   });
 
   for (let i = 0; i < tasks.length; i++) {
@@ -266,28 +426,39 @@ async function runShiftTasks(userCtx, phase, onStep) {
   return tasks;
 }
 
-function buildArtifact(userCtx, phase, tasks) {
+function buildArtifact(userCtx, stage, tasks) {
   const critical = tasks.filter(t => t.critical).length;
   const photos = tasks.filter(t => t.photo).length;
-  const tempLogs = tasks.filter(t => t.inputType === 'temp_log').length;
   const counts = tasks.filter(t => t.inputType === 'count').length;
   return [{
-    name: `${PHASE_EMOJI[phase]} ${PHASE_LABELS[phase]} Shift Checklist`,
-    description: `${tasks.length} tasks for ${userCtx.title} at ${userCtx.location}`,
+    name: `${STAGE_EMOJI[stage]} ${STAGE_LABELS[stage]} Onboarding Checklist`,
+    description: `${tasks.length} tasks for ${userCtx.name} — ${userCtx.department}, ${userCtx.office}`,
     parts: [{
       type: 'data',
       data: {
-        user: { name: userCtx.name, role: userCtx.role, title: userCtx.title },
-        location: userCtx.location,
-        phase,
+        user: {
+          email: userCtx.email, name: userCtx.name, department: userCtx.department,
+          title: userCtx.title, office: userCtx.office, avatarUrl: userCtx.avatarUrl,
+        },
+        team: {
+          manager: userCtx.manager,
+          buddy: userCtx.buddy,
+          primaryTools: userCtx.primaryTools,
+          slackChannels: userCtx.slackChannels,
+        },
+        stage,
         tasks,
-        summary: { total: tasks.length, critical, photos, tempLogs, counts },
+        summary: { total: tasks.length, critical, photos, counts },
         directives: {
           render: 'interactive_checklist',
           completionPolicy: 'user_confirms_each_task',
           submitWhen: 'all_critical_tasks_complete',
-          submitLabel: `Submit ${PHASE_LABELS[phase]} shift report`,
-          submitPrompt: `All ${PHASE_LABELS[phase]} tasks complete — submit shift handover for ${userCtx.name}`,
+          submitLabel: `Mark ${STAGE_LABELS[stage]} as complete`,
+          submitPrompt: `All ${STAGE_LABELS[stage]} tasks complete — submit progress for ${userCtx.name}`,
+        },
+        provenance: {
+          realProfileLoaded: userCtx.realProfileLoaded,
+          source: userCtx.realProfileLoaded ? 'staffbase_directory+fixture' : 'fixture',
         },
         generatedAt: new Date().toISOString(),
       },
@@ -300,47 +471,47 @@ function buildArtifact(userCtx, phase, tasks) {
 async function handleTaskSend(params, token) {
   const taskId = params.id || `task-${Date.now()}`;
   const text = params.message?.parts?.find(p => p.type === 'text')?.text || '';
-  const userCtx = getUserContext(token);
-  const clientHour = getClientHour(params);
-  const phase = detectPhase(text, clientHour);
-  if (isHandoverSubmission(text)) {
+  const userCtx = await getUserContext(token);
+  const days = getClientDaysSinceHire(params);
+  const stage = detectStage(text, days);
+  if (isCompleteStageSubmission(text)) {
     return {
       id: taskId,
-      status: makeTaskStatus('completed', `Shift handover acknowledged for ${userCtx.title} at ${userCtx.location}.`),
-      artifacts: buildHandoverReceipt(userCtx, phase, params?.metadata?.clientTime),
-      metadata: { kind: 'handover_receipt', user: userCtx, phase },
+      status: makeTaskStatus('completed', `${STAGE_LABELS[stage]} stage marked complete for ${userCtx.name}.`),
+      artifacts: buildCompletionReceipt(userCtx, stage, params?.metadata?.clientTime),
+      metadata: { kind: 'stage_completion_receipt', user: userCtx, stage },
       final: true,
     };
   }
-  const tasks = await runShiftTasks(userCtx, phase, () => {});
-  const summary = `${PHASE_EMOJI[phase]} ${tasks.length} ${PHASE_LABELS[phase]} tasks loaded for ${userCtx.title} at ${userCtx.location}.`;
+  const tasks = await runOnboardingTasks(userCtx, stage, () => {});
+  const summary = `${STAGE_EMOJI[stage]} ${tasks.length} ${STAGE_LABELS[stage]} tasks loaded for ${userCtx.name} (${userCtx.department}).`;
 
   return {
     id: taskId,
     status: makeTaskStatus('completed', summary),
-    artifacts: buildArtifact(userCtx, phase, tasks),
-    metadata: { user: userCtx, phase, taskCount: tasks.length },
+    artifacts: buildArtifact(userCtx, stage, tasks),
+    metadata: { user: userCtx, stage, taskCount: tasks.length },
     final: true,
   };
 }
 
 // ── tasks/sendSubscribe (streaming SSE) ──────────────────────────────────────
 
-function buildHandoverReceipt(userCtx, phase, clientIso) {
+function buildCompletionReceipt(userCtx, stage, clientIso) {
   const generatedAt = clientIso || new Date().toISOString();
   return [{
-    name: `✅ ${PHASE_LABELS[phase]} Shift Handover`,
-    description: `Handover acknowledged for ${userCtx.title} at ${userCtx.location}`,
+    name: `✅ ${STAGE_LABELS[stage]} — Stage Complete`,
+    description: `Onboarding stage acknowledged for ${userCtx.name} (${userCtx.department})`,
     parts: [{
       type: 'data',
       data: {
-        kind: 'handover_receipt',
-        user: { name: userCtx.name, role: userCtx.role, title: userCtx.title },
-        location: userCtx.location,
-        phase,
+        kind: 'stage_completion_receipt',
+        user: { email: userCtx.email, name: userCtx.name, department: userCtx.department, title: userCtx.title },
+        office: userCtx.office,
+        stage,
         generatedAt,
-        receiptId: `SHO-${Date.now().toString(36).toUpperCase()}`,
-        message: `Shift handover received. Have a good rest, ${userCtx.name.split(' ')[0]}.`,
+        receiptId: `OBD-${Date.now().toString(36).toUpperCase()}`,
+        message: `Welcome to Staffbase, ${(userCtx.name || '').split(' ')[0] || 'there'}! ${STAGE_LABELS[stage]} marked complete. ${userCtx.manager.name} will be notified.`,
       },
     }],
   }];
@@ -349,26 +520,25 @@ function buildHandoverReceipt(userCtx, phase, clientIso) {
 async function handleTaskSubscribe(params, token, rpcId, res) {
   const taskId = params.id || `task-${Date.now()}`;
   const text = params.message?.parts?.find(p => p.type === 'text')?.text || '';
-  const userCtx = getUserContext(token);
-  const clientHour = getClientHour(params);
-  const phase = detectPhase(text, clientHour);
+  const userCtx = await getUserContext(token);
+  const days = getClientDaysSinceHire(params);
+  const stage = detectStage(text, days);
 
   const sendEvent = (taskStatus, extra = {}) => {
     res.write(`data: ${JSON.stringify({ jsonrpc: '2.0', id: rpcId, result: { id: taskId, status: taskStatus, ...extra } })}\n\n`);
   };
 
-  // Handover-submit branch: don't generate a fresh checklist. Acknowledge.
-  if (isHandoverSubmission(text)) {
-    sendEvent(makeTaskStatus('working', `Receiving ${PHASE_LABELS[phase]} shift handover from ${userCtx.name}…`),
-      { metadata: { step: 1, totalSteps: 2, directive: { kind: 'handover_ack', instruction: 'Render a handover-receipt card.' } } });
-    const summary = `✅ Shift handover acknowledged for ${userCtx.title} at ${userCtx.location}.`;
+  if (isCompleteStageSubmission(text)) {
+    sendEvent(makeTaskStatus('working', `Marking ${STAGE_LABELS[stage]} as complete for ${userCtx.name}…`),
+      { metadata: { step: 1, totalSteps: 2, directive: { kind: 'stage_completion_ack', instruction: 'Render a stage-completion-receipt card.' } } });
+    const summary = `✅ ${STAGE_LABELS[stage]} stage marked complete for ${userCtx.name}.`;
     res.write(`data: ${JSON.stringify({
       jsonrpc: '2.0', id: rpcId,
       result: {
         id: taskId,
         status: makeTaskStatus('completed', summary),
-        artifacts: buildHandoverReceipt(userCtx, phase, params?.metadata?.clientTime),
-        metadata: { step: 2, totalSteps: 2, kind: 'handover_receipt', user: userCtx, phase },
+        artifacts: buildCompletionReceipt(userCtx, stage, params?.metadata?.clientTime),
+        metadata: { step: 2, totalSteps: 2, kind: 'stage_completion_receipt', user: userCtx, stage },
         final: true,
       },
     })}\n\n`);
@@ -376,20 +546,20 @@ async function handleTaskSubscribe(params, token, rpcId, res) {
     return;
   }
 
-  sendEvent(makeTaskStatus('working', `Identifying context for ${userCtx.name}…`));
+  sendEvent(makeTaskStatus('working', `Identifying onboarding stage for ${userCtx.name}…`));
 
-  const tasks = await runShiftTasks(userCtx, phase, (step, total, label, directive) => {
+  const tasks = await runOnboardingTasks(userCtx, stage, (step, total, label, directive) => {
     sendEvent(makeTaskStatus('working', label), { metadata: { step, totalSteps: total, directive } });
   });
 
-  const summary = `${PHASE_EMOJI[phase]} ${tasks.length} ${PHASE_LABELS[phase]} tasks ready for ${userCtx.title} at ${userCtx.location}.`;
+  const summary = `${STAGE_EMOJI[stage]} ${tasks.length} ${STAGE_LABELS[stage]} tasks ready for ${userCtx.name} (${userCtx.department}).`;
   res.write(`data: ${JSON.stringify({
     jsonrpc: '2.0', id: rpcId,
     result: {
       id: taskId,
       status: makeTaskStatus('completed', summary),
-      artifacts: buildArtifact(userCtx, phase, tasks),
-      metadata: { step: tasks.length + 1, totalSteps: tasks.length + 1, user: userCtx, phase },
+      artifacts: buildArtifact(userCtx, stage, tasks),
+      metadata: { step: tasks.length + 1, totalSteps: tasks.length + 1, user: userCtx, stage },
       final: true,
     },
   })}\n\n`);
@@ -415,7 +585,7 @@ export default async function handler(req, res) {
 
   const { id: rpcId, method, params } = req.body || {};
   const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : (params?.metadata?.token || Buffer.from(`alice:${Date.now()}`).toString('base64'));
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : (params?.metadata?.token || Buffer.from(`newhire@staffbase.com:${Date.now()}`).toString('base64'));
 
   try {
     if (method === 'tasks/send') {

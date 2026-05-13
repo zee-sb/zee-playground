@@ -1,64 +1,77 @@
 /**
- * configStore v2 — single source of truth for the Navigator Studio + Employee prototypes.
+ * configStore v5 — single source of truth for the Navigator Studio + Employee
+ * prototypes, simulating one canonical Staffbase Intranet workspace.
  *
- * Persists to localStorage under one key. Both the Studio prototype (admin)
- * and the Employee prototype (chat) hydrate from the same blob, so changes
- * an admin makes in Studio show up immediately in Employee.
+ * Persists to localStorage under one key today. Phase 3 will wire it to
+ * navigator_config in Postgres (server canonical, localStorage cache).
  *
- * Data model (v2):
+ * Data model:
  *   mcpConnectors    — MCP tool servers (Zendesk, ServiceNow, GitHub, ...)
  *   externalAgents   — full conversational agents (Gemini, Copilot Studio, ...)
  *   assistants       — user-facing personas with sub-agent links
  *                      (mcpConnectorIds + externalAgentIds + knowledge bases)
  *   knowledgeBases   — content sources an assistant can ground answers in
+ *   flows            — admin-defined workflows
  *
- * v1 → v2: schema changed (split connectors into MCPs vs Agents). The hook
- * detects mismatched versions and falls back to the seed.
+ * State machine values (canonical):
+ *   assistant.status / flow.status              : draft | active | archived
+ *   mcpConnector.status / externalAgent.status  : disconnected | connected | degraded
+ *
+ * v4 → v5 (this version): Rebrand from Acme to Staffbase. Catalog IDs
+ *   (acme_hr → staffbase_hr, etc.) rewritten on load. Synthetic demoUsers /
+ *   tenant.roles / tenant.locations arrays dropped — real workspace members
+ *   come from the Staffbase API in Phase 3.
  */
 
 export const STORAGE_KEY = 'staffbase.navigator.config'
-export const CONFIG_VERSION = 4
+export const CONFIG_VERSION = 5
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tenant — the workspace this Navigator instance is configured for.
-// Roles and locations populate the Audience editor in Studio and gate
-// what each demo user sees in the Employee chat.
+// Tenant — the Staffbase Intranet workspace. Tone modeled on Campsite, the
+// real Staffbase Intranet. `groups` replaces the old `roles`/`locations`
+// arrays — populated from the Staffbase API discovery (workspace_blueprints)
+// in Phase 3.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SEED_TENANT = {
-  name: 'Acme',
-  brandColor: '#7C3AED',
-  workspace: 'acme.staffbase.com',
-  locations: ['Downtown', 'Airport Terminal', 'Westfield Mall', 'HQ'],
-  roles: ['Branch Manager', 'Line Cook', 'Shift Supervisor', 'Cleaning Staff', 'Office Worker'],
+  name: 'Staffbase',
+  brandColor: '#00C7B2',
+  workspace: 'campsite.staffbase.com',
+  groups: [],
 }
 
+// A small set of Staffbase team demo personas so the standalone Employee
+// Chat works locally without needing the real Staffbase Google OAuth flow.
+// In production, the Companion shell uses the real signed-in identity from
+// `/api/auth/me`; these personas are only the fallback roster for the
+// Employee Chat "sign in as" picker.
 const SEED_DEMO_USERS = [
-  { email: 'alice@acme.com', name: 'Alice Chen',  role: 'Branch Manager',    location: 'Downtown',        avatar: 'AC', color: '#7C3AED',
-    subtitle: 'I can pull up your shift checklist, check team attendance, and handle store management.' },
-  { email: 'bob@acme.com',   name: 'Bob Smith',   role: 'Line Cook',         location: 'Airport Terminal', avatar: 'BS', color: '#D97706',
-    subtitle: 'I can load your task list, look up food safety policies, and log equipment issues.' },
-  { email: 'carol@acme.com', name: 'Carol Davis', role: 'Shift Supervisor',  location: 'Downtown',        avatar: 'CD', color: '#2563EB',
-    subtitle: 'I can fetch your shift checklist, manage team assignments, and prepare handovers.' },
-  { email: 'dave@acme.com',  name: 'Dave Wilson', role: 'Cleaning Staff',    location: 'Westfield Mall',  avatar: 'DW', color: '#059669',
-    subtitle: 'I can load your task list, check cleaning protocols, and submit supply requests.' },
-  { email: 'erin@acme.com',  name: 'Erin Patel',  role: 'Office Worker',     location: 'HQ',              avatar: 'EP', color: '#0EA5E9',
-    subtitle: 'I can help with HR, IT, travel, expenses, and the company intranet from your desk at HQ.' },
+  { email: 'zee@staffbase.com',     name: 'Zee Sherif',      role: 'Product',           group: 'Product',          location: 'NYC',           avatar: 'ZS', color: '#00C7B2',
+    subtitle: 'I can help you ship — PRDs, roadmap, customer feedback, and team coordination.', daysSinceHire: 412 },
+  { email: 'mira@staffbase.com',    name: 'Mira Okafor',     role: 'Engineering',       group: 'Engineering',      location: 'Chemnitz HQ',   avatar: 'MO', color: '#2563EB',
+    subtitle: 'I can help with code reviews, IT tickets, GitHub access, and on-call rotations.', daysSinceHire: 87 },
+  { email: 'jonas@staffbase.com',   name: 'Jonas Becker',    role: 'Design',            group: 'Design',           location: 'Berlin',        avatar: 'JB', color: '#7C3AED',
+    subtitle: 'Design system, research repos, Figma plugins, and travel for offsites.', daysSinceHire: 245 },
+  { email: 'sara@staffbase.com',    name: 'Sara Lindqvist',  role: 'Customer Success',  group: 'Customer Success', location: 'Cologne',       avatar: 'SL', color: '#F59E0B',
+    subtitle: 'CSM playbooks, customer escalations, intranet content, and partner directory lookups.', daysSinceHire: 31 },
+  { email: 'newhire@staffbase.com', name: 'Robin (new hire)',role: 'People',            group: 'People',           location: 'Chemnitz HQ',   avatar: 'RB', color: '#10B981',
+    subtitle: 'Day One — pick up MacBook, set up SSO, complete HR profile, meet manager.', daysSinceHire: 1 },
 ]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Catalogs — read-only menus the admin picks from when adding a connector / agent
 // ─────────────────────────────────────────────────────────────────────────────
 
-// MCP catalog — the menu of generic enterprise apps an admin can bring online.
-// Two entries (`acme_hr`, `acme_it`) represent the orchestrator backend's actual MCP
-// servers (`/api/mcp`, `/api/mcp-it`); seeded connectors keep those ids verbatim
-// so the orchestrator can route real tool calls. Other catalog entries are
-// generic templates (mock tools only — no live backend).
+// MCP catalog — the menu of enterprise apps an admin can bring online.
+// Three entries (`staffbase_hr`, `staffbase_it`, `staffbase_intranet`) point at
+// the orchestrator backend's real MCP servers (`/api/mcp`, `/api/mcp-it`,
+// `/api/mcp-intranet`); seeded connectors keep stable internal `id` values
+// (`hr_portal`, `it_helpdesk`, `intranet`) verbatim so the orchestrator can
+// route real tool calls. Other catalog entries are generic templates.
 export const MCP_CATALOG = [
-  { id: 'acme_hr',       name: 'Acme HR Portal',  color: '#7C3AED', tagline: 'Employee directory · PTO · policies',     auth: 'SSO',              backend: '/api/mcp'           },
-  { id: 'acme_it',       name: 'IT Helpdesk',     color: '#2563EB', tagline: 'Tickets · equipment · access',            auth: 'SSO',              backend: '/api/mcp-it'        },
-  { id: 'acme_intranet', name: 'Acme Intranet',   color: '#0EA5E9', tagline: 'News · memos · team wikis · events',      auth: 'SSO',              backend: '/api/mcp-intranet'  },
+  { id: 'staffbase_hr',       name: 'Staffbase HR',          color: '#00C7B2', tagline: 'Employee directory · PTO · policies',     auth: 'SSO',              backend: '/api/mcp'           },
+  { id: 'staffbase_it',       name: 'Staffbase IT Helpdesk', color: '#2563EB', tagline: 'Tickets · equipment · access',            auth: 'SSO',              backend: '/api/mcp-it'        },
+  { id: 'staffbase_intranet', name: 'Campsite Intranet',     color: '#0EA5E9', tagline: 'News · memos · team wikis · events',      auth: 'SSO',              backend: '/api/mcp-intranet'  },
   { id: 'zendesk',     name: 'Zendesk',         color: '#03363D', tagline: 'Support tickets · knowledge base',     auth: 'OAuth 2.0' },
   { id: 'servicenow',  name: 'ServiceNow',      color: '#62D84E', tagline: 'IT incidents · change requests',       auth: 'OAuth 2.0' },
   { id: 'workday',     name: 'Workday',         color: '#F38B00', tagline: 'HR records · time-off · payroll',      auth: 'Service account' },
@@ -85,21 +98,21 @@ export const AGENT_CATALOG = [
 
 // Tool fixtures by catalog id — used to populate `tools[]` when a connector is added
 const MCP_TOOLS_BY_CATALOG = {
-  acme_hr: [
+  staffbase_hr: [
     { id: 'getEmployee',     name: 'getEmployee',     description: 'Look up employee profile by email or id' },
     { id: 'getDirectReports', name: 'getDirectReports', description: 'Manager → direct reports' },
     { id: 'getPtoBalance',   name: 'getPtoBalance',   description: 'Read PTO balance for an employee' },
     { id: 'requestPto',      name: 'requestPto',      description: 'Submit a PTO request' },
     { id: 'searchPolicies',  name: 'searchPolicies',  description: 'Semantic search across HR policies' },
   ],
-  acme_it: [
+  staffbase_it: [
     { id: 'listTickets',     name: 'listTickets',     description: 'Find current IT tickets for the user' },
     { id: 'getTicket',       name: 'getTicket',       description: 'Read full ticket details' },
     { id: 'createTicket',    name: 'createTicket',    description: 'Open a new IT support ticket' },
     { id: 'getEquipment',    name: 'getEquipment',    description: 'Equipment assigned to the user' },
     { id: 'requestSoftware', name: 'requestSoftware', description: 'Submit a software access request' },
   ],
-  acme_intranet: [
+  staffbase_intranet: [
     { id: 'searchArticles', name: 'searchArticles', description: 'Keyword search across intranet articles' },
     { id: 'getArticle',     name: 'getArticle',     description: 'Fetch the full body of an intranet article' },
     { id: 'listRecent',     name: 'listRecent',     description: 'List the most recent intranet articles by category' },
@@ -162,19 +175,19 @@ export function toolsForCatalogId(catalogId) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const MCP_FIXTURES = {
-  acme_hr: {
+  staffbase_hr: {
     stats: [
-      { label: 'Employees',  value: '256' },
+      { label: 'Employees',  value: '850+' },
       { label: 'Policies',   value: '47'  },
       { label: 'Last sync',  value: '3m ago' },
     ],
     sample: {
       tool: 'getPtoBalance',
-      query: '{ "employee": "alice@acme.com" }',
-      result: '{ "employee": "Alice Chen", "ptoBalance": 19, "used": 6, "accrual": 1.66 }',
+      query: '{ "employee": "zee@staffbase.com" }',
+      result: '{ "employee": "Zee Sherif", "ptoBalance": 19, "used": 6, "accrual": 1.66 }',
     },
   },
-  acme_it: {
+  staffbase_it: {
     stats: [
       { label: 'Open tickets',   value: '38'   },
       { label: 'Resolved (Q)',   value: '1,243' },
@@ -182,11 +195,11 @@ export const MCP_FIXTURES = {
     ],
     sample: {
       tool: 'listTickets',
-      query: '{ "user": "alice@acme.com" }',
-      result: '[ { "id": "INC-4821", "title": "Printer offline — Downtown", "priority": "medium", "status": "open" } ]',
+      query: '{ "user": "zee@staffbase.com" }',
+      result: '[ { "id": "INC-4821", "title": "MacBook keyboard replacement", "priority": "medium", "status": "open" } ]',
     },
   },
-  acme_intranet: {
+  staffbase_intranet: {
     stats: [
       { label: 'Articles',  value: '18'      },
       { label: 'Categories', value: '6'       },
@@ -195,7 +208,7 @@ export const MCP_FIXTURES = {
     sample: {
       tool: 'listRecent',
       query: '{ "category": "leadership", "limit": 3 }',
-      result: '[ { "id": "art-q2-priorities", "title": "Q2 priorities — Sarah Chen, CEO", "category": "leadership", "publishedAt": "2 days ago" } ]',
+      result: '[ { "id": "art-q2-priorities", "title": "Q2 priorities from the ELT", "category": "leadership", "publishedAt": "2 days ago" } ]',
     },
   },
 }
@@ -210,57 +223,60 @@ export const MCP_FIXTURES = {
 const SEED_MCP_CONNECTORS = [
   {
     id: 'hr_portal',
-    catalogId: 'acme_hr',
-    name: 'Acme HR Portal',
+    catalogId: 'staffbase_hr',
+    name: 'Staffbase HR',
     description: 'Employee directory · PTO · policies · org chart',
     endpoint: '/api/mcp',
     authMethod: 'SSO (demo)',
     status: 'connected',
     domains: ['hr', 'pto', 'employees', 'policies'],
     addedAt: 'Mar 1, 2026',
-    tools: toolsForCatalogId('acme_hr'),
+    tools: toolsForCatalogId('staffbase_hr'),
   },
   {
     id: 'it_helpdesk',
-    catalogId: 'acme_it',
-    name: 'IT Helpdesk',
+    catalogId: 'staffbase_it',
+    name: 'Staffbase IT Helpdesk',
     description: 'Tickets · equipment · software access',
     endpoint: '/api/mcp-it',
     authMethod: 'SSO (demo)',
     status: 'connected',
     domains: ['it', 'tickets', 'equipment', 'access'],
     addedAt: 'Mar 1, 2026',
-    tools: toolsForCatalogId('acme_it'),
+    tools: toolsForCatalogId('staffbase_it'),
   },
   {
     id: 'intranet',
-    catalogId: 'acme_intranet',
-    name: 'Acme Intranet',
-    description: 'Leadership memos · product updates · team wikis · events · ERG pages · spotlights',
+    catalogId: 'staffbase_intranet',
+    name: 'Campsite Intranet',
+    description: 'Campsite posts · channels · leadership memos · product updates · employee spotlights',
     endpoint: '/api/mcp-intranet',
     authMethod: 'SSO (demo)',
     status: 'connected',
-    domains: ['intranet', 'news', 'announcement', 'memo', 'spotlight', 'erg', 'leadership', 'wiki', 'event'],
+    domains: ['intranet', 'campsite', 'news', 'announcement', 'memo', 'spotlight', 'erg', 'leadership', 'wiki', 'event'],
     addedAt: 'May 10, 2026',
-    tools: toolsForCatalogId('acme_intranet'),
+    tools: toolsForCatalogId('staffbase_intranet'),
   },
 ]
 
-// `id: 'store_ops_agent'` is the orchestrator's literal A2A agent id.
-// `protocol: 'a2a'` flips the orchestrator into A2A delegation mode.
+// External agents seeded by default. The Staffbase Onboarding Agent is wired
+// to the live A2A backend at /api/a2a — it identifies the new hire from the
+// session and streams a Day One / First Week / First Month checklist back.
+// `id: 'staffbase_onboarding_agent'` matches lib/a2a-registry.mjs; `protocol:
+// 'a2a'` flips the orchestrator into A2A delegation mode.
 const SEED_EXTERNAL_AGENTS = [
   {
-    id: 'store_ops_agent',
+    id: 'staffbase_onboarding_agent',
     catalogId: 'a2a',
-    name: 'Store Operations Agent',
-    description: 'Role-aware shift checklists for Acme store locations (A2A)',
-    endpoint: 'https://a2a.acme.internal/store-ops',
-    authMethod: 'Configurable',
+    name: 'Staffbase Onboarding Agent',
+    description: 'Stage-aware onboarding checklist for new Staffbase hires (Day One / First Week / First Month) — runs over Google\'s Agent-to-Agent protocol.',
+    endpoint: '/api/a2a',
+    authMethod: 'Bearer (session token)',
     status: 'connected',
     protocol: 'a2a',
-    capabilities: ['shift', 'checklist', 'opening', 'closing', 'my tasks'],
-    domains: ['shift', 'checklist', 'opening', 'closing', 'my tasks'],
-    addedAt: 'Mar 5, 2026',
+    capabilities: ['onboarding', 'new hire', 'day one', 'first week', 'first month', 'macbook', 'benefits enrollment'],
+    domains: ['onboarding', 'new hire', 'day one', 'first week', 'first month', 'macbook', 'welcome', 'benefits enrollment'],
+    addedAt: 'May 13, 2026',
   },
 ]
 
@@ -269,7 +285,7 @@ const SEED_KNOWLEDGE_BASES = [
   { id: 'kb-it',       name: 'IT Wiki',           source: 'SharePoint',  articleCount: 318 },
   { id: 'kb-onboard',  name: 'Onboarding Guide',  source: 'Notion',      articleCount: 47  },
   { id: 'kb-travel',   name: 'Travel Policies',   source: 'Confluence',  articleCount: 23  },
-  { id: 'kb-intranet', name: 'Acme Intranet',     source: 'Internal CMS', articleCount: 18 },
+  { id: 'kb-intranet', name: 'Campsite Articles', source: 'Internal CMS', articleCount: 18 },
 ]
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -331,11 +347,11 @@ const SEED_ASSISTANTS = [
     name: 'HR Assistant',
     icon: '👥',
     description: 'Leave, benefits, and HR policy questions.',
-    instructions: 'You are an HR assistant. Use the Acme HR Portal MCP for PTO, employee data, and policy search. Ground answers in HR Policies.',
+    instructions: 'You are the Staffbase HR assistant. Use the Staffbase HR MCP for PTO, employee data, and policy search. Ground answers in HR Policies.',
     mcpConnectorIds: ['hr_portal'],
     externalAgentIds: [],
     knowledgeBaseIds: ['kb-hr'],
-    audience: { everyone: true, roles: [], locations: [] },
+    audience: { everyone: true, groups: [] },
     status: 'active',
   },
   {
@@ -343,35 +359,23 @@ const SEED_ASSISTANTS = [
     name: 'IT Support',
     icon: '💻',
     description: 'Devices, software, tickets, and access requests.',
-    instructions: 'You are an IT support assistant. Use the IT Helpdesk MCP for tickets, equipment, and software access. Ground in IT Wiki.',
+    instructions: 'You are the Staffbase IT support assistant. Use the IT Helpdesk MCP for tickets, equipment, and software access. Ground in IT Wiki.',
     mcpConnectorIds: ['it_helpdesk'],
     externalAgentIds: [],
     knowledgeBaseIds: ['kb-it'],
-    audience: { everyone: true, roles: [], locations: [] },
-    status: 'active',
-  },
-  {
-    id: 'asst-shift',
-    name: 'Shift & Store Ops',
-    icon: '🏪',
-    description: 'Role-aware shift checklists for store staff.',
-    instructions: 'Hand off any shift / checklist / opening / closing / "my tasks" question to the Store Operations Agent (A2A).',
-    mcpConnectorIds: [],
-    externalAgentIds: ['store_ops_agent'],
-    knowledgeBaseIds: [],
-    audience: { everyone: false, roles: ['Branch Manager', 'Line Cook', 'Shift Supervisor', 'Cleaning Staff'], locations: [] },
+    audience: { everyone: true, groups: [] },
     status: 'active',
   },
   {
     id: 'asst-onboarding',
     name: 'Onboarding',
     icon: '🚀',
-    description: 'First 30 days — paperwork, intros, and IT setup.',
-    instructions: 'Help new employees during their first 30 days. Use the Onboarding Guide.',
+    description: 'First 30 days — paperwork, intros, MacBook pickup, and benefits enrollment.',
+    instructions: 'Help new Staffbase employees during their first 30 days. For any "Day One", "First Week", "First Month", "what should I do today", "onboarding checklist", or "MacBook pickup" question, hand off to the Staffbase Onboarding Agent (A2A) — it will identify the user from their session and stream the right stage of checklist. For general "how do I do X at Staffbase" questions, ground in the Onboarding Guide.',
     mcpConnectorIds: [],
-    externalAgentIds: [],
+    externalAgentIds: ['staffbase_onboarding_agent'],
     knowledgeBaseIds: ['kb-onboard'],
-    audience: { everyone: false, roles: ['Office Worker'], locations: [] },
+    audience: { everyone: true, groups: [] },
     status: 'active',
   },
   {
@@ -383,19 +387,19 @@ const SEED_ASSISTANTS = [
     mcpConnectorIds: [],
     externalAgentIds: [],
     knowledgeBaseIds: ['kb-travel'],
-    audience: { everyone: true, roles: [], locations: [] },
+    audience: { everyone: true, groups: [] },
     status: 'active',
   },
   {
     id: 'asst-intranet',
-    name: 'Company Intranet',
+    name: 'Campsite Assistant',
     icon: '📰',
-    description: 'Leadership memos, product launches, team wikis, events, and employee spotlights.',
-    instructions: 'You are the company intranet assistant. Use the Acme Intranet MCP (search_articles, get_article, list_recent) to answer questions about company news, leadership memos, product launches, team wikis, events, ERGs, and employee spotlights. Always ground answers in retrieved articles and cite them.',
+    description: 'Posts, channels, leadership memos, product launches, and team updates from Campsite.',
+    instructions: 'You are the Campsite Intranet assistant for Staffbase employees. Use the Campsite Intranet MCP (searchArticles, getArticle, listRecent) to answer questions about company news, leadership memos, product launches, team wikis, events, ERGs, and employee spotlights. Always ground answers in retrieved articles and cite them.',
     mcpConnectorIds: ['intranet'],
     externalAgentIds: [],
     knowledgeBaseIds: ['kb-intranet'],
-    audience: { everyone: true, roles: [], locations: [] },
+    audience: { everyone: true, groups: [] },
     status: 'active',
   },
 ]
@@ -405,12 +409,11 @@ export function buildSeedConfig() {
     version: CONFIG_VERSION,
     tenant: {
       ...SEED_TENANT,
-      locations: [...SEED_TENANT.locations],
-      roles: [...SEED_TENANT.roles],
+      groups: [...(SEED_TENANT.groups || [])],
     },
     demoUsers: SEED_DEMO_USERS.map(u => ({ ...u })),
     mcpConnectors: SEED_MCP_CONNECTORS.map(c => ({ ...c, tools: c.tools.map(t => ({ ...t })) })),
-    externalAgents: SEED_EXTERNAL_AGENTS.map(a => ({ ...a, capabilities: [...a.capabilities] })),
+    externalAgents: SEED_EXTERNAL_AGENTS.map(a => ({ ...a, capabilities: [...(a.capabilities || [])] })),
     assistants: SEED_ASSISTANTS.map(a => ({
       ...a,
       mcpConnectorIds: [...a.mcpConnectorIds],
@@ -418,8 +421,7 @@ export function buildSeedConfig() {
       knowledgeBaseIds: [...a.knowledgeBaseIds],
       audience: {
         everyone: a.audience?.everyone ?? true,
-        roles: [...(a.audience?.roles || [])],
-        locations: [...(a.audience?.locations || [])],
+        groups: [...(a.audience?.groups || [])],
       },
     })),
     knowledgeBases: SEED_KNOWLEDGE_BASES.map(kb => ({ ...kb })),
@@ -457,6 +459,77 @@ export function flowMatchesText(text, flow) {
   return words.some((w) => t.includes(w))
 }
 
+// v4 → v5: Rebrand Acme → Staffbase. Rewrite catalog IDs (acme_* → staffbase_*)
+// in any persisted state, swap tenant.name/workspace defaults if still on Acme,
+// drop the old role/location audience fields in favor of groups[], and remove
+// the synthetic demoUsers array (real workspace members come from Staffbase
+// discovery in Phase 3).
+//
+// We do NOT touch user-customized fields: if an admin renamed an MCP connector
+// to "Internal HR", that name stays. Display names are only rewritten when they
+// still match the v4 seed string ("Acme HR Portal", etc.).
+const V4_TO_V5_CATALOG_RENAMES = {
+  acme_hr: 'staffbase_hr',
+  acme_it: 'staffbase_it',
+  acme_intranet: 'staffbase_intranet',
+}
+const V4_TO_V5_NAME_RENAMES = {
+  'Acme HR Portal': 'Staffbase HR',
+  'Acme Intranet': 'Campsite Intranet',
+  'Acme': 'Staffbase',
+}
+function rebrandV4Name(name) {
+  return V4_TO_V5_NAME_RENAMES[name] || name
+}
+function migrateV4toV5(parsed) {
+  if (!parsed || parsed.version !== 4) return null
+  const seed = buildSeedConfig()
+  const tenant = parsed.tenant || seed.tenant
+  return {
+    version: CONFIG_VERSION,
+    tenant: {
+      name: tenant.name === 'Acme' ? 'Staffbase' : (tenant.name || 'Staffbase'),
+      brandColor: tenant.brandColor === '#7C3AED' ? '#00C7B2' : (tenant.brandColor || '#00C7B2'),
+      workspace: tenant.workspace === 'acme.staffbase.com' ? 'campsite.staffbase.com' : (tenant.workspace || 'campsite.staffbase.com'),
+      groups: Array.isArray(tenant.groups) ? tenant.groups : [],
+      // Legacy fields retained as empty arrays so any consumer that still reads
+      // them doesn't crash. Phase 3 removes the remaining readers.
+      roles: [],
+      locations: [],
+    },
+    demoUsers: [],
+    mcpConnectors: (parsed.mcpConnectors || []).map(c => ({
+      ...c,
+      catalogId: V4_TO_V5_CATALOG_RENAMES[c.catalogId] || c.catalogId,
+      name: rebrandV4Name(c.name),
+    })),
+    externalAgents: (parsed.externalAgents || []).filter(a => a.id !== 'store_ops_agent').map(a => ({ ...a })),
+    knowledgeBases: (parsed.knowledgeBases || []).map(kb => ({
+      ...kb,
+      name: rebrandV4Name(kb.name),
+    })),
+    assistants: (parsed.assistants || [])
+      // Drop the retail-only Shift assistant — Staffbase team isn't a retail workspace.
+      .filter(a => a.id !== 'asst-shift')
+      .map(a => ({
+        ...a,
+        externalAgentIds: (a.externalAgentIds || []).filter(id => id !== 'store_ops_agent'),
+        instructions: (a.instructions || '')
+          .replaceAll('Acme HR Portal MCP', 'Staffbase HR MCP')
+          .replaceAll('Acme Intranet MCP', 'Campsite Intranet MCP')
+          .replaceAll('Acme intranet', 'Campsite intranet')
+          .replaceAll('Acme', 'Staffbase'),
+        audience: {
+          everyone: a.audience?.everyone ?? true,
+          // Migrate role/location audiences to empty groups[]. Phase 3 surfaces
+          // real Staffbase groups for the admin to re-pick.
+          groups: Array.isArray(a.audience?.groups) ? a.audience.groups : [],
+        },
+      })),
+    flows: parsed.flows || seed.flows,
+  }
+}
+
 // v3 → v4: graft `flows` onto a v3 config. Seed defaults if missing so existing
 // workspaces get the demo flows without losing their other customizations.
 function migrateV3toV4(parsed) {
@@ -464,7 +537,7 @@ function migrateV3toV4(parsed) {
   const seed = buildSeedConfig()
   return {
     ...parsed,
-    version: CONFIG_VERSION,
+    version: 4,
     flows: parsed.flows || seed.flows,
   }
 }
@@ -517,6 +590,10 @@ export function loadConfig() {
     if (working.version === 3) {
       const v4 = migrateV3toV4(working)
       if (v4) working = v4
+    }
+    if (working.version === 4) {
+      const v5 = migrateV4toV5(working)
+      if (v5) working = v5
     }
     if (working.version === CONFIG_VERSION) {
       saveConfig(working)
@@ -601,22 +678,26 @@ export function deriveLiveOrchestrator(config) {
 
 /**
  * Audience check — does this assistant reach this user?
- * `everyone: true` short-circuits true. Otherwise the user matches if their
- * role is in `roles` OR their location is in `locations`. Empty arrays in both
- * fall back to true so an admin who flips "everyone" off without picking anything
- * doesn't lock everyone out by mistake.
+ * `everyone: true` short-circuits true. Otherwise the user matches if they
+ * belong to one of the assistant's `groups`. Legacy `roles`/`locations` fields
+ * are still honored as fallbacks during the v4→v5 transition. Empty audience
+ * falls back to true so an admin flipping "everyone" off without picking
+ * doesn't lock everyone out.
  */
 export function assistantVisibleTo(assistant, user) {
   if (!assistant) return false
   const aud = assistant.audience || { everyone: true }
   if (aud.everyone) return true
   if (!user) return false
+  const groups = aud.groups || []
   const roles = aud.roles || []
   const locations = aud.locations || []
-  if (roles.length === 0 && locations.length === 0) return true
+  if (groups.length === 0 && roles.length === 0 && locations.length === 0) return true
+  const userGroups = user.groups || []
+  const matchGroup = groups.length > 0 && groups.some((g) => userGroups.includes(g))
   const matchRole = roles.length > 0 && user.role && roles.includes(user.role)
   const matchLoc = locations.length > 0 && user.location && locations.includes(user.location)
-  return matchRole || matchLoc
+  return matchGroup || matchRole || matchLoc
 }
 
 /**

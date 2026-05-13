@@ -67,7 +67,7 @@ const KnowledgeTab = () => {
         {useSharepoint && (
           <div className="pt-6 space-y-6 border-t border-[#F3F4F6] mt-4 animate-in slide-in-from-top-2 duration-300">
             <div className="grid grid-cols-2 gap-6">
-              <Input label="Tenant URL" value="https://acme.sharepoint.com" readOnly />
+              <Input label="Tenant URL" value="https://staffbase.sharepoint.com" readOnly />
               <Select 
                 label="Scoping Granularity"
                 value={scopingLevel}

@@ -30,6 +30,20 @@ export async function logout() {
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
 }
 
+// Re-pull the signed-in user's live Staffbase Directory profile and overwrite
+// the cached row. Returns the refreshed summary on success.
+export async function refreshProfile() {
+  const res = await fetch('/api/auth/refresh-profile', {
+    method: 'POST',
+    credentials: 'same-origin',
+  });
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) throw new Error(`refresh failed (${res.status})`);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || `refresh failed (${res.status})`);
+  return body;
+}
+
 export async function disconnectProvider(provider) {
   const res = await fetch('/api/connections/disconnect', {
     method: 'POST',

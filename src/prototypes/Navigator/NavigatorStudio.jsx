@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
-import { Eye, RotateCcw, Bot, Wrench, BookOpen, Sparkles, Users, AlertCircle, ChevronRight, Building2, MapPin, Send, ChevronDown, ClipboardList, Workflow } from 'lucide-react'
+import { Eye, RotateCcw, Bot, Wrench, BookOpen, Sparkles, Users, AlertCircle, ChevronRight, Building2, MapPin, Send, ChevronDown, ClipboardList, Workflow, Compass } from 'lucide-react'
 import { StudioShell } from '../../components/StudioShell'
 import { useConfigStore } from '../AIAssistant/useConfigStore'
 import { deriveLiveOrchestrator, deriveLiveOrchestratorFor, assistantVisibleTo } from '../AIAssistant/configStore'
@@ -19,6 +19,7 @@ import FlowsList from './tabs/FlowsList'
 import FlowDetail from './tabs/FlowDetail'
 
 const TABS = [
+  { id: 'setup',      label: 'Setup',            icon: Compass  },
   { id: 'assistants', label: 'Assistants',       icon: Sparkles },
   { id: 'agents',     label: 'External Agents',  icon: Bot      },
   { id: 'mcp',        label: 'MCP Connectors',   icon: Wrench   },
@@ -171,29 +172,29 @@ export default function NavigatorStudio() {
     }
   }
 
-  const tenant = config.tenant || { name: 'Acme', brandColor: '#7C3AED', workspace: 'acme.staffbase.com' }
+  const tenant = config.tenant || { name: 'Staffbase', brandColor: '#00C7B2', workspace: 'campsite.staffbase.com' }
 
   return (
     <StudioShell activeSidebarItem="Navigator">
       <div className="flex-1 flex bg-white relative overflow-hidden">
         {/* Left: tab nav + content */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Header bar — Acme tenant strip */}
+          {/* Header bar — Staffbase tenant strip */}
           <div className="border-b border-[#E5E7EB] px-8 pt-6 pb-0 bg-white">
             <div className="flex items-end justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div
                   className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-bold text-[18px] shrink-0"
-                  style={{ background: tenant.brandColor || '#7C3AED' }}
+                  style={{ background: tenant.brandColor || '#00C7B2' }}
                 >
-                  {(tenant.name || 'A').slice(0, 1)}
+                  {(tenant.name || 'S').slice(0, 1)}
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h1 className="text-[22px] font-bold text-[#111827] leading-none">{tenant.name || 'Acme'}</h1>
+                    <h1 className="text-[22px] font-bold text-[#111827] leading-none">{tenant.name || 'Staffbase'}</h1>
                     <span className="text-[11px] font-semibold text-[#7B5CE3] bg-[#F5F3FF] px-2 py-0.5 rounded-full">Navigator</span>
                   </div>
-                  <p className="text-[12px] text-[#6B7280] font-mono mt-1">{tenant.workspace || 'acme.staffbase.com'}</p>
+                  <p className="text-[12px] text-[#6B7280] font-mono mt-1">{tenant.workspace || 'campsite.staffbase.com'}</p>
                 </div>
               </div>
               <ConfigSummary config={config} />
@@ -323,6 +324,14 @@ export default function NavigatorStudio() {
                 onReset={handleResetDemo}
               />
             )}
+            {activeTabId === 'setup' && (
+              <SetupTab
+                tenant={tenant}
+                assistantsCount={(config.assistants || []).length}
+                connectorsCount={(config.mcpConnectors || []).length}
+                flowsCount={(config.flows || []).length}
+              />
+            )}
           </div>
         </div>
 
@@ -410,6 +419,8 @@ function AudiencePreviewPanel({ user, live, config }) {
   const activeFlows = (config.flows || []).filter(f => f.status === 'active')
   const chips = pickRoleChips({
     role: user.role,
+    group: user.group,
+    daysSinceHire: user.daysSinceHire,
     capabilities: capabilityIds,
     flows: activeFlows,
     now: new Date(),
@@ -440,7 +451,7 @@ function AudiencePreviewPanel({ user, live, config }) {
                 <span className="text-[14px]">{a.icon || '✨'}</span>
                 <div className="flex-1 min-w-0">
                   <div className="text-[12px] font-semibold text-[#111827] truncate">{a.name}</div>
-                  <div className="text-[10px] text-[#94A3B8] truncate">{a.audience?.everyone ? 'Everyone' : `${(a.audience?.roles || []).length} roles · ${(a.audience?.locations || []).length} locations`}</div>
+                  <div className="text-[10px] text-[#94A3B8] truncate">{a.audience?.everyone ? 'Everyone' : `${(a.audience?.groups || a.audience?.roles || []).length} groups`}</div>
                 </div>
               </ImpactRow>
             ))}
@@ -544,7 +555,7 @@ function OrchestratorImpactPanel({ live, config }) {
             const aud = a.audience || { everyone: true }
             const scope = aud.everyone
               ? 'Everyone'
-              : `${(aud.roles || []).length} roles · ${(aud.locations || []).length} locations`
+              : `${(aud.groups || aud.roles || []).length} groups`
             return (
               <ImpactRow key={a.id}>
                 <span className="text-[14px]">{a.icon || '✨'}</span>
@@ -730,6 +741,78 @@ function planRoute(query, config, viewAsUser) {
     }
   }
   return { notRoutable: true }
+}
+
+function SetupTab({ tenant = {}, assistantsCount, connectorsCount, flowsCount }) {
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-[22px] font-bold text-[#111827]">Setup &amp; Discovery</h1>
+        <p className="text-[13px] text-[#6B7280] mt-1">
+          Bootstrap Navigator from your live Staffbase Intranet. Discovery analyzes channels, posts, pages, groups, and the user directory to propose Assistants grounded in your workspace.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-6">
+        <div className="space-y-4">
+          <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8] mb-1">Current workspace</div>
+            <div className="flex items-center gap-3 mt-2">
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-[20px]"
+                style={{ background: tenant.brandColor || '#00C7B2' }}
+              >
+                {(tenant.name || 'S').slice(0, 1)}
+              </div>
+              <div>
+                <div className="text-[16px] font-bold text-[#111827]">{tenant.name || 'Staffbase'}</div>
+                <div className="text-[11px] font-mono text-[#6B7280]">{tenant.workspace || 'campsite.staffbase.com'}</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-4">
+              <SetupStat label="Assistants" value={assistantsCount} />
+              <SetupStat label="Connectors" value={connectorsCount} />
+              <SetupStat label="Flows" value={flowsCount} />
+            </div>
+          </div>
+
+          <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
+            <div className="text-[12px] font-bold text-[#111827] mb-2">Re-discover workspace</div>
+            <p className="text-[11px] text-[#6B7280] mb-3 leading-relaxed">
+              Re-runs the full discovery pass against the live Staffbase API. Updates the workspace blueprint (channels, pages, groups, glossary) without overwriting your existing Assistants.
+            </p>
+            <Link
+              to="/prototypes/navigator-setup"
+              className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-[#00C7B2] hover:bg-[#00A899] px-3 py-2 rounded-lg"
+            >
+              <Compass size={13} />
+              Open Setup Wizard
+            </Link>
+          </div>
+        </div>
+
+        <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
+          <div className="text-[12px] font-bold text-[#111827] mb-3">What the wizard does</div>
+          <ul className="space-y-2 text-[12px] text-[#374151]">
+            <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">1.</span> Pulls channels, recent posts, pages, groups, and user directory from the Staffbase API.</li>
+            <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">2.</span> Runs a multi-pass LLM analysis to extract company name, mission, tone, glossary, and a workspace-level system prompt.</li>
+            <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">3.</span> Clusters content into topic areas and proposes 5–9 grounded Assistants (HR, IT, Onboarding, Travel, Campsite + workspace-specific clusters).</li>
+            <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">4.</span> Persists the workspace blueprint to Postgres so subsequent loads are instant.</li>
+            <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">5.</span> You pick which proposed Assistants to apply, then they're created in <strong>navigator_assistants</strong> and visible in the Assistants tab.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SetupStat({ label, value }) {
+  return (
+    <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg px-3 py-2">
+      <div className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8]">{label}</div>
+      <div className="text-[18px] font-bold text-[#111827] mt-0.5">{value}</div>
+    </div>
+  )
 }
 
 function ImpactSection({ icon, title, count, children }) {

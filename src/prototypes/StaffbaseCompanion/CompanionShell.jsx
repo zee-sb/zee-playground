@@ -38,7 +38,7 @@ function UserAvatar({ user, size = 32 }) {
   );
 }
 
-export default function CompanionShell({ user, connections, onSignedOut, onBack, onMeRefresh }) {
+export default function CompanionShell({ user, connections, staffbase, onSignedOut, onBack, onMeRefresh }) {
   const isMobile = useIsMobile();
   const [view, setView] = useState('chat');
   const [conversations, setConversations] = useState([]);
@@ -112,6 +112,11 @@ export default function CompanionShell({ user, connections, onSignedOut, onBack,
       onMeRefresh?.();
     }
   }, []);
+
+  // Campsite SSO is now a first-class connector in the Connections panel —
+  // users initiate it explicitly via /api/connections/campsite/connect. No
+  // implicit popup on mount (popup blockers + ambiguous UX made the
+  // previous auto-open unreliable).
 
   async function newConversation() {
     const conv = await createConversation('New conversation');

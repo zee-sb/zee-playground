@@ -5,6 +5,7 @@ import ToolCallCard from './ToolCallCard.jsx';
 import TraceCard from './TraceCard.jsx';
 import ConfirmWriteModal from './ConfirmWriteModal.jsx';
 import AnalyticsChartCard from './AnalyticsChartCard.jsx';
+import CardRouter from './cards/CardRouter.jsx';
 import { TypingIndicator } from '../../chat-widget/TypingIndicator.jsx';
 import { streamPost, listMessages } from './api.js';
 import { markdownComponents } from './lib/markdown.jsx';
@@ -191,6 +192,8 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
         });
       } else if (evt.type === 'chart_card') {
         next.push({ kind: 'chart', chart: evt.chart, source: evt.source || null });
+      } else if (evt.type === 'card') {
+        next.push({ kind: 'card', card: evt.card, source: evt.source || null });
       } else if (evt.type === 'conversation_renamed') {
         // Fire-and-forget — the parent updates its conversation list.
         // Use queueMicrotask so we don't setState during this setState.
@@ -494,10 +497,13 @@ function AppHeader({ user, connections, onSignOut, onNewConversation, onOpenHist
 // ── Hero (empty state) ──────────────────────────────────────────────────────
 
 function Hero({ user, atlassianLinked, onPick, onConnect }) {
-  const firstName = (user?.displayName || '').split(' ')[0] || 'there';
+  const callMe = user?.customFields?.callme;
+  const firstName = (callMe || user?.displayName || '').split(' ')[0] || 'there';
   const initials = user?.avatarInitials || (firstName).slice(0, 2).toUpperCase();
   const role = user?.title || 'Staffbase teammate';
-  const location = user?.department || 'Staffbase';
+  // Prefer the real Staffbase location, fall back to department, then a
+  // generic label so the Hero always has a second line.
+  const heroLocation = user?.location || user?.department || 'Staffbase';
 
   const subtitle = atlassianLinked
     ? 'I can pull live Staffbase intranet posts, check HR/IT info, and search your Confluence + Jira.'
@@ -542,7 +548,10 @@ function Hero({ user, atlassianLinked, onPick, onConnect }) {
         </div>
         <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 4 }}>
           <MapPin size={10} />
-          {location}
+          {heroLocation}
+          {user?.department && user?.location && user.department !== user.location && (
+            <span style={{ color: '#CBD5E1' }}> · {user.department}</span>
+          )}
         </div>
         <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.55, maxWidth: 260 }}>
           {subtitle}
@@ -1212,6 +1221,9 @@ function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false, s
   }
   if (item.kind === 'chart') {
     return <AnalyticsChartCard chart={item.chart} source={item.source} />;
+  }
+  if (item.kind === 'card') {
+    return <CardRouter card={item.card} source={item.source} />;
   }
   if (item.role === 'user') {
     return (

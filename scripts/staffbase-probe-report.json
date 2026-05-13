@@ -1,0 +1,987 @@
+{
+  "base": "https://campsite.staffbase.com/api",
+  "timestamp": "2026-05-13T09:40:27.386Z",
+  "okCount": 29,
+  "failCount": 16,
+  "results": [
+    {
+      "name": "branch (existing)",
+      "method": "POST",
+      "path": "/branch",
+      "params": null,
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "id",
+        "name",
+        "slug",
+        "config",
+        "tag",
+        "image",
+        "colors",
+        "created",
+        "updated",
+        "links"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"id\":\"54114743e4b07e5c5e6e3096\",\"name\":\"Staffbase SE\",\"slug\":\"staffpranos\",\"config\":{\"allowSupportLogin\":false,\"applockExcludedAccessors\":[\"5dcea54add8e76495c6894a1\"],\"availableLocales\":[\"ru_RU\",\"el_GR\",\"fr_CA\",\"ro_RO\",\"sv_SE\",\"tr_TR\",\"hi_",
+      "notes": null
+    },
+    {
+      "name": "posts list",
+      "method": "GET",
+      "path": "/posts",
+      "params": {
+        "limit": 1
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "total",
+        "limit",
+        "offset",
+        "data",
+        "links"
+      ],
+      "total": 6631,
+      "dataLength": 1,
+      "snippet": "{\"total\":6631,\"limit\":1,\"offset\":0,\"data\":[{\"branchID\":\"54114743e4b07e5c5e6e3096\",\"channelID\":\"65ead82187908f3ca68c8b65\",\"draftId\":\"azalzg3o2ymvet0lbm4jq98i\",\"contents\":{\"en_US\":{\"content\":\"<p class=\\\"font-claude-response-body break-words w",
+      "notes": null
+    },
+    {
+      "name": "posts query",
+      "method": "GET",
+      "path": "/posts",
+      "params": {
+        "limit": 1,
+        "query": "a"
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "total",
+        "limit",
+        "offset",
+        "data",
+        "links"
+      ],
+      "total": 4909,
+      "dataLength": 1,
+      "snippet": "{\"total\":4909,\"limit\":1,\"offset\":0,\"data\":[{\"branchID\":\"54114743e4b07e5c5e6e3096\",\"channelID\":\"68af00ca168b1d09acdefbe2\",\"contents\":{\"de_DE\":{\"content\":\"\\uD83E\\uDD1EMake a wish\",\"image\":{\"original\":{\"width\":750,\"height\":1000,\"format\":null,\"",
+      "notes": "server-side search?"
+    },
+    {
+      "name": "channels",
+      "method": "GET",
+      "path": "/channels",
+      "params": {
+        "limit": 1
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "total",
+        "limit",
+        "offset",
+        "data",
+        "rights"
+      ],
+      "total": 36,
+      "dataLength": 1,
+      "snippet": "{\"total\":36,\"limit\":1,\"offset\":0,\"data\":[{\"id\":\"687f60601a8a0702ace23287\",\"entityType\":\"installation\",\"pluginID\":\"news\",\"spaceID\":\"54114743e4b07e5c5e6e3096\",\"published\":\"2025-07-22T09:57:06.295Z\",\"created\":\"2025-07-22T09:56:48.576Z\",\"update",
+      "notes": null
+    },
+    {
+      "name": "users list",
+      "method": "GET",
+      "path": "/users",
+      "params": {
+        "limit": 1
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "total",
+        "limit",
+        "offset",
+        "data",
+        "links"
+      ],
+      "total": 670,
+      "dataLength": 1,
+      "snippet": "{\"total\":670,\"limit\":1,\"offset\":0,\"data\":[{\"activated\":\"2014-12-01T00:00:00Z\",\"avatar\":{\"original\":{\"width\":512,\"height\":512,\"size\":147885,\"format\":\"jpg\",\"mimeType\":\"image/jpeg\",\"url\":\"https://campsite.staffbase.com/api/media/secure/externa",
+      "notes": null
+    },
+    {
+      "name": "installations (pages)",
+      "method": "GET",
+      "path": "/installations",
+      "params": {
+        "limit": 1
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "total",
+        "limit",
+        "offset",
+        "data",
+        "links",
+        "rights"
+      ],
+      "total": 154,
+      "dataLength": 1,
+      "snippet": "{\"total\":154,\"limit\":1,\"offset\":0,\"data\":[{\"id\":\"687f60601a8a0702ace23287\",\"entityType\":\"installation\",\"pluginID\":\"news\",\"spaceID\":\"54114743e4b07e5c5e6e3096\",\"published\":\"2025-07-22T09:57:06.295Z\",\"created\":\"2025-07-22T09:56:48.576Z\",\"updat",
+      "notes": null
+    },
+    {
+      "name": "groups",
+      "method": "GET",
+      "path": "/groups",
+      "params": {
+        "limit": 1
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "total",
+        "limit",
+        "offset",
+        "data",
+        "rights"
+      ],
+      "total": 14,
+      "dataLength": 1,
+      "snippet": "{\"total\":14,\"limit\":1,\"offset\":0,\"data\":[{\"id\":\"68f787991551581a6f6ca68a\",\"name\":\"AI Assistant Debug (Opt In)\",\"externalID\":\"ai_assistant_debug_opt_in\",\"type\":\"enumeration\",\"accessorIDs\":[\"54114743e4b07e5c5e6e3096\"],\"adminIDs\":[\"68ef9179ff9",
+      "notes": null
+    },
+    {
+      "name": "analytics posts timeseries",
+      "method": "GET",
+      "path": "/branch/analytics/posts/timeseries",
+      "params": {
+        "groupBy": "day",
+        "since": "2026-05-06T09:40:18.217Z",
+        "until": "2026-05-13T09:40:18.220Z",
+        "timezone": "Europe/Berlin",
+        "format": "json"
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "timeseries"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"timeseries\":[{\"group\":{\"day\":6,\"month\":5,\"year\":2026},\"registeredVisitors\":624,\"registeredVisits\":1878,\"unregisteredVisitors\":0,\"unregisteredVisits\":0,\"newPosts\":1,\"comments\":0,\"likes\":26,\"postLikes\":26,\"commentLikes\":0,\"shares\":5},{\"grou",
+      "notes": null
+    },
+    {
+      "name": "users/search SCIM filter",
+      "method": "GET",
+      "path": "/users/search",
+      "params": {
+        "filter": "firstName co \"a\"",
+        "limit": 1
+      },
+      "status": 406,
+      "ok": false,
+      "sampleKeys": [
+        "identifier",
+        "statusCode",
+        "message",
+        "traceId",
+        "type",
+        "ref"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"identifier\":70004,\"statusCode\":406,\"message\":null,\"traceId\":null,\"type\":\"APIException\",\"ref\":\"ERROR_EXTERNAL_WEBAPPLICATIONEXCEPTION\"}",
+      "notes": null
+    },
+    {
+      "name": "users with SCIM filter direct",
+      "method": "GET",
+      "path": "/users",
+      "params": {
+        "filter": "firstName co \"a\"",
+        "limit": 1
+      },
+      "status": 400,
+      "ok": false,
+      "sampleKeys": [
+        "extended",
+        "traceId",
+        "type",
+        "ref",
+        "statusCode",
+        "message",
+        "devMessage",
+        "identifier"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"extended\":{\"parameterName\":\"filter\"},\"traceId\":\"f14123c81308c426fe0f3fa7776343e5\",\"type\":\"InvalidParameterException\",\"ref\":\"ERROR_INVALID_PARAMETER\",\"statusCode\":400,\"message\":\"Parameter 'filter' is invalid.\",\"devMessage\":\"Attribute first",
+      "notes": null
+    },
+    {
+      "name": "users with cursor",
+      "method": "GET",
+      "path": "/users",
+      "params": {
+        "limit": 1,
+        "cursor": ""
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "total",
+        "limit",
+        "offset",
+        "data",
+        "links"
+      ],
+      "total": 670,
+      "dataLength": 1,
+      "snippet": "{\"total\":670,\"limit\":1,\"offset\":0,\"data\":[{\"activated\":\"2014-12-01T00:00:00Z\",\"avatar\":{\"original\":{\"width\":512,\"height\":512,\"size\":147885,\"format\":\"jpg\",\"mimeType\":\"image/jpeg\",\"url\":\"https://campsite.staffbase.com/api/media/secure/externa",
+      "notes": null
+    },
+    {
+      "name": "groups detail (probe path)",
+      "method": "GET",
+      "path": "/groups",
+      "params": {
+        "limit": 1
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "total",
+        "limit",
+        "offset",
+        "data",
+        "rights"
+      ],
+      "total": 14,
+      "dataLength": 1,
+      "snippet": "{\"total\":14,\"limit\":1,\"offset\":0,\"data\":[{\"id\":\"68f787991551581a6f6ca68a\",\"name\":\"AI Assistant Debug (Opt In)\",\"externalID\":\"ai_assistant_debug_opt_in\",\"type\":\"enumeration\",\"accessorIDs\":[\"54114743e4b07e5c5e6e3096\"],\"adminIDs\":[\"68ef9179ff9",
+      "notes": "will need a real id for /groups/{id}"
+    },
+    {
+      "name": "spaces",
+      "method": "GET",
+      "path": "/spaces",
+      "params": {
+        "limit": 1
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "limit",
+        "offset",
+        "total",
+        "data",
+        "hasOnlyOneSpace",
+        "links"
+      ],
+      "total": 40,
+      "dataLength": 1,
+      "snippet": "{\"limit\":1,\"offset\":0,\"total\":40,\"data\":[{\"id\":\"54114743e4b07e5c5e6e3096\",\"name\":\"All employees\",\"branchID\":\"54114743e4b07e5c5e6e3096\",\"childIds\":[\"5e822c54d5df5567d3329bed\",\"603e08774f961b160f72bcc4\",\"5c6e7d1e0d2aea6c26955d87\",\"5ffc55cc760",
+      "notes": null
+    },
+    {
+      "name": "comments list",
+      "method": "GET",
+      "path": "/comments",
+      "params": {
+        "limit": 1
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "total",
+        "limit",
+        "offset",
+        "data",
+        "links"
+      ],
+      "total": 45108,
+      "dataLength": 1,
+      "snippet": "{\"total\":45108,\"limit\":1,\"offset\":0,\"data\":[{\"installationID\":\"68af00ca168b1d09acdefbe2\",\"parentID\":\"6a03888ca8801f0c2760be1a\",\"parentType\":\"comment\",\"authorID\":\"542ba9b4e4b017a0e58b9a5e\",\"published\":true,\"status\":\"PUBLISHED\",\"text\":\"<p>Yes",
+      "notes": null
+    },
+    {
+      "name": "comments with filter",
+      "method": "GET",
+      "path": "/comments",
+      "params": {
+        "limit": 1,
+        "filter": "created gt \"2024-01-01T00:00:00Z\""
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "total",
+        "limit",
+        "offset",
+        "data",
+        "links"
+      ],
+      "total": 6440,
+      "dataLength": 1,
+      "snippet": "{\"total\":6440,\"limit\":1,\"offset\":0,\"data\":[{\"installationID\":\"68af00ca168b1d09acdefbe2\",\"parentID\":\"6a03888ca8801f0c2760be1a\",\"parentType\":\"comment\",\"authorID\":\"542ba9b4e4b017a0e58b9a5e\",\"published\":true,\"status\":\"PUBLISHED\",\"text\":\"<p>Yes ",
+      "notes": null
+    },
+    {
+      "name": "campaigns",
+      "method": "GET",
+      "path": "/campaigns",
+      "params": {
+        "limit": 1
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "cursor",
+        "limit",
+        "total",
+        "data"
+      ],
+      "total": 50,
+      "dataLength": 1,
+      "snippet": "{\"cursor\":\"MjAyNSBFdmVyeXRoaW5nIGlzIE9LUnM=__NjdiZjhmNWY4YTkxYTUzODU3M2MwZTBi__dHJ1ZQ==\",\"limit\":1,\"total\":50,\"data\":[{\"id\":\"67bf8f5f8a91a538573c0e0b\",\"branchId\":\"54114743e4b07e5c5e6e3096\",\"title\":\"2025 Everything is OKRs\",\"goal\":\"Track mul",
+      "notes": null
+    },
+    {
+      "name": "tags",
+      "method": "GET",
+      "path": "/tags",
+      "params": {
+        "limit": 1
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "tags",
+        "total",
+        "cursor"
+      ],
+      "total": 3539,
+      "dataLength": null,
+      "snippet": "{\"tags\":[{\"id\":\"68bebd191bb39db402ff85a0\",\"value\":\"csv_import:cable\"}],\"total\":3539,\"cursor\":\"Y3N2X2ltcG9ydDpjYWJsZQ==__dHJ1ZQ==\"}",
+      "notes": null
+    },
+    {
+      "name": "analytics posts rankings",
+      "method": "GET",
+      "path": "/branch/analytics/posts/rankings",
+      "params": {
+        "limit": 1,
+        "since": "2026-05-06T09:40:18.220Z",
+        "until": "2026-05-13T09:40:18.220Z",
+        "timezone": "Europe/Berlin",
+        "format": "json",
+        "enrich": "true"
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "entities",
+        "ranking"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"entities\":{\"branches\":{\"54114743e4b07e5c5e6e3096\":{\"id\":\"54114743e4b07e5c5e6e3096\",\"name\":\"Staffbase SE\",\"slug\":\"staffpranos\"}},\"contents\":{\"6139c5e30a8f7b094bd24bcb\":{\"id\":\"6139c5e30a8f7b094bd24bcb\",\"title\":\"Announcements Top News\"}},\"po",
+      "notes": null
+    },
+    {
+      "name": "analytics contents rankings",
+      "method": "GET",
+      "path": "/branch/analytics/contents/rankings",
+      "params": {
+        "limit": 1,
+        "since": "2026-05-06T09:40:18.220Z",
+        "until": "2026-05-13T09:40:18.220Z",
+        "timezone": "Europe/Berlin",
+        "format": "json"
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "entities",
+        "ranking"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"entities\":{\"contents\":{\"680215b72fef816b9932402b\":{\"id\":\"680215b72fef816b9932402b\",\"title\":\"Explore\",\"link\":\"/content/page/680215b72fef816b9932402c\"}},\"spaces\":{\"54114743e4b07e5c5e6e3096\":{\"id\":\"54114743e4b07e5c5e6e3096\",\"name\":\"All emplo",
+      "notes": null
+    },
+    {
+      "name": "analytics chats timeseries",
+      "method": "GET",
+      "path": "/branch/analytics/chats/timeseries",
+      "params": {
+        "groupBy": "day",
+        "since": "2026-05-06T09:40:18.220Z",
+        "until": "2026-05-13T09:40:18.220Z",
+        "timezone": "Europe/Berlin",
+        "format": "json"
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "timeseries",
+        "total"
+      ],
+      "total": {
+        "activeChatUsers": 26,
+        "activeDirectConversations": 1,
+        "activeGroupConversations": 0
+      },
+      "dataLength": null,
+      "snippet": "{\"timeseries\":[{\"group\":{\"day\":6,\"month\":5,\"year\":2026},\"activeChatUsers\":8,\"activeDirectConversations\":0,\"activeGroupConversations\":0},{\"group\":{\"day\":7,\"month\":5,\"year\":2026},\"activeChatUsers\":7,\"activeDirectConversations\":0,\"activeGroupC",
+      "notes": null
+    },
+    {
+      "name": "analytics comments timeseries",
+      "method": "GET",
+      "path": "/branch/analytics/comments/timeseries",
+      "params": {
+        "groupBy": "day",
+        "since": "2026-05-06T09:40:18.220Z",
+        "until": "2026-05-13T09:40:18.220Z",
+        "timezone": "Europe/Berlin",
+        "format": "json"
+      },
+      "status": 404,
+      "ok": false,
+      "sampleKeys": [
+        "message"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"message\":\"Not Found\"}\n",
+      "notes": null
+    },
+    {
+      "name": "analytics users timeseries v2",
+      "method": "GET",
+      "path": "/branch/analytics/v2/users/timeseries",
+      "params": {
+        "groupBy": "day",
+        "since": "2026-05-06T09:40:18.220Z",
+        "until": "2026-05-13T09:40:18.220Z",
+        "timezone": "Europe/Berlin",
+        "format": "json"
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "timeseries",
+        "total"
+      ],
+      "total": {
+        "activeUsers": 751,
+        "engagedUsers": 180,
+        "totalUsers": 796,
+        "registeredUsers": 778
+      },
+      "dataLength": null,
+      "snippet": "{\"timeseries\":[{\"activeUsers\":725,\"engagedUsers\":26,\"totalUsers\":0,\"registeredUsers\":0,\"group\":{\"day\":6,\"month\":5,\"year\":2026}},{\"activeUsers\":653,\"engagedUsers\":88,\"totalUsers\":795,\"registeredUsers\":777,\"group\":{\"day\":7,\"month\":5,\"year\":20",
+      "notes": null
+    },
+    {
+      "name": "analytics users summary",
+      "method": "GET",
+      "path": "/branch/analytics/users",
+      "params": {
+        "format": "json"
+      },
+      "status": 404,
+      "ok": false,
+      "sampleKeys": [
+        "message"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"message\":\"Not Found\"}\n",
+      "notes": null
+    },
+    {
+      "name": "analytics overview",
+      "method": "GET",
+      "path": "/branch/analytics",
+      "params": {
+        "format": "json"
+      },
+      "status": 404,
+      "ok": false,
+      "sampleKeys": [
+        "message"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"message\":\"Not Found\"}\n",
+      "notes": null
+    },
+    {
+      "name": "analytics email performance",
+      "method": "GET",
+      "path": "/email-performance",
+      "params": {
+        "limit": 1
+      },
+      "status": 404,
+      "ok": false,
+      "sampleKeys": [
+        "identifier",
+        "statusCode",
+        "message",
+        "traceId",
+        "type",
+        "ref"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"identifier\":70004,\"statusCode\":404,\"message\":\"The path is not available.\",\"traceId\":null,\"type\":\"NotFoundException\",\"ref\":\"ERROR_EXTERNAL_WEBAPPLICATIONEXCEPTION\"}",
+      "notes": null
+    },
+    {
+      "name": "audit log",
+      "method": "GET",
+      "path": "/audit-log",
+      "params": {
+        "limit": 1
+      },
+      "status": 404,
+      "ok": false,
+      "sampleKeys": [
+        "identifier",
+        "statusCode",
+        "message",
+        "traceId",
+        "type",
+        "ref"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"identifier\":70004,\"statusCode\":404,\"message\":\"The path is not available.\",\"traceId\":null,\"type\":\"NotFoundException\",\"ref\":\"ERROR_EXTERNAL_WEBAPPLICATIONEXCEPTION\"}",
+      "notes": null
+    },
+    {
+      "name": "audit events",
+      "method": "GET",
+      "path": "/audit-events",
+      "params": {
+        "limit": 1
+      },
+      "status": 404,
+      "ok": false,
+      "sampleKeys": [
+        "identifier",
+        "statusCode",
+        "message",
+        "traceId",
+        "type",
+        "ref"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"identifier\":70004,\"statusCode\":404,\"message\":\"The path is not available.\",\"traceId\":null,\"type\":\"NotFoundException\",\"ref\":\"ERROR_EXTERNAL_WEBAPPLICATIONEXCEPTION\"}",
+      "notes": null
+    },
+    {
+      "name": "pages direct",
+      "method": "GET",
+      "path": "/pages",
+      "params": {
+        "limit": 1
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "data",
+        "limit",
+        "nextCursor",
+        "total"
+      ],
+      "total": 576,
+      "dataLength": 1,
+      "snippet": "{\"data\":[{\"id\":\"69fb12271842d8399b9a9b03\",\"createdAt\":\"2026-05-06T10:04:23.650Z\",\"updatedAt\":\"2026-05-07T13:05:29.936Z\",\"isOutdated\":false,\"publishedAt\":\"2026-05-06T13:06:44.599Z\",\"spaceId\":\"54114743e4b07e5c5e6e3096\",\"branchId\":\"54114743e4b",
+      "notes": null
+    },
+    {
+      "name": "page-templates",
+      "method": "GET",
+      "path": "/page-templates",
+      "params": {
+        "limit": 1
+      },
+      "status": 404,
+      "ok": false,
+      "sampleKeys": [
+        "identifier",
+        "statusCode",
+        "message",
+        "traceId",
+        "type",
+        "ref"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"identifier\":70004,\"statusCode\":404,\"message\":\"The path is not available.\",\"traceId\":null,\"type\":\"NotFoundException\",\"ref\":\"ERROR_EXTERNAL_WEBAPPLICATIONEXCEPTION\"}",
+      "notes": null
+    },
+    {
+      "name": "media",
+      "method": "GET",
+      "path": "/media",
+      "params": {
+        "limit": 1
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "total",
+        "limit",
+        "offset",
+        "data"
+      ],
+      "total": 48004,
+      "dataLength": 1,
+      "snippet": "{\"total\":48004,\"limit\":1,\"offset\":0,\"data\":[{\"publicID\":\"VLcXj858LQnnbJn2u1iQGBr47MSqT5VfRi3iKUCTmVuHSKJDvVMjfjUvfjO6rf7B7Ed8UI8zZdYe2UvkoBTUx4hu9b5xEcRd5JtZtEjWOBoeT2eqGN8aEQ2rh6t9c7odlPslYnvPq1oq0k3ZRbb7mNjBQjDPu48VPWRvlbgi1qAss5oSVHwvqrK",
+      "notes": null
+    },
+    {
+      "name": "files",
+      "method": "GET",
+      "path": "/files",
+      "params": {
+        "limit": 1
+      },
+      "status": 404,
+      "ok": false,
+      "sampleKeys": [
+        "identifier",
+        "statusCode",
+        "message",
+        "traceId",
+        "type",
+        "ref"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"identifier\":70004,\"statusCode\":404,\"message\":\"The path is not available.\",\"traceId\":null,\"type\":\"NotFoundException\",\"ref\":\"ERROR_EXTERNAL_WEBAPPLICATIONEXCEPTION\"}",
+      "notes": null
+    },
+    {
+      "name": "quick-links",
+      "method": "GET",
+      "path": "/quick-links",
+      "params": {
+        "limit": 1
+      },
+      "status": 404,
+      "ok": false,
+      "sampleKeys": [
+        "identifier",
+        "statusCode",
+        "message",
+        "traceId",
+        "type",
+        "ref"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"identifier\":70004,\"statusCode\":404,\"message\":\"The path is not available.\",\"traceId\":null,\"type\":\"NotFoundException\",\"ref\":\"ERROR_EXTERNAL_WEBAPPLICATIONEXCEPTION\"}",
+      "notes": null
+    },
+    {
+      "name": "post detail",
+      "method": "GET",
+      "path": "/posts/6a02e3adae38512535035af0",
+      "params": null,
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "branchID",
+        "channelID",
+        "draftId",
+        "contents",
+        "notificationChannels",
+        "author",
+        "useBigFeedMedia",
+        "channel",
+        "comments",
+        "id",
+        "authorID",
+        "creatorId"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"branchID\":\"54114743e4b07e5c5e6e3096\",\"channelID\":\"65ead82187908f3ca68c8b65\",\"draftId\":\"azalzg3o2ymvet0lbm4jq98i\",\"contents\":{\"en_US\":{\"content\":\"<p class=\\\"font-claude-response-body break-words whitespace-normal leading-[1.7]\\\">The past f",
+      "notes": null
+    },
+    {
+      "name": "post analytics",
+      "method": "GET",
+      "path": "/branch/analytics/posts/6a02e3adae38512535035af0",
+      "params": null,
+      "status": 404,
+      "ok": false,
+      "sampleKeys": [
+        "message"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"message\":\"Not Found\"}\n",
+      "notes": null
+    },
+    {
+      "name": "post analytics v2",
+      "method": "GET",
+      "path": "/analytics/posts/6a02e3adae38512535035af0",
+      "params": null,
+      "status": 404,
+      "ok": false,
+      "sampleKeys": [
+        "identifier",
+        "statusCode",
+        "message",
+        "traceId",
+        "type",
+        "ref"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"identifier\":70004,\"statusCode\":404,\"message\":\"The path is not available.\",\"traceId\":null,\"type\":\"NotFoundException\",\"ref\":\"ERROR_EXTERNAL_WEBAPPLICATIONEXCEPTION\"}",
+      "notes": null
+    },
+    {
+      "name": "post comments",
+      "method": "GET",
+      "path": "/posts/6a02e3adae38512535035af0/comments",
+      "params": null,
+      "status": 403,
+      "ok": false,
+      "sampleKeys": [
+        "message",
+        "traceId",
+        "type",
+        "ref",
+        "statusCode",
+        "identifier"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"message\":\"Access denied.\",\"traceId\":\"ce938b28130edcd9c768baafc9c62903\",\"type\":\"AccessDeniedException\",\"ref\":\"ERROR_ACCESS_DENIED\",\"statusCode\":403,\"identifier\":40308}",
+      "notes": null
+    },
+    {
+      "name": "channel detail",
+      "method": "GET",
+      "path": "/channels/687f60601a8a0702ace23287",
+      "params": null,
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "pluginID",
+        "menuFolderIDs",
+        "defaultMenuFolderId",
+        "config",
+        "availableInPublicArea",
+        "owner",
+        "accessors",
+        "contributors",
+        "admins",
+        "contentType",
+        "notificationChannelsDefault",
+        "postCount"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"pluginID\":\"news\",\"menuFolderIDs\":[\"6880cb881eec191bf0962b2c\",\"5e5e7625fca9ff4383a1ddaf\"],\"defaultMenuFolderId\":\"5e5e7625fca9ff4383a1ddaf\",\"config\":{\"localization\":{\"en_US\":{\"title\":\"AI corner\",\"description\":null}},\"sidebarVisible\":true,\"s",
+      "notes": null
+    },
+    {
+      "name": "channel posts",
+      "method": "GET",
+      "path": "/channels/687f60601a8a0702ace23287/posts",
+      "params": {
+        "limit": 1
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "total",
+        "limit",
+        "offset",
+        "data",
+        "links",
+        "rights"
+      ],
+      "total": 23,
+      "dataLength": 1,
+      "snippet": "{\"total\":23,\"limit\":1,\"offset\":0,\"data\":[{\"branchID\":\"54114743e4b07e5c5e6e3096\",\"channelID\":\"687f60601a8a0702ace23287\",\"draftId\":\"jf7401zibmbttw9pvtoen74p\",\"contents\":{\"en_US\":{\"content\":\"<p><span style=\\\"font-weight: 400;\\\">If you've been ",
+      "notes": null
+    },
+    {
+      "name": "channel analytics",
+      "method": "GET",
+      "path": "/branch/analytics/channels/687f60601a8a0702ace23287",
+      "params": null,
+      "status": 404,
+      "ok": false,
+      "sampleKeys": [
+        "message"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"message\":\"Not Found\"}\n",
+      "notes": null
+    },
+    {
+      "name": "user detail (existing)",
+      "method": "GET",
+      "path": "/users/54114744e4b07e5c5e6e309c",
+      "params": null,
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "activated",
+        "avatar",
+        "branchRole",
+        "config",
+        "created",
+        "creation",
+        "department",
+        "emails",
+        "entityType",
+        "externalID",
+        "firstName",
+        "groupIDs"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"activated\":\"2014-12-01T00:00:00Z\",\"avatar\":{\"original\":{\"width\":512,\"height\":512,\"size\":147885,\"format\":\"jpg\",\"mimeType\":\"image/jpeg\",\"url\":\"https://campsite.staffbase.com/api/media/secure/external/v2/image/upload/c_crop,w_512,h_512/65e71",
+      "notes": null
+    },
+    {
+      "name": "group detail",
+      "method": "GET",
+      "path": "/groups/68f787991551581a6f6ca68a",
+      "params": null,
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "id",
+        "name",
+        "externalID",
+        "type",
+        "accessorIDs",
+        "adminIDs",
+        "ownerID",
+        "ownerType",
+        "config",
+        "entityType",
+        "accessors",
+        "adminsWithGroups"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"id\":\"68f787991551581a6f6ca68a\",\"name\":\"AI Assistant Debug (Opt In)\",\"externalID\":\"ai_assistant_debug_opt_in\",\"type\":\"enumeration\",\"accessorIDs\":[\"54114743e4b07e5c5e6e3096\"],\"adminIDs\":[\"68ef9179ff9cd15c06f84e31\"],\"ownerID\":null,\"ownerType",
+      "notes": null
+    },
+    {
+      "name": "group members",
+      "method": "GET",
+      "path": "/groups/68f787991551581a6f6ca68a/members",
+      "params": {
+        "limit": 1
+      },
+      "status": 405,
+      "ok": false,
+      "sampleKeys": [
+        "identifier",
+        "statusCode",
+        "message",
+        "traceId",
+        "type",
+        "ref"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"identifier\":70004,\"statusCode\":405,\"message\":\"Method not allowed. Allowed methods are: OPTIONS,PATCH.\",\"traceId\":null,\"type\":\"APIException\",\"ref\":\"ERROR_EXTERNAL_WEBAPPLICATIONEXCEPTION\"}",
+      "notes": null
+    },
+    {
+      "name": "users filter by group",
+      "method": "GET",
+      "path": "/users",
+      "params": {
+        "limit": 1,
+        "filter": "groups co \"68f787991551581a6f6ca68a\""
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "total",
+        "limit",
+        "offset",
+        "data",
+        "links"
+      ],
+      "total": 11,
+      "dataLength": 1,
+      "snippet": "{\"total\":11,\"limit\":1,\"offset\":0,\"data\":[{\"activated\":\"2025-10-28T13:27:49.806Z\",\"avatar\":{\"original\":{\"width\":864,\"height\":1184,\"size\":1218076,\"format\":\"png\",\"mimeType\":\"image/png\",\"url\":\"https://campsite.staffbase.com/api/media/secure/ext",
+      "notes": null
+    },
+    {
+      "name": "campaign detail",
+      "method": "GET",
+      "path": "/campaigns/67bf8f5f8a91a538573c0e0b",
+      "params": null,
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "id",
+        "branchId",
+        "title",
+        "goal",
+        "authorId",
+        "stats",
+        "startAt",
+        "endAt",
+        "color",
+        "actions",
+        "createdAt",
+        "updatedAt"
+      ],
+      "total": null,
+      "dataLength": null,
+      "snippet": "{\"id\":\"67bf8f5f8a91a538573c0e0b\",\"branchId\":\"54114743e4b07e5c5e6e3096\",\"title\":\"2025 Everything is OKRs\",\"goal\":\"Track multi-channel OKR related posts (non-high level) and measure and compare engagement across the company.\",\"authorId\":\"6299",
+      "notes": null
+    },
+    {
+      "name": "campaign references",
+      "method": "GET",
+      "path": "/campaigns/67bf8f5f8a91a538573c0e0b/references",
+      "params": {
+        "sort": "updated_DESC"
+      },
+      "status": 200,
+      "ok": true,
+      "sampleKeys": [
+        "cursor",
+        "limit",
+        "total",
+        "data"
+      ],
+      "total": 0,
+      "dataLength": 0,
+      "snippet": "{\"cursor\":null,\"limit\":100,\"total\":0,\"data\":[]}",
+      "notes": null
+    }
+  ]
+}

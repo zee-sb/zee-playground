@@ -92,41 +92,45 @@ function useVisualViewport() {
 
 // Default catalog of MCP servers and A2A agents the orchestrator backend supports.
 // Each entry is keyed by the literal id the backend recognizes (`/api/orchestrate`
-// uses `hr_portal`, `it_helpdesk`, `store_ops_agent`).
+// uses `hr_portal`, `it_helpdesk`, `staffbase_onboarding_agent`).
 //
 // At runtime the live registry is intersected with the studio config — only
 // servers/agents that are connected AND referenced by an active assistant in
 // `configStore` appear in the login screen, sidebar, and routing trace.
 const DEFAULT_REGISTRY = [
   {
-    id: 'hr_portal', name: 'Acme HR Portal',
+    id: 'hr_portal', name: 'Staffbase HR',
     description: 'Employee directory, PTO, policies, org chart',
     domains: ['hr', 'pto', 'employees', 'policies'],
     endpoint: '/api/mcp',
-    color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE', Icon: Users,
+    color: '#00C7B2', bg: '#E6FAF7', border: '#A7EBE0', Icon: Users,
   },
   {
-    id: 'it_helpdesk', name: 'IT Helpdesk',
+    id: 'it_helpdesk', name: 'Staffbase IT Helpdesk',
     description: 'Tickets, equipment, software access',
     domains: ['it', 'tickets', 'equipment', 'access'],
     endpoint: '/api/mcp-it',
     color: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE', Icon: Monitor,
   },
   {
-    id: 'intranet', name: 'Acme Intranet',
+    id: 'intranet', name: 'Campsite Intranet',
     description: 'Leadership memos, product launches, team wikis, events, ERG pages, employee spotlights',
-    domains: ['intranet', 'news', 'leadership', 'wiki', 'event', 'spotlight', 'erg', 'announcement'],
+    domains: ['intranet', 'campsite', 'news', 'leadership', 'wiki', 'event', 'spotlight', 'erg', 'announcement'],
     endpoint: '/api/mcp-intranet',
     color: '#0EA5E9', bg: '#F0F9FF', border: '#BAE6FD', Icon: Newspaper,
   },
 ];
 
+// External A2A agents — the Staffbase Onboarding Agent runs at /api/a2a.
+// `id` matches lib/a2a-registry.mjs + the seed in configStore.js so the
+// runtime intersect (DEFAULT_A2A_AGENTS × config-connected) resolves to a
+// live capability when an assistant references the agent.
 const DEFAULT_A2A_AGENTS = [
   {
-    id: 'store_ops_agent', name: 'Store Operations Agent',
-    description: 'Role-aware shift checklists for Acme store locations',
-    domains: ['shift', 'checklist', 'opening', 'closing', 'my tasks'],
-    color: '#F59E0B', bg: '#FFFBEB', border: '#FDE68A', Icon: ClipboardList,
+    id: 'staffbase_onboarding_agent', name: 'Staffbase Onboarding Agent',
+    description: 'Stage-aware onboarding checklist for new Staffbase hires (Day One / First Week / First Month)',
+    domains: ['onboarding', 'new hire', 'day one', 'first week', 'first month', 'macbook', 'benefits enrollment'],
+    color: '#00C7B2', bg: '#E6FAF7', border: '#A7EBE0', Icon: ClipboardList,
     isA2A: true,
   },
 ];
@@ -1307,7 +1311,7 @@ function CompactTrace({ trace }) {
             ? <Loader2 size={10} color="#F59E0B" style={{ animation: 'spin 1s linear infinite' }} />
             : <Share2 size={10} color="#F59E0B" />}
           <span style={{ fontWeight: 600, fontSize: 10, color: '#78350F', flex: 1 }}>
-            {trace.streaming ? `Delegating to ${trace.agentName || 'Store Operations Agent'}…` : `Delegated to ${trace.agentName || 'Store Operations Agent'}`}
+            {trace.streaming ? `Delegating to ${trace.agentName || 'Staffbase Onboarding Agent'}…` : `Delegated to ${trace.agentName || 'Staffbase Onboarding Agent'}`}
           </span>
           {awaitingInput && (
             <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 10, background: '#DBEAFE', color: '#1E40AF', border: '1px solid #BFDBFE', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
@@ -1757,8 +1761,22 @@ function LoginScreen({ onConnect, lang, onLangChange, registry = DEFAULT_REGISTR
     setError('');
     try {
       const res = await fetch('/api/mcp-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+      const ct = res.headers.get('content-type') || '';
+      const isJson = ct.toLowerCase().includes('application/json');
+      if (!isJson) {
+        // Vite dev without `vercel dev` — no /api/mcp-auth handler. Fall
+        // back to a client-side stub auth so the chat is still demoable.
+        // The token is a base64(email:timestamp) — the same shape /api/mcp-auth
+        // would mint in production. /api/a2a + /api/orchestrate accept this.
+        const localUser = (demoUsers.find(u => u.email === email)) || {
+          email, name: email.split('@')[0], role: '', group: '', daysSinceHire: null,
+        };
+        const stubToken = btoa(`${email}:${Date.now()}`);
+        onConnect(stubToken, localUser);
+        return;
+      }
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || `Sign-in failed (${res.status})`);
       onConnect(data.token, data.user);
     } catch (err) {
       setError(err.message);
@@ -1982,7 +2000,7 @@ export default function NavigatorOrchestratorStudio() {
   // whose `audience` excludes the logged-in user disappear, and any MCP/agent
   // that was only referenced by those assistants disappears with them. Pre-login
   // we use the workspace-wide view so the login screen can advertise full
-  // capability ("here's what Acme has wired up").
+  // capability ("here's what Staffbase has wired up").
   const { config } = useConfigStore();
   const demoUsers = config.demoUsers || [];
   const userDemo = user ? (demoUsers.find(u => u.email === user.email) ?? null) : null;
@@ -2274,7 +2292,15 @@ export default function NavigatorOrchestratorStudio() {
   );
 
   // Fallback for users not in the config roster (e.g. signed in via custom email).
-  const userDemoSafe = userDemo ?? { color: '#7C3AED', avatar: (user.name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0,2), role: user.storeRole || '', location: '', subtitle: '' };
+  const userDemoSafe = userDemo ?? {
+    color: '#00C7B2',
+    avatar: (user.name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0,2),
+    role: user.role || user.storeRole || '',
+    group: user.group || user.department || '',
+    daysSinceHire: user.daysSinceHire ?? null,
+    location: user.location || '',
+    subtitle: user.subtitle || '',
+  };
   const tt = (key) => tBase(lang, key);
 
   // The chat shell — header, messages, input, sources sheet — is shared
@@ -2333,38 +2359,45 @@ export default function NavigatorOrchestratorStudio() {
                 const activeFlows = (config.flows || []).filter(f => f.status === 'active');
                 const chips = pickRoleChips({
                   role: userDemoSafe.role,
+                  group: userDemoSafe.group,
+                  daysSinceHire: userDemoSafe.daysSinceHire,
                   capabilities: capabilityIds,
                   flows: activeFlows,
                   now: new Date(),
                 });
                 const labelMap = CHIP_LABEL_I18N[lang] ?? CHIP_LABEL_I18N.en;
-                const isShiftFirst = chips[0]?.kind === 'shift';
-                const shiftChip = isShiftFirst ? chips[0] : null;
-                const remaining = isShiftFirst ? chips.slice(1) : chips;
+                // The leading "highlight" chip is either an onboarding-stage
+                // chip (new hires) or — legacy fallback — a shift chip. Both
+                // route to the same A2A agent surface (Staffbase Onboarding
+                // Agent today).
+                const leadKind = chips[0]?.kind;
+                const isLeadHighlight = leadKind === 'onboarding' || leadKind === 'shift';
+                const leadChip = isLeadHighlight ? chips[0] : null;
+                const remaining = isLeadHighlight ? chips.slice(1) : chips;
                 const flowChips = remaining.filter(c => c.kind === 'flow');
                 const rest = remaining.filter(c => c.kind !== 'flow');
                 return (
-                  <>{shiftChip && (
+                  <>{leadChip && (
                     <button
-                      onClick={() => sendMessage(shiftChip.full)}
+                      onClick={() => sendMessage(leadChip.full)}
                       disabled={loading}
                       style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                         padding: '11px 14px', borderRadius: 14,
-                        background: 'rgba(245,158,11,0.1)', backdropFilter: 'blur(10px)',
-                        border: '1px solid rgba(245,158,11,0.35)',
+                        background: 'rgba(0,199,178,0.1)', backdropFilter: 'blur(10px)',
+                        border: '1px solid rgba(0,199,178,0.35)',
                         cursor: 'pointer', transition: 'all 0.15s',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.2)'; e.currentTarget.style.borderColor = 'rgba(245,158,11,0.5)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.1)'; e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)'; }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,199,178,0.2)'; e.currentTarget.style.borderColor = 'rgba(0,199,178,0.5)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,199,178,0.1)'; e.currentTarget.style.borderColor = 'rgba(0,199,178,0.35)'; }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                        <div style={{ width: 26, height: 26, borderRadius: 7, background: '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <div style={{ width: 26, height: 26, borderRadius: 7, background: '#00C7B2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                           <ClipboardList size={12} color="white" />
                         </div>
-                        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#78350F' }}>{labelMap[shiftChip.label] ?? shiftChip.label}</span>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0F766E' }}>{labelMap[leadChip.label] ?? leadChip.label}</span>
                       </div>
-                      <span style={{ fontSize: 9, fontWeight: 800, color: '#D97706', background: 'rgba(245,158,11,0.15)', padding: '2px 7px', borderRadius: 8, border: '1px solid rgba(245,158,11,0.3)', letterSpacing: '0.05em' }}>A2A</span>
+                      <span style={{ fontSize: 9, fontWeight: 800, color: '#00A899', background: 'rgba(0,199,178,0.15)', padding: '2px 7px', borderRadius: 8, border: '1px solid rgba(0,199,178,0.3)', letterSpacing: '0.05em' }}>A2A</span>
                     </button>
                   )}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, justifyContent: 'center' }}>

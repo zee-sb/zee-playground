@@ -97,6 +97,18 @@ export default function NavigatorSetupStudio() {
     toastTimer.current = setTimeout(() => setToast(null), 4000)
   }
 
+  // Parse a JSON response from a server endpoint. Returns null if the response
+  // body isn't real JSON (Vite serves index.html as a 200 SPA fallback for any
+  // unknown path, including /api/*, so a bare resp.json() will throw and a
+  // .catch(() => ({})) silently produces an empty object that downstream
+  // renderers then explode on). This helper makes "not actually a JSON API
+  // response" detectable.
+  const parseJsonResponse = async (resp) => {
+    const ct = resp.headers.get('content-type') || ''
+    if (!ct.toLowerCase().includes('application/json')) return null
+    try { return await resp.json() } catch { return null }
+  }
+
   // On first mount: try the server cache before showing the empty state.
   // 200 → render the result card from cached blueprint. 204 → empty state.
   // 503 token-missing falls back to the yellow banner path.
@@ -110,7 +122,13 @@ export default function NavigatorSetupStudio() {
           setPhase('idle')
           return
         }
-        const body = await resp.json().catch(() => ({}))
+        const body = await parseJsonResponse(resp)
+        if (!body) {
+          // Endpoint isn't returning JSON (likely vite dev without vercel
+          // functions). Show the empty state, not a crash.
+          setPhase('idle')
+          return
+        }
         if (!resp.ok) {
           if (body.code === 'staffbase_branch_missing' || body.code === 'staffbase_token_missing') {
             setErrorCode('staffbase_token_missing')
@@ -119,9 +137,13 @@ export default function NavigatorSetupStudio() {
           setPhase('idle')
           return
         }
-        // Cached blueprint: hydrate `discovery` from `body.blueprint` so the
-        // existing render tree (which reads channels/pages/workspace/etc. at
-        // the top level) works unchanged.
+        // Cached blueprint: hydrate `discovery` from `body.blueprint`. Only
+        // commit if the blueprint actually has the shape downstream renderers
+        // expect — otherwise fall back to the empty state.
+        if (!body.blueprint || !Array.isArray(body.blueprint.proposedAssistants)) {
+          setPhase('idle')
+          return
+        }
         setDiscovery(body.blueprint)
         setDiscoveryMeta({ cached: true, discoveredAt: body.discoveredAt, branchName: body.branchName })
         setPhase('ready')
@@ -138,10 +160,23 @@ export default function NavigatorSetupStudio() {
     setErrorCode(null)
     try {
       const resp = await fetch('/api/navigator-setup?action=discover')
-      const body = await resp.json().catch(() => ({}))
+      const body = await parseJsonResponse(resp)
+      if (!body) {
+        setErrorMsg('Discovery endpoint is not available in this environment. Run `vercel dev` or deploy to exercise live discovery against the Staffbase API.')
+        setErrorCode('api_unavailable')
+        setPhase('error')
+        return
+      }
       if (!resp.ok) {
         setErrorMsg(body.error || `Discovery failed (${resp.status})`)
         setErrorCode(body.code || null)
+        setPhase('error')
+        return
+      }
+      // Defend against an OK response with the wrong shape.
+      if (!Array.isArray(body.proposedAssistants)) {
+        setErrorMsg('Discovery returned an unexpected response shape — proposedAssistants missing.')
+        setErrorCode('bad_response')
         setPhase('error')
         return
       }
@@ -167,8 +202,10 @@ export default function NavigatorSetupStudio() {
     if (queryOverride) setSearchTerm(queryOverride)
     try {
       const resp = await fetch(`/api/navigator-setup?action=search-preview&query=${encodeURIComponent(q)}`)
-      const body = await resp.json().catch(() => ({}))
-      if (!resp.ok) {
+      const body = await parseJsonResponse(resp)
+      if (!body) {
+        setSearchErr('Search endpoint is not available in this environment.')
+      } else if (!resp.ok) {
         setSearchErr(body.error || `Search failed (${resp.status})`)
       } else {
         setSearchResults(body)

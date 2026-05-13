@@ -9,10 +9,10 @@ import {
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const DEMO_USERS = [
-  { email: 'alice@acme.com', name: 'Alice Chen', role: 'HR Admin', color: '#7C3AED' },
-  { email: 'bob@acme.com', name: 'Bob Smith', role: 'Software Engineer', color: '#2563EB' },
-  { email: 'carol@acme.com', name: 'Carol Davis', role: 'Product Manager', color: '#059669' },
-  { email: 'dave@acme.com', name: 'Dave Wilson', role: 'UX Designer', color: '#D97706' },
+  { email: 'alice@staffbase.com', name: 'Alice Chen', role: 'HR Admin', color: '#7C3AED' },
+  { email: 'bob@staffbase.com', name: 'Bob Smith', role: 'Software Engineer', color: '#2563EB' },
+  { email: 'carol@staffbase.com', name: 'Carol Davis', role: 'Product Manager', color: '#059669' },
+  { email: 'dave@staffbase.com', name: 'Dave Wilson', role: 'UX Designer', color: '#D97706' },
 ];
 
 const MCP_BASE = '/api/mcp';
@@ -226,12 +226,12 @@ function RequestConfirmedCard({ data }) {
 // ── User Profile Card ─────────────────────────────────────────────────────────
 
 const MANAGER_NAMES = {
-  'alice@acme.com': 'Alice Chen',
-  'bob@acme.com': 'Bob Smith',
-  'carol@acme.com': 'Carol Davis',
-  'dave@acme.com': 'Dave Wilson',
-  'eve@acme.com': 'Eve Martinez',
-  'frank@acme.com': 'Frank Lee',
+  'alice@staffbase.com': 'Alice Chen',
+  'bob@staffbase.com': 'Bob Smith',
+  'carol@staffbase.com': 'Carol Davis',
+  'dave@staffbase.com': 'Dave Wilson',
+  'eve@staffbase.com': 'Eve Martinez',
+  'frank@staffbase.com': 'Frank Lee',
 };
 
 function UserProfileCard({ user }) {
@@ -509,7 +509,7 @@ function ConnectTab({ session, onConnect, onDisconnect }) {
         <div className="flex items-start gap-4 p-5 bg-emerald-50 border border-emerald-200 rounded-xl">
           <CheckCircle size={22} className="text-emerald-500 mt-0.5 shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-emerald-800">Connected to Acme HR Portal</p>
+            <p className="font-semibold text-emerald-800">Connected to Staffbase HR Portal</p>
             <p className="text-sm text-emerald-700 mt-0.5">Authenticated as <strong>{session.user.name}</strong> · {session.user.title}</p>
             {session.serverInfo && (
               <p className="text-xs text-emerald-600 mt-1">{session.serverInfo.name} v{session.serverInfo.version}</p>
@@ -544,7 +544,7 @@ function ConnectTab({ session, onConnect, onDisconnect }) {
     <div className="p-6 space-y-5">
       <div>
         <h3 className="text-sm font-semibold text-[#111827] mb-1">Simulated SSO Login</h3>
-        <p className="text-sm text-[#6B7280]">Pick an Acme Corp employee to authenticate as. The server returns a Bearer token used for all MCP requests.</p>
+        <p className="text-sm text-[#6B7280]">Pick an Staffbase employee to authenticate as. The server returns a Bearer token used for all MCP requests.</p>
       </div>
 
       {error && (
@@ -637,7 +637,7 @@ function ExplorerTab({ session }) {
             <button key={r.uri} onClick={() => fetchResource(r.uri)}
               className={`w-full text-left px-2 py-1.5 rounded-lg text-xs flex items-center gap-2 transition-colors ${selected?.uri === r.uri ? 'bg-[#EDE9FE] text-[#7C3AED]' : 'hover:bg-[#F9FAFB] text-[#374151]'}`}>
               <FileText size={11} className="shrink-0" />
-              <span className="truncate">{r.name || r.uri.replace('acme://', '')}</span>
+              <span className="truncate">{r.name || r.uri.replace('staffbase://', '').replace('acme://', '')}</span>
               {loading[r.uri] && <Loader2 size={10} className="animate-spin ml-auto" />}
             </button>
           ))}
@@ -816,7 +816,7 @@ function ChatTab({ session }) {
 
     const systemMessage = {
       role: 'system',
-      content: `You are a helpful HR assistant for Acme Corp with access to HR tools.
+      content: `You are a helpful HR assistant for Staffbase with access to HR tools.
 Rules:
 - Always call tools immediately without asking clarifying questions.
 - For time-off requests: interpret relative dates ("next week", "Friday", "tomorrow") and call submit_time_off_request right away with calculated dates. The user will see a confirmation form to review and adjust before anything is submitted, so never ask them to confirm dates first.
@@ -969,7 +969,7 @@ Rules:
               <div className="w-10 h-10 rounded-xl bg-[#EDE9FE] grid place-items-center mx-auto mb-2">
                 <Zap size={20} className="text-[#7C3AED]" />
               </div>
-              <p className="text-sm font-semibold text-[#111827]">Acme HR Assistant</p>
+              <p className="text-sm font-semibold text-[#111827]">Staffbase HR Assistant</p>
               <p className="text-xs text-[#6B7280] mt-0.5">Powered by OpenAI + MCP tools</p>
             </div>
             <div className="flex flex-wrap gap-2 justify-center">
@@ -1103,7 +1103,7 @@ export default function MCPDemoStudio({ onBack }) {
           <div className="w-6 h-6 rounded-md bg-[#7C3AED] grid place-items-center">
             <Plug size={13} className="text-white" />
           </div>
-          <span className="font-semibold text-sm text-[#111827]">Acme HR Portal — MCP Server Demo</span>
+          <span className="font-semibold text-sm text-[#111827]">Staffbase HR Portal — MCP Server Demo</span>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <StatusDot ok={!!session} />
@@ -1140,7 +1140,7 @@ export default function MCPDemoStudio({ onBack }) {
           <div className="bg-white rounded-2xl border border-[#E4E4E7] shadow-sm p-4 space-y-3">
             <p className="text-xs font-bold uppercase tracking-wide text-[#6B7280]">Server Info</p>
             <div className="space-y-2 text-sm">
-              {[['Name', 'acme-hr-portal'], ['Version', '1.0.0'], ['Transport', 'HTTP (stateless)'], ['Protocol', '2025-03-26']].map(([k, v]) => (
+              {[['Name', 'staffbase-hr-portal'], ['Version', '1.0.0'], ['Transport', 'HTTP (stateless)'], ['Protocol', '2025-03-26']].map(([k, v]) => (
                 <div key={k} className="flex justify-between">
                   <span className="text-[#6B7280]">{k}</span>
                   <span className="font-medium text-[#111827]">{v}</span>

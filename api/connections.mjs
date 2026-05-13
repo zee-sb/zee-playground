@@ -23,8 +23,8 @@ import {
   getUserFromReq,
   COOKIE_NAMES,
 } from '../lib/session.mjs';
-import { dbConfigured } from '../lib/db.mjs';
-import { deleteConnection } from '../lib/connections.mjs';
+import { sql, dbConfigured } from '../lib/db.mjs';
+import { deleteConnection, upsertConnection } from '../lib/connections.mjs';
 
 function appUrl(req) {
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, '');
@@ -43,6 +43,7 @@ export default async function handler(req, res) {
   try {
     if (path === '/api/connections/atlassian/connect')  return await atlassianConnect(req, res);
     if (path === '/api/connections/atlassian/callback') return await atlassianCallback(req, res);
+    if (path === '/api/connections/campsite/connect')   return await campsiteConnect(req, res);
     if (path === '/api/connections/disconnect')         return await disconnect(req, res);
     res.status(404).json({ error: 'not_found', path });
   } catch (err) {
@@ -135,6 +136,65 @@ async function atlassianCallback(req, res) {
     console.error('[connections/atlassian/callback]', err);
     return bounce('callback_failed');
   }
+}
+
+// ── GET /api/connections/campsite/connect ──────────────────────────────
+//
+// Initiates SP-initiated SAML SSO into the Staffbase Campsite tenant.
+// Unlike Atlassian (OAuth, with our callback receiving an auth code),
+// Campsite is browser-session SAML — after the SAML round-trip the user
+// has a Campsite web session in their browser but our backend gets
+// nothing back. So we treat this as an "optimistic" connector:
+//   1. Mark the user's connection row as 'connected' BEFORE we redirect
+//      (with `metadata.last_initiated_at` so the UI can show freshness).
+//   2. Redirect to STAFFBASE_SSO_URL — Staffbase bounces through Google IdP
+//      (silent because the user already has a Google session) and lands
+//      them at Campsite home.
+//   3. If they didn't actually complete SSO (e.g. closed the tab), they
+//      can re-trigger from the Connections panel. Disconnect drops the
+//      row but doesn't sign them out of Campsite.
+async function campsiteConnect(req, res) {
+  if (req.method !== 'GET') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+  const session = await getUserFromReq(req);
+  if (!session) {
+    res.status(401).json({ error: 'not_signed_in' });
+    return;
+  }
+  const ssoUrl = process.env.STAFFBASE_SSO_URL
+    || 'https://campsite.staffbase.com/auth/saml/staffpranos';
+  const ssoConfigId = (ssoUrl.match(/\/auth\/saml\/([^/?#]+)/) || [])[1] || null;
+  const initiatedAt = new Date().toISOString();
+  if (dbConfigured()) {
+    try {
+      // Look up the signed-in user's email so the connection card can show
+      // "Linked as <email>". Best-effort: skip the upsert silently on error.
+      let externalEmail = null;
+      try {
+        const rows = await sql`select email from users where id = ${session.userId}`;
+        externalEmail = rows[0]?.email || null;
+      } catch { /* ignore */ }
+      await upsertConnection({
+        userId: session.userId,
+        provider: 'campsite',
+        externalEmail,
+        metadata: {
+          sso_url: ssoUrl,
+          sso_config_id: ssoConfigId,
+          workspace: 'campsite.staffbase.com',
+          last_initiated_at: initiatedAt,
+        },
+      });
+    } catch (err) {
+      console.error('[campsite/connect] upsert failed:', err.message);
+      // Not fatal — still bounce to SSO so the user isn't blocked.
+    }
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  res.writeHead(302, { Location: ssoUrl });
+  res.end();
 }
 
 // ── POST /api/connections/disconnect ───────────────────────────────────

@@ -1,35 +1,35 @@
 import React from 'react'
 import { Routes, Route, useParams, useNavigate, Link } from 'react-router-dom'
-import { Sparkles, BarChart2, Plug, Bot, ClipboardList, MessageCircle, Building2, Zap } from 'lucide-react'
+import { Sparkles, BarChart2, MessageCircle, Building2 } from 'lucide-react'
 import NavigatorStudio from './prototypes/Navigator/NavigatorStudio'
 import NavigatorSetupStudio from './prototypes/NavigatorSetup/NavigatorSetupStudio'
 import NavigatorOrchestratorStudio from './prototypes/NavigatorOrchestrator/NavigatorOrchestratorStudio'
 import NavigatorAnalyticsDashboard from './prototypes/NavigatorAnalytics/NavigatorAnalyticsDashboard'
+import StaffbaseCompanion from './prototypes/StaffbaseCompanion'
 import MCPDemoStudio from './prototypes/MCPDemo/MCPDemoStudio'
 import A2ADemoStudio from './prototypes/A2ADemo/A2ADemoStudio'
-import FrontlineOpsStudio from './prototypes/FrontlineOps/FrontlineOpsStudio'
-import StaffbaseCompanion from './prototypes/StaffbaseCompanion'
 
 // ── Registry ──────────────────────────────────────────────────────────
-// Navigator is two linked prototypes sharing one localStorage config blob:
-//   /navigator-studio   — admin configures assistants, MCPs, agents, knowledge
-//   /navigator-employee — orchestrator chat (real LLM, streaming SSE,
-//                          intent trace, tool-call cards). Reflects whatever
-//                          the Studio has wired up.
+// Four prototypes, all anchored to one canonical Staffbase Intranet workspace:
+//
+//   /navigator-studio           — admin: assistants, connectors, agents, KBs,
+//                                  flows, workspace settings, Setup tab.
+//   /navigator-employee         — employee-facing chat (orchestrator).
+//                                  Reflects everything the Studio has wired up.
+//   /staffbase-companion        — production-grade Google login + Atlassian
+//                                  MCP. Hosts real per-user OAuth + write gate.
+//                                  (Route MUST stay at this path — registered
+//                                   OAuth callback URLs depend on it.)
+//   /navigator-analytics-dashboard — analytics spec (unchanged, externally linked).
+//
+// NavigatorSetup is kept routable at /navigator-setup so the in-Studio Setup
+// tab and any external links continue to work, but it's not surfaced as a
+// gallery card — it's folded into Studio's first tab.
 const PROTOTYPES = [
-  {
-    id: "navigator-setup",
-    title: "Navigator — Setup Wizard",
-    description: "One-click instance discovery: analyzes your Staffbase channels and posts, clusters content into topics, and proposes a ready-made Navigator configuration with named Assistants, context prompts, and knowledge sources.",
-    epic: "Navigator",
-    status: "ready",
-    icon: Zap,
-    component: NavigatorSetupStudio
-  },
   {
     id: "navigator-studio",
     title: "Navigator — Studio (Admin)",
-    description: "Admin configuration: assistants with sub-agent links, MCP connectors, external/A2A agents, and knowledge bases. Live preview reflects every change.",
+    description: "Configure the Staffbase Intranet workspace: Setup discovery, assistants, MCP connectors (mock + real), external agents, knowledge bases, flows, and the team directory. Live preview reflects every change.",
     epic: "Navigator",
     status: "ready",
     icon: Sparkles,
@@ -37,58 +37,43 @@ const PROTOTYPES = [
   },
   {
     id: "navigator-employee",
-    title: "Navigator — Employee",
-    description: "What an end-user sees. Real LLM-backed chat with streaming SSE, intent classification trace, and tool-call result cards. The orchestrator only sees MCPs and agents the Studio has connected and assigned to active assistants.",
+    title: "Navigator — Employee Chat",
+    description: "Production-grade Staffbase Intranet chat. Streaming LLM, intent classification trace, flow detection, tool-call result cards, role-aware launchpad chips, and the Campsite Intranet at your fingertips.",
     epic: "Navigator",
     status: "ready",
     icon: MessageCircle,
     component: NavigatorOrchestratorStudio
   },
   {
+    id: "staffbase-companion",
+    title: "Staffbase Companion — Real Atlassian MCP",
+    description: "Sign in with your real Staffbase Google account and chat against live Confluence + Jira via the official Atlassian Remote MCP. Per-user OAuth, write actions gated by explicit confirmation. The real-systems anchor for the Employee Chat.",
+    epic: "Navigator",
+    status: "live",
+    icon: Building2,
+    component: StaffbaseCompanion
+  },
+  {
     id: "navigator-analytics-dashboard",
     title: "Navigator Analytics Dashboard",
-    description: "Full analytics dashboard spec for the data analyst — Adoption, Quality (NRS formula), Engagement, Retention, and Company-level breakdown with mock data.",
+    description: "Full analytics spec — Adoption, Quality (NRS formula), Engagement, Retention, and Company-level breakdown. Reference for the data team.",
     epic: "Navigator",
     status: "ready",
     icon: BarChart2,
     component: NavigatorAnalyticsDashboard
-  },
-  {
-    id: "mcp-demo",
-    title: "Acme HR Portal — MCP Server",
-    description: "Live MCP server demo with simulated SSO auth, employee resources, HR tools (PTO, org chart, policy search), and an OpenAI-powered chat interface that exercises tool calling.",
-    epic: "Navigator",
-    status: "ready",
-    icon: Plug,
-    component: MCPDemoStudio
-  },
-  {
-    id: "frontline-ops",
-    title: "Shift Ready — Frontline Ops",
-    description: "Role-based shift checklists for frontline workers. Branch Manager, Line Cook, Cleaner, Supervisor each get their own opening/mid-shift/closing tasks with photo proof and shift handover.",
-    epic: "Navigator",
-    status: "ready",
-    icon: ClipboardList,
-    component: FrontlineOpsStudio
-  },
-  {
-    id: "a2a-demo",
-    title: "Acme Store Operations Agent — A2A Protocol",
-    description: "Google's Agent-to-Agent (A2A) protocol demo. Discover agent capabilities via Agent Card, delegate shift checklist requests with streaming status updates, and compare A2A delegation vs MCP tool calling.",
-    epic: "Navigator",
-    status: "ready",
-    icon: Bot,
-    component: A2ADemoStudio
-  },
-  {
-    id: "staffbase-companion",
-    title: "Staffbase Companion — Real Atlassian MCP",
-    description: "Sign in with your real Atlassian account and chat with the assistant against your live Confluence + Jira via the official Atlassian Remote MCP server. Per-user OAuth, RBAC preserved, write actions gated by explicit confirmation.",
-    epic: "Internal",
-    status: "live",
-    icon: Building2,
-    component: StaffbaseCompanion
   }
+];
+
+// Routes that stay reachable but aren't surfaced as gallery cards:
+//   - navigator-setup: folded into Studio's Setup tab; standalone wizard
+//     still linkable.
+//   - mcp-demo, a2a-demo: surfaced inside Studio as "Custom Integration"
+//     cards on the MCP Connectors / External Agents tabs, so the protocol
+//     showcase stays one click away from the workspace context.
+const HIDDEN_ROUTES = [
+  { id: "navigator-setup", component: NavigatorSetupStudio },
+  { id: "mcp-demo",        component: MCPDemoStudio        },
+  { id: "a2a-demo",        component: A2ADemoStudio        },
 ];
 
 // ── Shared Gallery Component ──────────────────────────────────────────
@@ -151,7 +136,7 @@ const Gallery = () => {
 const PrototypeViewer = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const proto = PROTOTYPES.find(p => p.id === id);
+  const proto = PROTOTYPES.find(p => p.id === id) || HIDDEN_ROUTES.find(p => p.id === id);
   if (!proto) return (
     <div className="min-h-screen flex flex-col items-center justify-center p-10 text-center">
       <h1 className="text-4xl font-bold mb-4">404</h1>

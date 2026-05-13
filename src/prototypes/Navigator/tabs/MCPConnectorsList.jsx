@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { Plus, Trash2, X, Wrench, ChevronRight, Play, CheckCircle2 } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Plus, Trash2, X, Wrench, ChevronRight, Play, CheckCircle2, Plug, FlaskConical } from 'lucide-react'
 import { MCP_CATALOG, toolsForCatalogId, MCP_FIXTURES } from '../../AIAssistant/configStore'
 import { CatalogGrid, LogoChip, StatusPill } from '../components/Catalog'
 
@@ -24,7 +25,7 @@ export default function MCPConnectorsList({ mcpConnectors = [], assistants = [],
       id: newId,
       catalogId: catalogItem.id,
       name: `${catalogItem.name}`,
-      endpoint: `https://acme.${catalogItem.id}.example.com/api/mcp`,
+      endpoint: `https://staffbase.${catalogItem.id}.example.com/api/mcp`,
       authMethod: catalogItem.auth,
       status: 'connected',
       addedAt: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
@@ -162,6 +163,31 @@ export default function MCPConnectorsList({ mcpConnectors = [], assistants = [],
           </table>
         </div>
       )}
+
+      {/* Custom Integrations — protocol showcase */}
+      <div className="mt-8">
+        <div className="flex items-center gap-2 mb-3">
+          <FlaskConical size={14} className="text-[#7C3AED]" />
+          <h2 className="text-[12px] font-bold text-[#6B7280] uppercase tracking-wider">Custom integrations</h2>
+        </div>
+        <Link
+          to="/prototypes/mcp-demo"
+          className="group flex items-center gap-4 p-4 bg-white border border-[#E5E7EB] rounded-xl hover:border-[#7C3AED] hover:shadow-sm transition-all"
+        >
+          <div className="w-11 h-11 rounded-lg grid place-items-center bg-[#F5F3FF] shrink-0">
+            <Plug size={20} className="text-[#7C3AED]" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[14px] font-bold text-[#111827] group-hover:text-[#7C3AED]">
+              MCP Server Showcase
+            </div>
+            <div className="text-[12px] text-[#6B7280] mt-0.5">
+              Live MCP server demo with SSO auth, HR resources, tool calling, and an OpenAI chat client. See exactly what an MCP server looks like over the wire.
+            </div>
+          </div>
+          <ChevronRight size={16} className="text-[#94A3B8] group-hover:text-[#7C3AED] shrink-0" />
+        </Link>
+      </div>
 
       {/* Catalog drawer */}
       {showCatalog && (
