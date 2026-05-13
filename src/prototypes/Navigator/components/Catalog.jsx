@@ -64,6 +64,7 @@ export function StatusPill({ status }) {
     error:        { bg: '#FEE2E2', fg: '#991B1B', dot: '#DC2626', label: 'Error'        },
     active:       { bg: '#DCFCE7', fg: '#166534', dot: '#16A34A', label: 'Active'       },
     inactive:     { bg: '#F1F5F9', fg: '#475569', dot: '#94A3B8', label: 'Inactive'     },
+    draft:        { bg: '#F1F5F9', fg: '#475569', dot: '#94A3B8', label: 'Draft'        },
   }
   const s = styles[status] || styles.disconnected
   return (

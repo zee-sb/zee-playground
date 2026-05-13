@@ -60,7 +60,8 @@ export function shiftPhaseFor(now = new Date()) {
 // - time of day (which shift phase chip leads)
 // - available capabilities (drop chips routing to nothing)
 // - day of week (swap one chip on Mon/Tue mornings)
-export function pickRoleChips({ role, capabilities, now = new Date() }) {
+// - active flows (suggested workflows appear as a separate group)
+export function pickRoleChips({ role, capabilities, flows = [], now = new Date() }) {
   const phase = shiftPhaseFor(now);
   const day = now.getDay();           // 0 Sun … 6 Sat
   const hour = now.getHours();
@@ -72,14 +73,34 @@ export function pickRoleChips({ role, capabilities, now = new Date() }) {
   const shiftChip = SHIFT_CHIPS[phase];
   if (canUse(shiftChip)) out.push(shiftChip);
 
-  // 2) role-specific followups, capability-filtered, deduped.
+  // 2) role-specific followups, capability-filtered, deduped. Cap this group
+  // at ~4 chips so flow chips below stay visible.
   const ids = ROLE_FOLLOWUPS[role] || ROLE_FOLLOWUPS['Branch Manager'];
   // Monday/Tuesday morning bias toward leadership news.
   const biased = (day === 1 || day === 2) && hour < 12 ? ['latest_leadership', ...ids] : ids;
+  let roleAdded = 0;
   for (const id of biased) {
     const chip = COMMON_CHIPS[id];
-    if (chip && canUse(chip) && !out.includes(chip)) out.push(chip);
-    if (out.length >= 4) break;
+    if (chip && canUse(chip) && !out.includes(chip)) {
+      out.push(chip);
+      roleAdded += 1;
+    }
+    if (roleAdded >= 4) break;
   }
+
+  // 3) flow chips — every active flow appears as a chip in its own group
+  // below the role chips, so we don't count them against the cap above.
+  // Required-mode flows still render so the employee can opt in explicitly.
+  for (const f of flows || []) {
+    if (!f || f.status !== 'active') continue;
+    out.push({
+      label: f.name,
+      full: f.trigger || f.name,
+      kind: 'flow',
+      flowId: f.id,
+      mode: f.mode,
+    });
+  }
+
   return out;
 }

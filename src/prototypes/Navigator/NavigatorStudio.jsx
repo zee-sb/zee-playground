@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
-import { Eye, RotateCcw, Bot, Wrench, BookOpen, Sparkles, Users, AlertCircle, ChevronRight, Building2, MapPin, Send, ChevronDown, ClipboardList } from 'lucide-react'
+import { Eye, RotateCcw, Bot, Wrench, BookOpen, Sparkles, Users, AlertCircle, ChevronRight, Building2, MapPin, Send, ChevronDown, ClipboardList, Workflow } from 'lucide-react'
 import { StudioShell } from '../../components/StudioShell'
 import { useConfigStore } from '../AIAssistant/useConfigStore'
 import { deriveLiveOrchestrator, deriveLiveOrchestratorFor, assistantVisibleTo } from '../AIAssistant/configStore'
@@ -15,12 +15,15 @@ import MCPConnectorsList from './tabs/MCPConnectorsList'
 import ExternalAgentsList from './tabs/ExternalAgentsList'
 import KnowledgeBasesList from './tabs/KnowledgeBasesList'
 import WorkspaceTab from './tabs/WorkspaceTab'
+import FlowsList from './tabs/FlowsList'
+import FlowDetail from './tabs/FlowDetail'
 
 const TABS = [
   { id: 'assistants', label: 'Assistants',       icon: Sparkles },
   { id: 'agents',     label: 'External Agents',  icon: Bot      },
   { id: 'mcp',        label: 'MCP Connectors',   icon: Wrench   },
   { id: 'kb',         label: 'Knowledge',        icon: BookOpen },
+  { id: 'flows',      label: 'Flows',            icon: Workflow },
   { id: 'workspace',  label: 'Workspace',        icon: Building2 },
 ]
 
@@ -42,6 +45,7 @@ export default function NavigatorStudio() {
     setExternalAgents,
     setAssistants,
     setKnowledgeBases,
+    setFlows,
     resetConfig,
   } = useConfigStore()
 
@@ -89,6 +93,28 @@ export default function NavigatorStudio() {
     navigate(`${basePath}/assistants`)
   }
 
+  // Flow CRUD — same shape as assistant CRUD
+  function handleCreateFlow() {
+    navigate(`${basePath}/flows/new`)
+  }
+  function handleSelectFlow(f) {
+    navigate(`${basePath}/flows/${f.id}`)
+  }
+  function handleSaveFlow(updated) {
+    setFlows((prev) => {
+      if (updated.id && prev.find(f => f.id === updated.id)) {
+        return prev.map(f => f.id === updated.id ? updated : f)
+      }
+      const newId = `flow-${Date.now().toString(36)}`
+      return [{ ...updated, id: newId }, ...prev]
+    })
+    navigate(`${basePath}/flows`)
+  }
+  function handleDeleteFlow(f) {
+    setFlows((prev) => prev.filter(x => x.id !== f.id))
+    navigate(`${basePath}/flows`)
+  }
+
   function handleResetDemo() {
     if (window.confirm('Reset all Navigator config to defaults? Clears your saved Studio state.')) {
       resetConfig()
@@ -120,6 +146,28 @@ export default function NavigatorStudio() {
       }
     } else {
       detailAssistant = config.assistants.find(a => a.id === detailId) || null
+    }
+  }
+
+  // Resolve which flow detail to render
+  let detailFlow = null
+  let detailFlowIsNew = false
+  if (activeTabId === 'flows' && detailId) {
+    if (detailId === 'new') {
+      detailFlowIsNew = true
+      detailFlow = {
+        id: null,
+        name: '',
+        trigger: '',
+        goal: '',
+        tools: [],
+        mode: 'suggested',
+        instructions: '',
+        onComplete: null,
+        status: 'active',
+      }
+    } else {
+      detailFlow = (config.flows || []).find(f => f.id === detailId) || null
     }
   }
 
@@ -250,6 +298,24 @@ export default function NavigatorStudio() {
                 onKnowledgeBasesChange={setKnowledgeBases}
               />
             )}
+            {activeTabId === 'flows' && !detailFlow && (
+              <FlowsList
+                flows={config.flows || []}
+                onSelect={handleSelectFlow}
+                onCreate={handleCreateFlow}
+              />
+            )}
+            {activeTabId === 'flows' && detailFlow && (
+              <FlowDetail
+                flow={detailFlow}
+                isNew={detailFlowIsNew}
+                mcpConnectors={config.mcpConnectors || []}
+                externalAgents={config.externalAgents || []}
+                onBack={() => navigate(`${basePath}/flows`)}
+                onSave={handleSaveFlow}
+                onDelete={handleDeleteFlow}
+              />
+            )}
             {activeTabId === 'workspace' && (
               <WorkspaceTab
                 tenant={tenant}
@@ -341,7 +407,13 @@ function AudiencePreviewPanel({ user, live, config }) {
     ...live.mcps.map(m => m.id),
     ...live.agents.map(a => a.id),
   ])
-  const chips = pickRoleChips({ role: user.role, capabilities: capabilityIds, now: new Date() })
+  const activeFlows = (config.flows || []).filter(f => f.status === 'active')
+  const chips = pickRoleChips({
+    role: user.role,
+    capabilities: capabilityIds,
+    flows: activeFlows,
+    now: new Date(),
+  })
 
   return (
     <div className="px-5 py-4 space-y-4">
@@ -377,16 +449,42 @@ function AudiencePreviewPanel({ user, live, config }) {
       <ImpactSection icon={<ClipboardList size={11} />} title="Launchpad chips" count={chips.length}>
         {chips.length === 0
           ? <Empty>No chips — connect more capabilities</Empty>
-          : chips.map((c, i) => (
-              <div key={i} className="flex items-center gap-2 py-1 px-2 rounded">
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${c.kind === 'shift' ? 'bg-[#FFFBEB] text-[#92400E] border border-[#FDE68A]' : 'bg-[#F3F4F6] text-[#374151]'}`}>
-                  {c.kind === 'shift' ? 'A2A' : 'tool'}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[12px] font-semibold text-[#111827] truncate">{c.label}</div>
-                  <div className="text-[10px] text-[#94A3B8] truncate">{c.full}</div>
+          : chips.map((c, i) => {
+              const badge = c.kind === 'shift'
+                ? { bg: '#FFFBEB', fg: '#92400E', border: '#FDE68A', label: 'A2A' }
+                : c.kind === 'flow'
+                  ? { bg: '#F5F3FF', fg: '#7C3AED', border: '#DDD6FE', label: 'Flow' }
+                  : { bg: '#F3F4F6', fg: '#374151', border: 'transparent', label: 'tool' }
+              return (
+                <div key={i} className="flex items-center gap-2 py-1 px-2 rounded">
+                  <span
+                    className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                    style={{ background: badge.bg, color: badge.fg, border: `1px solid ${badge.border}` }}
+                  >
+                    {badge.label}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12px] font-semibold text-[#111827] truncate">{c.label}</div>
+                    <div className="text-[10px] text-[#94A3B8] truncate">{c.full}</div>
+                  </div>
                 </div>
-              </div>
+              )
+            })}
+      </ImpactSection>
+
+      <ImpactSection icon={<Workflow size={11} />} title="Flows available" count={activeFlows.length}>
+        {activeFlows.length === 0
+          ? <Empty>No flows configured</Empty>
+          : activeFlows.map(f => (
+              <ImpactRow key={f.id}>
+                <Workflow size={12} className="text-[#7C3AED]" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-semibold text-[#111827] truncate">{f.name}</div>
+                  <div className="text-[10px] text-[#94A3B8] truncate">
+                    {f.mode === 'required' ? 'Required' : 'Suggested'} · {(f.tools || []).length} tools
+                  </div>
+                </div>
+              </ImpactRow>
             ))}
       </ImpactSection>
 
@@ -428,6 +526,7 @@ function AudiencePreviewPanel({ user, live, config }) {
  */
 function OrchestratorImpactPanel({ live, config }) {
   const activeAssistants = (config.assistants || []).filter(a => a.status === 'active')
+  const activeFlows = (config.flows || []).filter(f => f.status === 'active')
   const orphanMcps = (config.mcpConnectors || []).filter(c =>
     c.status === 'connected' && !live.mcps.find(x => x.id === c.id)
   )
@@ -457,6 +556,22 @@ function OrchestratorImpactPanel({ live, config }) {
             )
           })
         )}
+      </ImpactSection>
+
+      <ImpactSection icon={<Workflow size={11} />} title="Flows available" count={activeFlows.length}>
+        {activeFlows.length === 0
+          ? <Empty>No flows configured</Empty>
+          : activeFlows.map(f => (
+              <ImpactRow key={f.id}>
+                <Workflow size={12} className="text-[#7C3AED]" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-semibold text-[#111827] truncate">{f.name}</div>
+                  <div className="text-[10px] text-[#94A3B8] truncate">
+                    {f.mode === 'required' ? 'Required' : 'Suggested'} · {(f.tools || []).length} tools
+                  </div>
+                </div>
+              </ImpactRow>
+            ))}
       </ImpactSection>
 
       <ImpactSection icon={<Wrench size={11} />} title="MCPs the chat can call" count={live.mcps.length}>
@@ -646,6 +761,7 @@ function ConfigSummary({ config }) {
     { label: 'Agents',     value: config.externalAgents?.filter(a => a.status === 'connected').length || 0, icon: Bot },
     { label: 'MCPs',       value: config.mcpConnectors?.filter(c => c.status === 'connected').length || 0, icon: Wrench },
     { label: 'KBs',        value: config.knowledgeBases?.length || 0, icon: BookOpen },
+    { label: 'Flows',      value: (config.flows || []).filter(f => f.status === 'active').length, icon: Workflow },
     { label: 'Users',      value: config.demoUsers?.length || 0, icon: Users },
   ]
   return (

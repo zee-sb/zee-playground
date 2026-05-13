@@ -17,7 +17,7 @@
  */
 
 export const STORAGE_KEY = 'staffbase.navigator.config'
-export const CONFIG_VERSION = 3
+export const CONFIG_VERSION = 4
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tenant — the workspace this Navigator instance is configured for.
@@ -272,6 +272,59 @@ const SEED_KNOWLEDGE_BASES = [
   { id: 'kb-intranet', name: 'Acme Intranet',     source: 'Internal CMS', articleCount: 18 },
 ]
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Flows — admin-defined, goal-driven workflows the Navigator brain can invoke
+// when an employee's intent matches. Workspace-wide for this prototype.
+// `tools[]` entries are either `{ connectorId, toolId }` (an MCP tool) or a
+// bare agentId string (the whole external agent).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SEED_FLOWS = [
+  {
+    id: 'flow-laptop',
+    name: 'Laptop Request',
+    trigger: 'Employee asks for a new laptop, new equipment, or mentions their computer is broken',
+    goal: 'IT ticket submitted with laptop model, OS preference, and delivery address confirmed',
+    tools: [
+      { connectorId: 'it_helpdesk', toolId: 'createTicket' },
+      { connectorId: 'it_helpdesk', toolId: 'getEquipment' },
+    ],
+    mode: 'suggested',
+    instructions: 'Ask for role first to recommend the right laptop tier.',
+    onComplete: null,
+    status: 'active',
+  },
+  {
+    id: 'flow-pto',
+    name: 'Request Time Off',
+    trigger: 'Employee wants to book leave, holiday, or PTO',
+    goal: 'PTO request submitted with dates confirmed and balance verified',
+    tools: [
+      { connectorId: 'hr_portal', toolId: 'requestPto' },
+      { connectorId: 'hr_portal', toolId: 'getPtoBalance' },
+    ],
+    mode: 'suggested',
+    instructions: '',
+    onComplete: null,
+    status: 'active',
+  },
+  {
+    id: 'flow-onboarding',
+    name: 'New Joiner Onboarding',
+    trigger: 'Employee just joined or says they are new, or asks what they need to do to get started',
+    goal: 'New hire has HR profile reviewed, IT ticket filed for equipment, and core software access requested',
+    tools: [
+      { connectorId: 'hr_portal',   toolId: 'getEmployee' },
+      { connectorId: 'it_helpdesk', toolId: 'createTicket' },
+      { connectorId: 'it_helpdesk', toolId: 'requestSoftware' },
+    ],
+    mode: 'required',
+    instructions: 'Check HR first to understand their role. Work through one step at a time.',
+    onComplete: null,
+    status: 'active',
+  },
+]
+
 const SEED_ASSISTANTS = [
   {
     id: 'asst-hr',
@@ -370,6 +423,49 @@ export function buildSeedConfig() {
       },
     })),
     knowledgeBases: SEED_KNOWLEDGE_BASES.map(kb => ({ ...kb })),
+    flows: SEED_FLOWS.map(f => ({
+      ...f,
+      tools: (f.tools || []).map(t => (typeof t === 'string' ? t : { ...t })),
+    })),
+  }
+}
+
+// Notable-word heuristic shared with the orchestrator. Mirrors the spirit of
+// `planRoute()` — strip punctuation, drop stop-words, keep tokens > 4 chars,
+// match any of them against the inbound text. Cheap and good enough for a demo.
+const FLOW_STOPWORDS = new Set([
+  'employee','employees','asks','wants','says','their','they','the','and','for',
+  'that','this','about','have','with','what','when','to','on','of','in','a','an',
+  'or','is','are','be','do','need','needs','help','want','wants','start','starts',
+  'mentions','mention','their','them','from','just','some',
+])
+
+export function notableWordsFromTrigger(trigger = '') {
+  return Array.from(new Set(
+    String(trigger)
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]+/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 4 && !FLOW_STOPWORDS.has(w))
+  ))
+}
+
+export function flowMatchesText(text, flow) {
+  if (!text || !flow) return false
+  const t = String(text).toLowerCase()
+  const words = notableWordsFromTrigger(flow.trigger || '')
+  return words.some((w) => t.includes(w))
+}
+
+// v3 → v4: graft `flows` onto a v3 config. Seed defaults if missing so existing
+// workspaces get the demo flows without losing their other customizations.
+function migrateV3toV4(parsed) {
+  if (!parsed || parsed.version !== 3) return null
+  const seed = buildSeedConfig()
+  return {
+    ...parsed,
+    version: CONFIG_VERSION,
+    flows: parsed.flows || seed.flows,
   }
 }
 
@@ -381,7 +477,7 @@ function migrateV2toV3(parsed) {
   if (!parsed || parsed.version !== 2) return null
   const seed = buildSeedConfig()
   return {
-    version: CONFIG_VERSION,
+    version: 3,
     tenant: parsed.tenant || seed.tenant,
     demoUsers: parsed.demoUsers || seed.demoUsers,
     mcpConnectors: parsed.mcpConnectors || seed.mcpConnectors,
@@ -413,12 +509,18 @@ export function loadConfig() {
     const parsed = JSON.parse(raw)
     if (!parsed) return null
     if (parsed.version === CONFIG_VERSION) return parsed
-    if (parsed.version === 2) {
-      const migrated = migrateV2toV3(parsed)
-      if (migrated) {
-        saveConfig(migrated)
-        return migrated
-      }
+    let working = parsed
+    if (working.version === 2) {
+      const v3 = migrateV2toV3(working)
+      if (v3) working = v3
+    }
+    if (working.version === 3) {
+      const v4 = migrateV3toV4(working)
+      if (v4) working = v4
+    }
+    if (working.version === CONFIG_VERSION) {
+      saveConfig(working)
+      return working
     }
     return null
   } catch (err) {

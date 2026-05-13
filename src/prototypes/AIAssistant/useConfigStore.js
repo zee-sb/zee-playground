@@ -72,6 +72,7 @@ export function useConfigStore() {
   const setExternalAgents = makeArraySetter('externalAgents')
   const setAssistants = makeArraySetter('assistants')
   const setKnowledgeBases = makeArraySetter('knowledgeBases')
+  const setFlows = makeArraySetter('flows')
 
   const resetConfig = useCallback(() => {
     clearConfig()
@@ -88,6 +89,7 @@ export function useConfigStore() {
     setExternalAgents,
     setAssistants,
     setKnowledgeBases,
+    setFlows,
     resetConfig,
   }
 }
