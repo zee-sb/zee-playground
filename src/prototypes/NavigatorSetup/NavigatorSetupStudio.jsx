@@ -7,6 +7,7 @@ import {
   Check, RefreshCw, MessageCircle, Search, ChevronDown, ChevronUp,
   Plane, Globe, Lightbulb, BookOpen, TrendingUp, Award, Coffee, Heart,
   Languages, Map as MapIcon, Pencil, Library, ScrollText, Brain,
+  CheckCircle2, ChevronRight, FileText, Clock,
 } from 'lucide-react'
 import { StudioShell } from '../../components/StudioShell'
 import { useConfigStore } from '../AIAssistant/useConfigStore'
@@ -61,10 +62,12 @@ const slug = (s) =>
 export default function NavigatorSetupStudio() {
   const { setAssistants, setKnowledgeBases, setConfig } = useConfigStore()
 
-  const [phase, setPhase] = useState('idle') // idle | discovering | ready | error
+  const [phase, setPhase] = useState('loading') // loading | idle | discovering | ready | error
   const [discovery, setDiscovery] = useState(null)
+  const [discoveryMeta, setDiscoveryMeta] = useState(null) // { cached, discoveredAt, branchName }
   const [errorMsg, setErrorMsg] = useState(null)
   const [errorCode, setErrorCode] = useState(null)
+  const [detailsOpen, setDetailsOpen] = useState(false)
 
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState(null)
@@ -94,6 +97,41 @@ export default function NavigatorSetupStudio() {
     toastTimer.current = setTimeout(() => setToast(null), 4000)
   }
 
+  // On first mount: try the server cache before showing the empty state.
+  // 200 → render the result card from cached blueprint. 204 → empty state.
+  // 503 token-missing falls back to the yellow banner path.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const resp = await fetch('/api/navigator-setup?action=load')
+        if (cancelled) return
+        if (resp.status === 204) {
+          setPhase('idle')
+          return
+        }
+        const body = await resp.json().catch(() => ({}))
+        if (!resp.ok) {
+          if (body.code === 'staffbase_branch_missing' || body.code === 'staffbase_token_missing') {
+            setErrorCode('staffbase_token_missing')
+            setErrorMsg(body.error)
+          }
+          setPhase('idle')
+          return
+        }
+        // Cached blueprint: hydrate `discovery` from `body.blueprint` so the
+        // existing render tree (which reads channels/pages/workspace/etc. at
+        // the top level) works unchanged.
+        setDiscovery(body.blueprint)
+        setDiscoveryMeta({ cached: true, discoveredAt: body.discoveredAt, branchName: body.branchName })
+        setPhase('ready')
+      } catch (err) {
+        if (!cancelled) setPhase('idle')
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   const runDiscover = async () => {
     setPhase('discovering')
     setErrorMsg(null)
@@ -108,6 +146,11 @@ export default function NavigatorSetupStudio() {
         return
       }
       setDiscovery(body)
+      setDiscoveryMeta({
+        cached: false,
+        discoveredAt: body.discoveredAt || new Date().toISOString(),
+        branchName: body.branchName,
+      })
       setPhase('ready')
     } catch (err) {
       setErrorMsg(err.message || 'Network error')
@@ -262,65 +305,93 @@ export default function NavigatorSetupStudio() {
             <TokenMissingBanner />
           )}
 
-          <Phase1Hero
-            phase={phase}
-            onDiscover={runDiscover}
-          />
+          {/* Quick spinner while we check the server cache on first mount —
+              avoids a "Discover" button flash for users with cached results. */}
+          {phase === 'loading' && (
+            <div className="flex items-center gap-2 text-[13px] text-[#71717A] py-12 justify-center">
+              <Loader2 size={14} className="animate-spin text-[#7C3AED]" />
+              Checking for cached analysis…
+            </div>
+          )}
+
+          {/* Phase 1 hero: only when there's nothing to show yet (no cache, or currently re-discovering). */}
+          {phase !== 'loading' && (!discovery || phase === 'discovering') && (
+            <Phase1Hero
+              phase={phase}
+              onDiscover={runDiscover}
+            />
+          )}
 
           {phase === 'error' && errorCode !== 'staffbase_token_missing' && (
             <ErrorCard message={errorMsg} onRetry={runDiscover} />
           )}
 
-          {discovery && (
+          {discovery && phase !== 'discovering' && (
             <>
-              <SectionDivider title="Workspace overview" subtitle="The big picture — who works here, where, in what languages." />
-              <WorkspaceOverview discovery={discovery} />
-
-              <SectionDivider title="What we found" subtitle="Channels and posts powering the workspace right now." />
-              <Phase2Results
+              <ResultSummary
                 discovery={discovery}
-                searchTerm={searchTerm}
-                onSearchTermChange={setSearchTerm}
-                onSearchSubmit={() => runSearch()}
-                searchResults={searchResults}
-                searching={searching}
-                searchErr={searchErr}
-                onSuggestionClick={(q) => runSearch(q)}
+                meta={discoveryMeta}
+                onRediscover={runDiscover}
+                detailsOpen={detailsOpen}
+                onToggleDetails={() => setDetailsOpen((v) => !v)}
+                selectedCount={includedAssistantKeys.size}
+                proposedCount={discovery.proposedAssistants?.length || 0}
+                mainInstructionsWordCount={(editedMainInstructions || '').split(/\s+/).filter(Boolean).length}
+                glossaryCount={discovery.workspace?.glossary?.length || 0}
               />
 
-              <SectionDivider
-                title="Main Navigator instructions"
-                subtitle="The orchestrator-level system prompt every Assistant inherits. Edit before applying."
-              />
-              <MainInstructionsCard
-                value={editedMainInstructions}
-                onChange={setEditedMainInstructions}
-                tone={discovery.workspace?.tone}
-                workspaceFacts={discovery.workspace?.workspaceFacts}
-                overview={discovery.workspace?.overview}
-              />
+              {detailsOpen && (
+                <div className="mt-8">
+                  <SectionDivider title="Workspace overview" subtitle="The big picture — who works here, where, in what languages." />
+                  <WorkspaceOverview discovery={discovery} />
 
-              {discovery.workspace?.glossary?.length > 0 && (
-                <>
-                  <SectionDivider
-                    title="Workspace glossary"
-                    subtitle="Internal acronyms and program names Navigator should recognize."
+                  <SectionDivider title="What we found" subtitle="Channels and posts powering the workspace right now." />
+                  <Phase2Results
+                    discovery={discovery}
+                    searchTerm={searchTerm}
+                    onSearchTermChange={setSearchTerm}
+                    onSearchSubmit={() => runSearch()}
+                    searchResults={searchResults}
+                    searching={searching}
+                    searchErr={searchErr}
+                    onSuggestionClick={(q) => runSearch(q)}
                   />
-                  <GlossaryCard glossary={discovery.workspace.glossary} />
-                </>
-              )}
 
-              <SectionDivider
-                title="Proposed Assistants"
-                subtitle={`${discovery.proposedAssistants.length} Assistants — universal (HR, IT, etc.) plus content-driven from your channels.`}
-              />
-              <Phase3Proposal
-                discovery={discovery}
-                includedAssistantKeys={includedAssistantKeys}
-                onToggleIncluded={toggleIncluded}
-                expandedPrompts={expandedPrompts}
-                onTogglePromptExpanded={togglePromptExpanded}
-              />
+                  <SectionDivider
+                    title="Main Navigator instructions"
+                    subtitle="The orchestrator-level system prompt every Assistant inherits. Edit before applying."
+                  />
+                  <MainInstructionsCard
+                    value={editedMainInstructions}
+                    onChange={setEditedMainInstructions}
+                    tone={discovery.workspace?.tone}
+                    workspaceFacts={discovery.workspace?.workspaceFacts}
+                    overview={discovery.workspace?.overview}
+                  />
+
+                  {discovery.workspace?.glossary?.length > 0 && (
+                    <>
+                      <SectionDivider
+                        title="Workspace glossary"
+                        subtitle="Internal acronyms and program names Navigator should recognize."
+                      />
+                      <GlossaryCard glossary={discovery.workspace.glossary} />
+                    </>
+                  )}
+
+                  <SectionDivider
+                    title="Proposed Assistants"
+                    subtitle={`${discovery.proposedAssistants.length} Assistants — universal (HR, IT, etc.) plus content-driven from your channels.`}
+                  />
+                  <Phase3Proposal
+                    discovery={discovery}
+                    includedAssistantKeys={includedAssistantKeys}
+                    onToggleIncluded={toggleIncluded}
+                    expandedPrompts={expandedPrompts}
+                    onTogglePromptExpanded={togglePromptExpanded}
+                  />
+                </div>
+              )}
             </>
           )}
         </div>
@@ -410,6 +481,137 @@ function Phase1Hero({ phase, onDiscover }) {
       </div>
     </div>
   )
+}
+
+// ── Result Summary (the new default view) ──────────────────────────────────
+//
+// Compact result card shown after discovery succeeds OR loads from cache.
+// Hides the firehose by default; everything is still available behind
+// "Inspect what we found".
+
+function ResultSummary({
+  discovery, meta, onRediscover, detailsOpen, onToggleDetails,
+  selectedCount, proposedCount, mainInstructionsWordCount, glossaryCount,
+}) {
+  const ws = discovery.workspace || {}
+  const companyName = ws.companyName && ws.companyName !== 'this company' ? ws.companyName : 'This workspace'
+  const totalUsers = discovery.orgSignals?.totalUsers || 0
+  const channelCount = discovery.channels?.length || 0
+  const pageCount = discovery.pages?.length || 0
+  const groupCount = discovery.groups?.length || 0
+  const postCount = discovery.meta?.postsAnalyzed ?? discovery.recentPosts?.length ?? 0
+  const languages = discovery.languages || []
+  const discoveredAt = meta?.discoveredAt
+  const cached = meta?.cached
+
+  return (
+    <div className="bg-white border border-[#E4E4E7] rounded-2xl shadow-sm overflow-hidden">
+      {/* Top strip — company headline */}
+      <div className="px-6 pt-6 pb-5 relative">
+        <div
+          className="absolute inset-0 opacity-[0.05] pointer-events-none"
+          style={{ background: 'radial-gradient(circle at 90% 30%, #7C3AED 0%, transparent 55%)' }}
+        />
+        <div className="relative flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <div className="w-11 h-11 rounded-xl grid place-items-center shrink-0" style={{ background: '#7C3AED' }}>
+              <Zap size={22} className="text-white" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-[20px] font-bold tracking-tight text-[#18181B] truncate">{companyName}</h1>
+              {ws.companyMission && (
+                <p className="text-[13px] text-[#52525B] mt-0.5 line-clamp-1">{ws.companyMission}</p>
+              )}
+              <div className="flex items-center gap-2 mt-2 flex-wrap text-[12px] text-[#71717A]">
+                <span className="inline-flex items-center gap-1"><Users size={12} /> {totalUsers.toLocaleString()}</span>
+                <span className="text-[#D4D4D8]">·</span>
+                <span className="inline-flex items-center gap-1">
+                  <Languages size={12} />
+                  {languages.length ? languages.map(localeLabel).slice(0, 2).join(' / ') + (languages.length > 2 ? '…' : '') : '—'}
+                </span>
+                {discoveredAt && (
+                  <>
+                    <span className="text-[#D4D4D8]">·</span>
+                    <span className="inline-flex items-center gap-1" title={new Date(discoveredAt).toLocaleString()}>
+                      <Clock size={12} />
+                      {cached ? 'Cached' : 'Just analyzed'} · {relativeTime(discoveredAt)}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={onRediscover}
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#E4E4E7] hover:border-[#7C3AED] hover:text-[#7C3AED] text-[12.5px] font-semibold text-[#52525B] transition-colors"
+            title="Re-run discovery. Applied Assistants stay; only the workspace blueprint refreshes."
+          >
+            <RefreshCw size={12} />
+            Re-discover
+          </button>
+        </div>
+      </div>
+
+      {/* Checklist of what we configured */}
+      <div className="border-t border-[#F1F5F9] bg-[#FAFAFA] px-6 py-4 space-y-2.5">
+        <ChecklistRow
+          label="Main Navigator instructions"
+          right={`${mainInstructionsWordCount.toLocaleString()} words`}
+        />
+        <ChecklistRow
+          label="Workspace glossary"
+          right={`${glossaryCount} ${glossaryCount === 1 ? 'term' : 'terms'}`}
+        />
+        <ChecklistRow
+          label="Proposed Assistants"
+          right={`${proposedCount} drafted · ${selectedCount} selected`}
+        />
+      </div>
+
+      {/* Detail toggle */}
+      <button
+        onClick={onToggleDetails}
+        className="w-full border-t border-[#F1F5F9] px-6 py-3.5 flex items-center justify-between text-left hover:bg-[#FAFAFA] transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          {detailsOpen ? <ChevronDown size={16} className="text-[#7C3AED]" /> : <ChevronRight size={16} className="text-[#71717A]" />}
+          <span className="text-[13.5px] font-semibold text-[#18181B]">
+            {detailsOpen ? 'Hide details' : 'Inspect what we found'}
+          </span>
+        </div>
+        <span className="text-[12px] text-[#71717A]">
+          {pageCount} pages · {groupCount} groups · {channelCount} channels · {postCount} posts analyzed
+        </span>
+      </button>
+    </div>
+  )
+}
+
+function ChecklistRow({ label, right }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <CheckCircle2 size={15} className="text-[#16A34A] shrink-0" />
+        <span className="text-[13px] font-medium text-[#18181B] truncate">{label}</span>
+      </div>
+      <span className="text-[12px] text-[#71717A] shrink-0 font-medium">{right}</span>
+    </div>
+  )
+}
+
+function relativeTime(iso) {
+  if (!iso) return ''
+  const then = new Date(iso).getTime()
+  const now = Date.now()
+  const diff = Math.max(0, now - then)
+  const minutes = Math.floor(diff / 60000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(iso).toLocaleDateString()
 }
 
 function TokenMissingBanner() {

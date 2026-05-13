@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { Plus, ChevronRight, Wrench, Bot, BookOpen, Users } from 'lucide-react'
+import React, { useState, useRef, useEffect } from 'react'
+import { Plus, ChevronRight, ChevronDown, Wrench, Bot, BookOpen, Users, Sparkles, LayoutGrid, FileText } from 'lucide-react'
 import { MCP_CATALOG, AGENT_CATALOG } from '../../AIAssistant/configStore'
 import { LogoChip, StatusPill } from '../components/Catalog'
 
@@ -20,9 +20,23 @@ export default function AssistantsList({
   knowledgeBases = [],
   onSelect,
   onCreate,
+  onOpenTemplates,
+  onOpenAiCreator,
 }) {
   const mcpById = new Map(mcpConnectors.map(c => [c.id, c]))
   const agentById = new Map(externalAgents.map(a => [a.id, a]))
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
+
+  // Click outside closes the split-button menu.
+  useEffect(() => {
+    if (!menuOpen) return
+    const onClick = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false)
+    }
+    window.addEventListener('mousedown', onClick)
+    return () => window.removeEventListener('mousedown', onClick)
+  }, [menuOpen])
 
   return (
     <div>
@@ -33,13 +47,39 @@ export default function AssistantsList({
             User-facing personas. Each can call MCP tools, hand off to external agents, and ground in knowledge bases.
           </p>
         </div>
-        <button
-          onClick={onCreate}
-          className="flex items-center gap-2 px-4 py-2 bg-[#111827] text-white text-[13px] font-semibold rounded-lg hover:bg-[#1F2937] transition-colors"
-        >
-          <Plus size={15} />
-          New assistant
-        </button>
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="flex items-center gap-2 px-4 py-2 bg-[#111827] text-white text-[13px] font-semibold rounded-lg hover:bg-[#1F2937] transition-colors"
+          >
+            <Plus size={15} />
+            New assistant
+            <ChevronDown size={13} className={`transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-full mt-1.5 w-[260px] bg-white border border-[#E5E7EB] rounded-lg shadow-lg z-30 overflow-hidden">
+              <MenuItem
+                icon={<FileText size={14} />}
+                title="Blank"
+                hint="Start from an empty form."
+                onClick={() => { setMenuOpen(false); onCreate?.() }}
+              />
+              <MenuItem
+                icon={<LayoutGrid size={14} />}
+                title="From template"
+                hint="Pick a curated template (HR, IT, Onboarding…)."
+                onClick={() => { setMenuOpen(false); onOpenTemplates?.() }}
+              />
+              <MenuItem
+                icon={<Sparkles size={14} className="text-[#7C3AED]" />}
+                title="AI-generated"
+                hint="Describe what you want; we draft the prompt."
+                onClick={() => { setMenuOpen(false); onOpenAiCreator?.() }}
+                accent
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {assistants.length === 0 ? (
@@ -133,5 +173,24 @@ function Chip({ name, color }) {
       <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color || '#94A3B8' }} />
       {name}
     </span>
+  )
+}
+
+function MenuItem({ icon, title, hint, onClick, accent = false }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-start gap-2.5 px-3 py-2.5 text-left transition-colors ${
+        accent ? 'hover:bg-[#F5F3FF]' : 'hover:bg-[#F9FAFB]'
+      }`}
+    >
+      <span className={`w-7 h-7 rounded-md grid place-items-center shrink-0 ${accent ? 'bg-[#F5F3FF]' : 'bg-[#F3F4F6]'}`}>
+        {icon}
+      </span>
+      <span className="flex-1 min-w-0">
+        <div className="text-[13px] font-semibold text-[#111827]">{title}</div>
+        <div className="text-[11.5px] text-[#6B7280] leading-snug">{hint}</div>
+      </span>
+    </button>
   )
 }

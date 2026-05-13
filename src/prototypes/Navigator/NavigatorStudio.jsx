@@ -9,6 +9,8 @@ import { LogoChip } from './components/Catalog'
 
 import AssistantsList from './tabs/AssistantsList'
 import AssistantDetail from './tabs/AssistantDetail'
+import TemplatesGallery from './tabs/TemplatesGallery'
+import AssistantAiCreator from './tabs/AssistantAiCreator'
 import MCPConnectorsList from './tabs/MCPConnectorsList'
 import ExternalAgentsList from './tabs/ExternalAgentsList'
 import KnowledgeBasesList from './tabs/KnowledgeBasesList'
@@ -63,6 +65,12 @@ export default function NavigatorStudio() {
   function handleCreateAssistant() {
     navigate(`${basePath}/assistants/new`)
   }
+  function handleOpenTemplates() {
+    navigate(`${basePath}/assistants/templates`)
+  }
+  function handleOpenAiCreator() {
+    navigate(`${basePath}/assistants/ai-create`)
+  }
   function handleSelectAssistant(a) {
     navigate(`${basePath}/assistants/${a.id}`)
   }
@@ -88,10 +96,14 @@ export default function NavigatorStudio() {
     }
   }
 
-  // Resolve which assistant detail to render
+  // Resolve which assistant detail to render. Two special routes:
+  //   /assistants/templates   → Templates Gallery (Milestone B)
+  //   /assistants/ai-create   → AI Creator       (Milestone C)
   let detailAssistant = null
   let detailIsNew = false
-  if (activeTabId === 'assistants' && detailId) {
+  const isTemplatesView = activeTabId === 'assistants' && detailId === 'templates'
+  const isAiCreatorView = activeTabId === 'assistants' && detailId === 'ai-create'
+  if (activeTabId === 'assistants' && detailId && !isTemplatesView && !isAiCreatorView) {
     if (detailId === 'new') {
       detailIsNew = true
       detailAssistant = {
@@ -163,7 +175,7 @@ export default function NavigatorStudio() {
 
           {/* Tab content */}
           <div className="flex-1 overflow-y-auto px-8 py-6">
-            {activeTabId === 'assistants' && !detailAssistant && (
+            {activeTabId === 'assistants' && !detailAssistant && !isTemplatesView && !isAiCreatorView && (
               <AssistantsList
                 assistants={config.assistants}
                 mcpConnectors={config.mcpConnectors}
@@ -171,6 +183,36 @@ export default function NavigatorStudio() {
                 knowledgeBases={config.knowledgeBases}
                 onSelect={handleSelectAssistant}
                 onCreate={handleCreateAssistant}
+                onOpenTemplates={handleOpenTemplates}
+                onOpenAiCreator={handleOpenAiCreator}
+              />
+            )}
+            {isTemplatesView && (
+              <TemplatesGallery
+                tenant={tenant}
+                existingAssistants={config.assistants}
+                onBack={() => navigate(`${basePath}/assistants`)}
+                onAdd={(asst) => {
+                  setAssistants((prev) => {
+                    const newId = `asst-tpl-${Date.now().toString(36)}`
+                    return [{ ...asst, id: newId }, ...prev]
+                  })
+                  navigate(`${basePath}/assistants`)
+                }}
+              />
+            )}
+            {isAiCreatorView && (
+              <AssistantAiCreator
+                tenant={tenant}
+                existingAssistants={config.assistants}
+                onBack={() => navigate(`${basePath}/assistants`)}
+                onSave={(asst) => {
+                  setAssistants((prev) => {
+                    const newId = `asst-ai-${Date.now().toString(36)}`
+                    return [{ ...asst, id: newId }, ...prev]
+                  })
+                  navigate(`${basePath}/assistants`)
+                }}
               />
             )}
             {activeTabId === 'assistants' && detailAssistant && (

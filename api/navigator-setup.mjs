@@ -19,8 +19,11 @@
 import OpenAI from 'openai';
 import {
   listChannels, listRecentPosts, listUsers, searchPosts, getPost,
-  listPages, listGroups, getUsersTotal,
+  listPages, listGroups, getUsersTotal, getBranch,
 } from '../lib/staffbase.mjs';
+import { getBlueprint, saveBlueprint } from '../lib/blueprints.mjs';
+import { embed } from '../lib/embeddings.mjs';
+import { dbConfigured } from '../lib/db.mjs';
 
 const ALLOWED_ICONS = [
   'Sparkles', 'HeartHandshake', 'Briefcase', 'Megaphone', 'Wrench',
@@ -34,9 +37,11 @@ export default async function handler(req, res) {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const action = url.searchParams.get('action');
+    if (action === 'load') return await handleLoad(req, res);
     if (action === 'discover') return await handleDiscover(req, res);
     if (action === 'search-preview') return await handleSearchPreview(req, res, url);
-    res.status(400).json({ error: 'unknown action — expected discover | search-preview' });
+    if (action === 'match-pages') return await handleMatchPages(req, res, url);
+    res.status(400).json({ error: 'unknown action — expected load | discover | search-preview | match-pages' });
   } catch (err) {
     const isAuthErr = /STAFFBASE_API_TOKEN is not configured/.test(err.message || '');
     res.status(isAuthErr ? 503 : 500).json({
@@ -46,9 +51,81 @@ export default async function handler(req, res) {
   }
 }
 
+// ── load ───────────────────────────────────────────────────────────────────
+//
+// Return the cached blueprint for the current branch without re-running any
+// discovery. Used on every Setup page mount so the customer sees their
+// existing analysis instantly. Re-running is gated behind an explicit
+// "Re-discover" button that hits ?action=discover.
+
+async function handleLoad(_req, res) {
+  if (!dbConfigured()) {
+    return res.status(503).json({ error: 'database_not_configured', code: 'db_missing' });
+  }
+  const branch = await getBranch();
+  if (!branch?.id) {
+    return res.status(503).json({ error: 'branch_unavailable', code: 'staffbase_branch_missing' });
+  }
+  const row = await getBlueprint(branch.id);
+  if (!row) {
+    return res.status(204).end(); // no cached discovery yet
+  }
+  return res.status(200).json({
+    cached: true,
+    branchId: row.staffbase_branch_id,
+    branchName: row.staffbase_branch_name,
+    discoveredAt: row.discovered_at,
+    blueprint: row.blueprint,
+  });
+}
+
+// ── match-pages ────────────────────────────────────────────────────────────
+//
+// Rank cached Pages by similarity to a topic description. Used by the
+// Templates gallery (template description as topic) and the AI Creator
+// (customer's natural-language description as topic). Doesn't touch the
+// LLM — just embed the topic and run cosine sim against the cached page
+// embeddings written during discovery.
+
+async function handleMatchPages(req, res, url) {
+  const topic = url.searchParams.get('topic') || '';
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '5', 10), 20);
+  if (!topic.trim()) {
+    return res.status(400).json({ error: 'topic is required' });
+  }
+  const branch = await getBranch();
+  const row = await getBlueprint(branch.id);
+  if (!row) {
+    return res.status(404).json({ error: 'no_blueprint', code: 'discovery_required' });
+  }
+  const pageEmbeds = row.page_embeddings || [];
+  if (pageEmbeds.length === 0) {
+    return res.status(200).json({ topic, results: [] });
+  }
+  const [topicVec] = await embed([topic]);
+  const { rankByTopic } = await import('../lib/embeddings.mjs');
+  const ranked = rankByTopic(topicVec, pageEmbeds.map((p) => ({ id: p.pageId, vec: p.vector })), limit);
+  const pageById = new Map((row.blueprint.pages || []).map((p) => [p.id, p]));
+  return res.status(200).json({
+    topic,
+    results: ranked.map((r) => ({
+      page: pageById.get(r.id) || { id: r.id },
+      score: r.score,
+    })),
+  });
+}
+
 // ── discover ───────────────────────────────────────────────────────────────
 
 async function handleDiscover(_req, res) {
+  // Look up the Staffbase branch ID first — this is the persistence key.
+  // Best-effort: if the branch lookup fails (e.g. token mis-scoped), we
+  // continue without persistence and return the result in-memory only.
+  const branch = await getBranch().catch((err) => {
+    console.warn('[navigator-setup] getBranch failed, skipping persistence:', err.message);
+    return null;
+  });
+
   // Parallel pull of all primary signals.
   const [channelsRaw, postsRaw, usersRaw, usersTotal, pagesRaw, groupsRaw] = await Promise.all([
     listChannels({ limit: 50 }),
@@ -137,14 +214,31 @@ async function handleDiscover(_req, res) {
     assistantsResult = buildFallbackAssistants({ channels, orgSignals });
   }
 
-  res.status(200).json({
+  // ── Page embeddings — written alongside the blueprint so Templates and
+  // the AI Creator can rank pages by relevance to a topic without re-
+  // fetching the source content. Best-effort: if embedding fails we still
+  // persist the blueprint, just with an empty embeddings array.
+  let pageEmbeddings = [];
+  if (pages.length > 0) {
+    try {
+      const texts = pages.map((p) => `${p.title || ''}\n\n${(p.bodyExcerpt || '').slice(0, 4000)}`);
+      const vectors = await embed(texts);
+      pageEmbeddings = pages.map((p, i) => ({ pageId: p.id, vector: vectors[i] || null }))
+        .filter((e) => Array.isArray(e.vector) && e.vector.length > 0);
+    } catch (err) {
+      console.warn('[navigator-setup] page embedding failed:', err.message);
+    }
+  }
+
+  const blueprintPayload = {
     channels,
     topPosts,
     recentPosts,
     deepPosts: deepPosts.map((p) => ({ id: p.id, title: p.title, contentLength: (p.content || '').length })),
     pages: pages.map((p) => ({
       id: p.id, title: p.title, description: p.description,
-      published: p.published, bodyLength: p.bodyLength, locales: p.locales,
+      published: p.published, bodyExcerpt: p.bodyExcerpt, bodyLength: p.bodyLength,
+      locales: p.locales,
     })),
     groups,
     orgSignals,
@@ -152,6 +246,37 @@ async function handleDiscover(_req, res) {
     workspace,
     topicClusters: assistantsResult.topicClusters,
     proposedAssistants: assistantsResult.proposedAssistants,
+    branch: branch ? { id: branch.id, name: branch.name, slug: branch.slug } : null,
+  };
+
+  // Persist to workspace_blueprints — best-effort. If the DB is unreachable
+  // or the branch lookup failed, we still return the blueprint in-memory so
+  // the customer's UX isn't broken; they just won't get the cache hit next
+  // page load.
+  let discoveredAt = new Date().toISOString();
+  if (branch?.id && dbConfigured()) {
+    try {
+      const saved = await saveBlueprint({
+        branchId: branch.id,
+        branchName: branch.name,
+        blueprint: blueprintPayload,
+        pageEmbeddings,
+        userId: null,
+      });
+      discoveredAt = saved?.discovered_at || discoveredAt;
+    } catch (err) {
+      console.warn('[navigator-setup] saveBlueprint failed:', err.message);
+    }
+  }
+
+  res.status(200).json({
+    cached: false,
+    branchId: branch?.id || null,
+    branchName: branch?.name || null,
+    discoveredAt,
+    // Spread the full blueprint payload for backward-compat with the existing
+    // frontend (which expects channels/topPosts/etc. at the top level).
+    ...blueprintPayload,
     meta: {
       openAiUsed,
       fallbackReason,
@@ -159,8 +284,10 @@ async function handleDiscover(_req, res) {
       usersAnalyzed: usersRaw.length,
       usersTotal,
       pagesAnalyzed: pages.length,
+      pagesEmbedded: pageEmbeddings.length,
       groupsAnalyzed: groups.length,
       deepPostsFetched: deepPosts.length,
+      persisted: Boolean(branch?.id && dbConfigured() && pageEmbeddings),
     },
   });
 }
