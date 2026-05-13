@@ -1197,7 +1197,7 @@ function Phase3Proposal({
 
   return (
     <div>
-      {!discovery.meta?.openAiUsed && (
+      {discovery.meta && discovery.meta.openAiUsed === false && (
         <div className="mb-4 flex items-start gap-2 bg-[#FEF9C3] border border-[#FACC15] rounded-xl px-3 py-2">
           <AlertTriangle size={14} className="text-[#A16207] shrink-0 mt-0.5" />
           <div className="text-[12px] text-[#713F12]">

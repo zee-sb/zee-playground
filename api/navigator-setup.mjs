@@ -230,6 +230,19 @@ async function handleDiscover(_req, res) {
     }
   }
 
+  const meta = {
+    openAiUsed,
+    fallbackReason,
+    postsAnalyzed: postsRaw.length,
+    usersAnalyzed: usersRaw.length,
+    usersTotal,
+    pagesAnalyzed: pages.length,
+    pagesEmbedded: pageEmbeddings.length,
+    groupsAnalyzed: groups.length,
+    deepPostsFetched: deepPosts.length,
+    persisted: Boolean(branch?.id && dbConfigured() && pageEmbeddings),
+  };
+
   const blueprintPayload = {
     channels,
     topPosts,
@@ -247,6 +260,7 @@ async function handleDiscover(_req, res) {
     topicClusters: assistantsResult.topicClusters,
     proposedAssistants: assistantsResult.proposedAssistants,
     branch: branch ? { id: branch.id, name: branch.name, slug: branch.slug } : null,
+    meta,
   };
 
   // Persist to workspace_blueprints — best-effort. If the DB is unreachable
@@ -276,19 +290,8 @@ async function handleDiscover(_req, res) {
     discoveredAt,
     // Spread the full blueprint payload for backward-compat with the existing
     // frontend (which expects channels/topPosts/etc. at the top level).
+    // `meta` rides along inside `blueprintPayload`.
     ...blueprintPayload,
-    meta: {
-      openAiUsed,
-      fallbackReason,
-      postsAnalyzed: postsRaw.length,
-      usersAnalyzed: usersRaw.length,
-      usersTotal,
-      pagesAnalyzed: pages.length,
-      pagesEmbedded: pageEmbeddings.length,
-      groupsAnalyzed: groups.length,
-      deepPostsFetched: deepPosts.length,
-      persisted: Boolean(branch?.id && dbConfigured() && pageEmbeddings),
-    },
   });
 }
 
