@@ -10,11 +10,11 @@
 }
 
 /* ── Reset inside widget ── */
-.cw-root * {
+/* .cw-root * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-}
+} */
 
 /* ── Root container ── */
 .cw-root {

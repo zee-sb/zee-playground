@@ -67,11 +67,10 @@ export default function ToolCallCard({
 
   return (
     <div style={{
-      margin: '4px 0',
-      border: '1px solid rgba(0,0,0,0.06)',
-      borderRadius: 12,
-      background: 'rgba(255,255,255,0.85)',
-      backdropFilter: 'blur(10px)',
+      margin: '3px 0',
+      border: '1px solid #F1F5F9',
+      borderRadius: 10,
+      background: 'white',
       fontSize: 12,
       overflow: 'hidden',
     }}>
@@ -80,42 +79,49 @@ export default function ToolCallCard({
         onClick={() => setOpen((v) => !v)}
         style={{
           width: '100%', display: 'flex', alignItems: 'center', gap: 8,
-          padding: '8px 10px', textAlign: 'left',
+          padding: '7px 10px', textAlign: 'left',
           background: 'transparent', border: 'none', cursor: 'pointer',
           color: '#18181B',
+          minWidth: 0,
         }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0,0,0,0.025)'; }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = '#FAFAFA'; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
       >
-        {open ? <ChevronDown size={13} color="#9CA3AF" /> : <ChevronRight size={13} color="#9CA3AF" />}
-        {connectorLabelText && (
-          <span style={{
-            fontSize: 9, fontWeight: 800, letterSpacing: '0.05em',
-            padding: '2px 6px', borderRadius: 6, color: 'white',
+        {open
+          ? <ChevronDown size={13} color="#A1A1AA" style={{ flexShrink: 0 }} />
+          : <ChevronRight size={13} color="#A1A1AA" style={{ flexShrink: 0 }} />}
+        {/* Connector identity: a small colored dot — way lighter visually
+            than the full-caps badge. Tooltip carries the full name for
+            anyone who needs it. */}
+        <span
+          title={connectorLabelText || ''}
+          style={{
+            width: 8, height: 8, borderRadius: '50%',
             background: color, flexShrink: 0,
-            maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            {connectorLabelText.toUpperCase()}
-          </span>
-        )}
+            boxShadow: `0 0 0 2px ${color}22`,
+          }}
+        />
         {degraded && (
           <span title="Connector is reporting degraded performance" style={{
-            display: 'inline-flex', alignItems: 'center', gap: 3,
-            fontSize: 9, fontWeight: 700, letterSpacing: '0.04em',
-            padding: '2px 5px', borderRadius: 6,
-            color: '#92400E', background: '#FEF3C7', border: '1px solid #FCD34D',
-            flexShrink: 0,
+            display: 'inline-flex', alignItems: 'center',
+            color: '#B45309', flexShrink: 0,
           }}>
-            <AlertTriangle size={9} /> DEGRADED
+            <AlertTriangle size={11} />
           </span>
         )}
-        <Database size={11} color="#9CA3AF" />
-        <span style={{ fontWeight: 600, fontSize: 12, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{
+          fontWeight: 500, fontSize: 12.5, color: '#27272A',
+          flex: 1, minWidth: 0,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
           {verb}
         </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: statusColor, fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 3,
+          color: statusColor, fontWeight: 600, fontSize: 11, flexShrink: 0,
+        }}>
           <StatusIcon size={12} style={status === 'running' ? { animation: 'spin 1s linear infinite' } : {}} />
-          {statusLabel}
+          <span style={{ display: status === 'done' ? 'none' : 'inline' }}>{statusLabel}</span>
         </span>
       </button>
       {/* Soft error summary — shown when the tool returned an error, even

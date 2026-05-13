@@ -33,6 +33,16 @@ function reduceMessages(rows) {
     if (row.role === 'user') {
       out.push({ kind: 'msg', role: 'user', text: typeof c === 'string' ? c : (c.text || '') });
     } else if (row.role === 'assistant') {
+      // Hydrate the trace card from the message's stored trace (orchestrator
+      // attaches `trace` to the first assistant message of each turn). This
+      // lets the card survive page reloads / conversation switches — the live
+      // stream's trace_route event only writes to in-memory state.
+      if (c.trace && (c.trace.tier1 || c.trace.tier2)) {
+        out.push({
+          kind: 'trace',
+          route: { tier1: c.trace.tier1, tier2: c.trace.tier2, fallbackUsed: !!c.trace.fallbackUsed },
+        });
+      }
       const text = c.content;
       if (text) {
         const { clean, suggestions } = extractSuggestions(text);
@@ -411,47 +421,41 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
                   break;
                 }
               }
-              // Collapse runs of tool items into the next assistant message
-              // they precede — those tools are the "sources" for that answer.
-              // Anything still pending at the end (mid-stream, no assistant
-              // msg yet) is shown inline so the user sees progress.
+              // Render every item inline in arrival order — including tool
+              // blocks. Earlier versions bundled tools into a tiny "sources"
+              // badge under the next assistant message, which made the tool
+              // calls visually disappear once the answer arrived. Keeping
+              // them inline preserves the audit trail at a glance.
+              //
+              // Inline non-message items (tool / flow / card / handoff /
+              // connect prompt) are wrapped in the assistant column so they
+              // line up visually with the assistant's bubble instead of
+              // stretching the full chat width.
+              const COLUMN_ALIGN_KINDS = new Set([
+                'trace', 'tool', 'flow', 'card', 'agent_handoff',
+                'connector_error', 'connect_prompt',
+              ]);
               const out = [];
-              let pendingTools = [];
               for (let i = 0; i < items.length; i++) {
                 const item = items[i];
-                if (item.kind === 'tool') { pendingTools.push(item); continue; }
-                if (item.kind === 'msg' && item.role === 'assistant') {
+                const node = (
+                  <Item
+                    key={i}
+                    item={item}
+                    userInitials={userInitials}
+                    onSuggestion={send}
+                    suggestionsDisabled={busy || i !== lastSuggestionIdx}
+                  />
+                );
+                if (COLUMN_ALIGN_KINDS.has(item.kind)) {
                   out.push(
-                    <Item
-                      key={i}
-                      item={item}
-                      userInitials={userInitials}
-                      onSuggestion={send}
-                      suggestionsDisabled={busy || i !== lastSuggestionIdx}
-                      sources={pendingTools.filter((t) => t.status === 'done' || t.status === 'error')}
-                      onOpenSources={setOpenSources}
-                    />
+                    <div key={i} className="cw-msg-row">
+                      <div className="cw-msg-avatar" style={{ visibility: 'hidden' }} aria-hidden />
+                      <div className="cw-msg-body">{node}</div>
+                    </div>
                   );
-                  pendingTools = [];
                 } else {
-                  out.push(
-                    <Item
-                      key={i}
-                      item={item}
-                      userInitials={userInitials}
-                      onSuggestion={send}
-                      suggestionsDisabled={busy || i !== lastSuggestionIdx}
-                    />
-                  );
-                }
-              }
-              // Tools still streaming (no assistant msg yet) — render inline
-              // so the user gets running-state feedback.
-              for (const t of pendingTools) {
-                if (t.status === 'running' || t.status === 'pending') {
-                  out.push(
-                    <Item key={`pt-${t.id}`} item={t} userInitials={userInitials} onSuggestion={send} />
-                  );
+                  out.push(node);
                 }
               }
               return out;
@@ -1301,6 +1305,10 @@ function TriviaResult({ result }) {
 
 function ActiveContextPill({ context, onClear }) {
   if (!context) return null;
+  // For assistants the TraceCard already shows "Assistant · <Name>" right
+  // above each turn, so the floating pill is redundant. Keep it only for
+  // flows, where the multi-step progress indicator is useful.
+  if (context.kind !== 'flow') return null;
   const isFlow = context.kind === 'flow';
   const icon = isFlow ? '▶' : (context.icon || '✨');
   const label = isFlow
