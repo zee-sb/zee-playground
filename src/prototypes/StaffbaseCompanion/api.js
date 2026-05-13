@@ -9,21 +9,22 @@ export async function getMe() {
   return await res.json();
 }
 
-export async function listDemoPersonas() {
-  const res = await fetch('/api/auth/staffbase/login', { credentials: 'same-origin' });
-  if (!res.ok) throw new Error(`list personas failed: ${res.status}`);
-  return (await res.json()).personas;
-}
-
-export async function signInAsDemo(staffbaseUserId) {
+export async function signInWithEmail(email) {
   const res = await fetch('/api/auth/staffbase/login', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ staffbaseUserId }),
+    body: JSON.stringify({ email }),
   });
-  if (!res.ok) throw new Error(`demo sign-in failed: ${res.status}`);
-  return (await res.json()).user;
+  let body = null;
+  try { body = await res.json(); } catch { /* non-json */ }
+  if (!res.ok) {
+    const code = body?.error || `http_${res.status}`;
+    const err = new Error(code);
+    err.code = code;
+    throw err;
+  }
+  return body.user;
 }
 
 export async function logout() {

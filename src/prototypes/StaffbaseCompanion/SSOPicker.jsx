@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Sparkles, ShieldCheck, ArrowRight } from 'lucide-react';
-import { listDemoPersonas, signInAsDemo } from './api.js';
+import { signInWithEmail, logout } from './api.js';
 
 const AUTH_ERROR_COPY = {
   state_mismatch: 'Sign-in attempt expired. Try again.',
@@ -9,33 +9,42 @@ const AUTH_ERROR_COPY = {
   db_not_configured: 'The companion database is not configured (set DATABASE_URL).',
   domain_not_allowed: 'Only @staffbase.com Google Workspace accounts can sign in to this demo.',
   access_denied: 'You declined the Google consent screen.',
+  google_disabled: 'Google sign-in is temporarily unavailable — sign in with your email below.',
+};
+
+const SIGNIN_ERROR_COPY = {
+  invalid_email: 'Please enter a valid email address.',
+  user_not_found: "We couldn't find that email in the Staffbase directory.",
+  directory_lookup_failed: 'Could not reach the Staffbase directory. Try again in a moment.',
+  db_not_configured: 'The companion database is not configured (set DATABASE_URL).',
 };
 
 export default function SSOPicker({ authError, onBack, onSignedIn }) {
   const errMsg = authError ? (AUTH_ERROR_COPY[authError] || `Sign-in error: ${authError}`) : null;
-  const [showDemo, setShowDemo] = useState(false);
-  const [personas, setPersonas] = useState([]);
-  const [demoBusy, setDemoBusy] = useState(null);
-  const [demoError, setDemoError] = useState(null);
+  const [email, setEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [signInError, setSignInError] = useState(null);
 
   useEffect(() => {
-    if (!showDemo || personas.length) return;
-    (async () => {
-      try { setPersonas(await listDemoPersonas()); }
-      catch (err) { setDemoError(err.message); }
-    })();
-  }, [showDemo, personas.length]);
+    // If the picker is showing, the user is by definition not signed in
+    // (parent already checked /api/auth/me). Proactively clear any stale
+    // session cookie left over from an earlier flow.
+    logout().catch(() => { /* best-effort */ });
+  }, []);
 
-  async function pickDemo(p) {
-    setDemoBusy(p.id);
-    setDemoError(null);
+  async function submit(e) {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setSignInError(null);
     try {
-      await signInAsDemo(p.id);
+      await signInWithEmail(email.trim());
       onSignedIn?.();
     } catch (err) {
-      setDemoError(err.message);
+      const code = err.code || err.message;
+      setSignInError(SIGNIN_ERROR_COPY[code] || `Sign-in failed: ${code}`);
     } finally {
-      setDemoBusy(null);
+      setBusy(false);
     }
   }
 
@@ -57,62 +66,44 @@ export default function SSOPicker({ authError, onBack, onSignedIn }) {
           </div>
           <h1 className="text-[24px] font-bold tracking-tight mb-2">Staffbase Companion</h1>
           <p className="text-[15px] text-[#71717A] leading-relaxed mb-8">
-            Sign in with your Staffbase Google account. Then link Atlassian and ask Companion anything across HR, IT, the intranet, Confluence, and Jira.
+            Enter your Staffbase email to continue. You'll be signed in as that teammate for the demo.
           </p>
 
-          <a
-            href="/api/auth/google/login"
-            className="w-full inline-flex items-center justify-center gap-3 bg-white border border-[#E4E4E7] text-[#18181B] font-semibold text-[15px] px-5 py-3 rounded-xl hover:border-[#7C3AED] hover:bg-[#FAFAFA] transition-colors shadow-sm"
-          >
-            <GoogleG />
-            Sign in with Google
-          </a>
-
-          <div className="mt-3 text-[11px] text-[#A1A1AA]">
-            Restricted to <span className="font-mono">@staffbase.com</span> Workspace accounts
-          </div>
-
           {errMsg && (
-            <div className="mt-6 text-[13px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-lg px-4 py-3 text-left">
+            <div className="mb-6 text-[13px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-lg px-4 py-3 text-left">
               {errMsg}
             </div>
           )}
 
-          {!showDemo ? (
+          <form onSubmit={submit} className="text-left">
+            <label htmlFor="sso-email" className="block text-[12px] font-semibold text-[#52525B] mb-2">
+              Email
+            </label>
+            <input
+              id="sso-email"
+              type="email"
+              autoComplete="email"
+              autoFocus
+              required
+              placeholder="you@staffbase.com"
+              value={email}
+              onChange={(e) => { setEmail(e.target.value); setSignInError(null); }}
+              disabled={busy}
+              className="w-full px-4 py-3 text-[14px] border border-[#E4E4E7] rounded-xl focus:border-[#7C3AED] focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/20 disabled:opacity-50"
+            />
             <button
-              onClick={() => setShowDemo(true)}
-              className="mt-6 text-[12px] text-[#71717A] hover:text-[#18181B] underline-offset-2 hover:underline"
+              type="submit"
+              disabled={busy || !email.trim()}
+              className="mt-3 w-full inline-flex items-center justify-center gap-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-semibold text-[14px] px-5 py-3 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Or sign in with a demo persona (dev only)
+              {busy ? 'Signing in…' : 'Continue'}
+              {!busy && <ArrowRight size={16} />}
             </button>
-          ) : (
-            <div className="mt-6 pt-6 border-t border-[#F1F5F9]">
-              <div className="text-[11px] uppercase tracking-wider text-[#A1A1AA] font-bold mb-3 text-left">Demo personas</div>
-              {personas.length === 0 && !demoError && (
-                <div className="text-[12px] text-[#A1A1AA] py-2">Loading personas…</div>
-              )}
-              <div className="space-y-1.5">
-                {personas.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => pickDemo(p)}
-                    disabled={demoBusy !== null}
-                    className="w-full flex items-center gap-3 p-2.5 rounded-lg border border-[#E4E4E7] hover:border-[#7C3AED] hover:bg-[#F5F3FF] transition-colors disabled:opacity-50 text-left"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-[#7C3AED] text-white text-[11px] font-bold grid place-items-center shrink-0">
-                      {p.avatar}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[13px] font-semibold truncate">{p.name}</div>
-                      <div className="text-[11px] text-[#71717A] truncate">{p.title} · {p.email}</div>
-                    </div>
-                    {demoBusy === p.id ? <span className="text-[11px] text-[#A1A1AA]">…</span> : <ArrowRight size={14} className="text-[#A1A1AA] shrink-0" />}
-                  </button>
-                ))}
-              </div>
-              {demoError && (
-                <div className="mt-3 text-[12px] text-[#B91C1C]">{demoError}</div>
-              )}
+          </form>
+
+          {signInError && (
+            <div className="mt-4 text-[13px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-lg px-4 py-3 text-left">
+              {signInError}
             </div>
           )}
 
@@ -120,23 +111,12 @@ export default function SSOPicker({ authError, onBack, onSignedIn }) {
             <div className="flex items-start gap-3 text-[12px] text-[#52525B]">
               <ShieldCheck size={16} className="text-[#16A34A] shrink-0 mt-0.5" />
               <div>
-                Companion uses your real Staffbase identity. External connectors like Atlassian are linked separately and respect your permissions on each service.
+                Demo mode: any @staffbase.com email resolves against the Campsite directory. External connectors like Atlassian are linked separately and respect each service's real permissions.
               </div>
             </div>
           </div>
         </div>
       </main>
     </div>
-  );
-}
-
-function GoogleG() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
-      <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.71H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
-      <path fill="#FBBC05" d="M3.964 10.708A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.708V4.96H.957A8.997 8.997 0 0 0 0 9c0 1.452.348 2.827.957 4.04l3.007-2.332z"/>
-      <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.96L3.964 7.292C4.672 5.166 6.656 3.58 9 3.58z"/>
-    </svg>
   );
 }

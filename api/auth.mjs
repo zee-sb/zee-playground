@@ -29,7 +29,7 @@ import {
   COOKIE_NAMES,
 } from '../lib/session.mjs';
 import { sql, dbConfigured } from '../lib/db.mjs';
-import { resolveStaffbaseIdentity, STAFFBASE_DIRECTORY } from '../lib/staffbase-users.mjs';
+import { resolveStaffbaseIdentity } from '../lib/staffbase-users.mjs';
 import { findUserByEmail as findStaffbaseUserByEmail } from '../lib/staffbase.mjs';
 import { listConnectionsForUser } from '../lib/connections.mjs';
 
@@ -63,24 +63,18 @@ export default async function handler(req, res) {
 }
 
 // ── GET /api/auth/google/login ─────────────────────────────────────────
+// Google OAuth app was removed by infra; route is kept (registered redirect
+// URI, vercel.json rewrites) but the entry point bounces back to the picker
+// with a `google_disabled` notice. To re-enable, restore the original body
+// (see git history) once a new OAuth client is provisioned.
 async function googleLogin(req, res) {
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  if (!clientId) {
-    res.status(500).json({ error: 'GOOGLE_CLIENT_ID is not configured' });
-    return;
-  }
   const base = appUrl(req);
-  const redirectUri = `${base}/api/auth/google/callback`;
-  const state = randomBytes(16).toString('hex');
-  const stateJwt = await issueStateJwt(state);
-  const url = buildGoogleAuthorizeUrl({ clientId, redirectUri, state });
-  res.setHeader('Set-Cookie', stateCookieHeader(stateJwt));
   res.setHeader('Cache-Control', 'no-store');
-  res.writeHead(302, { Location: url });
+  res.writeHead(302, { Location: `${base}/prototypes/staffbase-companion?auth_error=google_disabled` });
   res.end();
 }
 
@@ -177,6 +171,9 @@ async function me(req, res) {
   }
   const session = await getUserFromReq(req);
   if (!session) {
+    // Clear any stale/invalid session cookie so the browser drops it on
+    // the next request — avoids the picker seeing a bogus cookie forever.
+    res.setHeader('Set-Cookie', clearSessionCookieHeader());
     res.status(401).json({ error: 'not_signed_in' });
     return;
   }
@@ -186,6 +183,10 @@ async function me(req, res) {
     from users where id = ${session.userId}
   `;
   if (!rows.length) {
+    // Session JWT is valid but the user row is gone (e.g. DB reset, demo
+    // persona regenerated under new id). Drop the cookie so the picker
+    // doesn't keep auto-redirecting into a broken state.
+    res.setHeader('Set-Cookie', clearSessionCookieHeader());
     res.status(401).json({ error: 'user_not_found' });
     return;
   }
@@ -346,45 +347,75 @@ async function logout(req, res) {
   res.status(200).json({ ok: true });
 }
 
-// ── GET|POST /api/auth/staffbase/login ─────────────────────────────────
+// ── POST /api/auth/staffbase/login ─────────────────────────────────────
+// Demo sign-in: caller supplies a @staffbase.com email, server resolves it
+// against the live Campsite directory and mints a session for that user.
+// Replaces the previous static-persona-list flow now that Google OAuth is
+// disabled.
 async function staffbaseLogin(req, res) {
-  if (req.method === 'GET') {
-    res.status(200).json({
-      personas: STAFFBASE_DIRECTORY.map((u) => ({
-        id: u.id, name: u.name, email: u.email,
-        department: u.department, title: u.title, avatar: u.avatar,
-      })),
-    });
-    return;
-  }
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400).json({ error: 'invalid_email' });
     return;
   }
   if (!dbConfigured()) {
     res.status(503).json({ error: 'db_not_configured' });
     return;
   }
-  const { staffbaseUserId } = req.body || {};
-  const profile = STAFFBASE_DIRECTORY.find((u) => u.id === staffbaseUserId);
-  if (!profile) {
-    res.status(400).json({ error: 'unknown_user' });
+  let live;
+  try {
+    live = await findStaffbaseUserByEmail(email);
+  } catch (err) {
+    console.error('[auth/staffbase/login] directory lookup failed:', err.message);
+    res.status(502).json({ error: 'directory_lookup_failed' });
     return;
   }
+  if (!live) {
+    res.status(404).json({ error: 'user_not_found' });
+    return;
+  }
+  const displayName = live.name || email;
+  const avatarInitials = (() => {
+    const parts = displayName.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return displayName.slice(0, 2).toUpperCase();
+  })();
+  const customFields = live.customFields || {};
   const rows = await sql`
-    insert into users (staffbase_user_id, email, display_name, department, title, avatar_initials, last_login_at)
-    values (${profile.id}, ${profile.email}, ${profile.name}, ${profile.department}, ${profile.title}, ${profile.avatar}, now())
+    insert into users (staffbase_user_id, email, display_name, department, title, location, avatar_initials, avatar_url, custom_fields, last_login_at)
+    values (${live.id}, ${live.email || email}, ${displayName}, ${live.department}, ${live.title}, ${live.location}, ${avatarInitials}, ${live.avatar}, ${JSON.stringify(customFields)}::jsonb, now())
     on conflict (staffbase_user_id) do update
       set email           = excluded.email,
           display_name    = excluded.display_name,
-          department      = excluded.department,
-          title           = excluded.title,
+          department      = coalesce(excluded.department, users.department),
+          title           = coalesce(excluded.title,      users.title),
+          location        = coalesce(excluded.location,   users.location),
           avatar_initials = excluded.avatar_initials,
+          avatar_url      = coalesce(excluded.avatar_url, users.avatar_url),
+          custom_fields   = case
+            when jsonb_typeof(excluded.custom_fields) = 'object' and excluded.custom_fields <> '{}'::jsonb
+              then excluded.custom_fields
+            else users.custom_fields
+          end,
           last_login_at   = now()
     returning id
   `;
   const userId = rows[0].id;
   const jwt = await issueSessionJwt(userId);
   res.setHeader('Set-Cookie', sessionCookieHeader(jwt));
-  res.status(200).json({ user: { id: userId, ...profile } });
+  res.status(200).json({
+    user: {
+      id: userId,
+      staffbaseUserId: live.id,
+      email: live.email || email,
+      name: displayName,
+      department: live.department,
+      title: live.title,
+      location: live.location,
+    },
+  });
 }
