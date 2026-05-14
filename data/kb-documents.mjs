@@ -611,6 +611,10 @@ export function getKbDocuments(kbId) {
   return KB_DOCUMENTS[kbId] || [];
 }
 
+export function getKbDocument(kbId, docId) {
+  return (KB_DOCUMENTS[kbId] || []).find((d) => d.id === docId) || null;
+}
+
 export function getKbIds() {
   return Object.keys(KB_DOCUMENTS);
 }

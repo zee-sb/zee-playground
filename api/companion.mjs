@@ -10,7 +10,7 @@
 import OpenAI from 'openai';
 import { getUserFromReq } from '../lib/session.mjs';
 import { sql, dbConfigured } from '../lib/db.mjs';
-import { runOrchestratedTurn } from '../lib/orchestrator.mjs';
+import { runOrchestratedTurn } from '../lib/orchestrator/index.mjs';
 import { CONNECTORS } from '../lib/connector-registry.mjs';
 import { loadStudio, materializeActiveScope, userToAudience } from '../lib/studio-config.mjs';
 import { listConnectionsForUser } from '../lib/connections.mjs';
@@ -179,11 +179,22 @@ async function chat(req, res) {
     return;
   }
 
-  const { conversationId, message } = req.body || {};
-  if (!conversationId || !message || typeof message !== 'string') {
-    res.status(400).json({ error: 'conversationId and message are required' });
+  const { conversationId, message, formSubmission, confirmResponse } = req.body || {};
+  if (!conversationId) {
+    res.status(400).json({ error: 'conversationId is required' });
     return;
   }
+  const hasFlowInput = (formSubmission && typeof formSubmission === 'object')
+    || (confirmResponse && typeof confirmResponse === 'object');
+  if (!hasFlowInput && (!message || typeof message !== 'string')) {
+    res.status(400).json({ error: 'message or flow submission required' });
+    return;
+  }
+  const flowSubmission = formSubmission
+    ? { kind: 'form', flowId: formSubmission.flowId, stepId: formSubmission.stepId, values: formSubmission.values || {} }
+    : confirmResponse
+      ? { kind: 'confirm', flowId: confirmResponse.flowId, stepId: confirmResponse.stepId, accepted: !!confirmResponse.accepted, cancelTo: confirmResponse.cancelTo }
+      : null;
 
   const own = await sql`
     select c.id, u.staffbase_user_id, u.email, u.display_name, u.department, u.title from conversations c
@@ -209,10 +220,20 @@ async function chat(req, res) {
   const emit = (obj) => res.write(JSON.stringify(obj) + '\n');
 
   try {
-    await sql`
-      insert into messages (conversation_id, role, content)
-      values (${conversationId}, 'user', ${JSON.stringify({ text: message })}::jsonb)
-    `;
+    if (message) {
+      await sql`
+        insert into messages (conversation_id, role, content)
+        values (${conversationId}, 'user', ${JSON.stringify({ text: message })}::jsonb)
+      `;
+    } else if (flowSubmission) {
+      // Persist a synthetic user-facing record of the submission so the chat
+      // history (and reload) shows what the user did, without bloating the
+      // visible bubble stream. Stored as a system message.
+      await sql`
+        insert into messages (conversation_id, role, content)
+        values (${conversationId}, 'system', ${JSON.stringify({ flowInput: flowSubmission })}::jsonb)
+      `;
+    }
 
     // First user message in this conversation? Auto-name it from the message
     // so the sidebar stops showing "New conversation" everywhere. We DO NOT
@@ -224,7 +245,7 @@ async function chat(req, res) {
     const userMsgCount = await sql`
       select count(*)::int as n from messages where conversation_id = ${conversationId} and role = 'user'
     `;
-    if (userMsgCount[0]?.n === 1 && (!currentTitle || currentTitle === 'New conversation')) {
+    if (message && userMsgCount[0]?.n === 1 && (!currentTitle || currentTitle === 'New conversation')) {
       const derived = deriveTitle(message);
       if (derived) {
         await sql`update conversations set title = ${derived} where id = ${conversationId} and user_id = ${session.userId}`;
@@ -283,6 +304,7 @@ async function chat(req, res) {
       studio,
       branchId: studio?.branchId || null,
       userConnections: userConnectionProviders,
+      flowSubmission,
     });
     if (result.status === 'await_confirm') {
       await sql`

@@ -4,6 +4,8 @@ import ReactMarkdown from 'react-markdown';
 import ToolCallCard from './ToolCallCard.jsx';
 import TraceCard from './TraceCard.jsx';
 import FlowCard from './FlowCard.jsx';
+import FlowTimeline from './FlowTimeline.jsx';
+import FormCard from '../../components/FormCard.jsx';
 import ConfirmWriteModal from './ConfirmWriteModal.jsx';
 import AnalyticsChartCard from './AnalyticsChartCard.jsx';
 import CardRouter from './cards/CardRouter.jsx';
@@ -75,6 +77,41 @@ function reduceMessages(rows) {
           const item = [...out].reverse().find((i) => i.kind === 'tool' && i.id === tc.id);
           if (item) item.status = 'pending';
         }
+      }
+      // Hydrate FlowTimeline state from the latest persisted snapshot for
+      // this flow. Each step-machine pause/completion writes a flowSnapshot
+      // system message with the full run state.
+      if (c.flowSnapshot && c.flowExec) {
+        const snap = c.flowSnapshot;
+        const run = c.flowExec;
+        // Drop earlier flow items for the same flow (one canonical card per run).
+        for (let i = out.length - 1; i >= 0; i--) {
+          if (out[i].kind === 'flow' && out[i].id === snap.id) out.splice(i, 1);
+        }
+        // Build step list with statuses derived from run state.
+        const steps = (snap.steps || []).map((s, idx) => {
+          let status = 'pending';
+          if (idx < run.currentStepIndex) status = 'done';
+          else if (idx === run.currentStepIndex && run.status === 'awaiting_user') status = 'awaiting_user';
+          else if (run.status === 'completed') status = 'done';
+          return { ...s, status };
+        });
+        const interaction = snap.interaction && run.status === 'awaiting_user' ? snap.interaction : null;
+        out.push({
+          kind: 'flow',
+          id: snap.id,
+          name: snap.name,
+          mode: snap.mode || 'suggested',
+          goal: snap.goal || '',
+          totalSteps: steps.length,
+          completedSteps: steps.filter((s) => s.status === 'done').length,
+          steps,
+          stepOutputs: run.stepOutputs || {},
+          currentStepInteraction: interaction,
+          stepMachine: true,
+          status: run.status === 'completed' ? 'completed' : 'running',
+          summary: run.status === 'completed' ? 'All steps completed.' : '',
+        });
       }
       // Trivia-state recovery: rebuild past round results + the currently
       // open question from the latest trivia state. Earlier snapshots are
@@ -216,24 +253,97 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           kind: 'flow', id: evt.flowId, name: evt.name,
           mode: evt.mode, goal: evt.goal, totalSteps: evt.totalSteps,
         }));
-        next.push({
-          kind: 'flow',
-          id: evt.flowId,
-          name: evt.name,
-          mode: evt.mode || 'suggested',
-          goal: evt.goal || '',
-          totalSteps: evt.totalSteps || 0,
-          completedSteps: 0,
-          steps: [],
-          status: 'running',
-        });
+        // If the orchestrator sent a `steps` array, this is a step-machine
+        // flow (new style); render via <FlowTimeline>. If only totalSteps,
+        // fall back to the legacy <FlowCard>.
+        // On resume, reuse the existing flow item rather than pushing a duplicate.
+        const existing = evt.resumed ? [...next].reverse().find((i) => i.kind === 'flow' && i.id === evt.flowId) : null;
+        if (existing) {
+          existing.mode = evt.mode || existing.mode;
+          existing.goal = evt.goal || existing.goal;
+          existing.totalSteps = evt.totalSteps || existing.totalSteps;
+          if (Array.isArray(evt.steps) && evt.steps.length) {
+            // Merge: keep status/output from prior, overwrite shape from server.
+            const prevById = new Map((existing.steps || []).map((s) => [s.id, s]));
+            existing.steps = evt.steps.map((s) => ({
+              ...s,
+              status: prevById.get(s.id)?.status || 'pending',
+            }));
+            existing.stepMachine = true;
+          }
+        } else {
+          next.push({
+            kind: 'flow',
+            id: evt.flowId,
+            name: evt.name,
+            mode: evt.mode || 'suggested',
+            goal: evt.goal || '',
+            totalSteps: evt.totalSteps || 0,
+            completedSteps: 0,
+            steps: Array.isArray(evt.steps)
+              ? evt.steps.map((s) => ({ ...s, status: 'pending' }))
+              : [],
+            stepOutputs: {},
+            stepMachine: Array.isArray(evt.steps) && evt.steps.length > 0,
+            status: 'running',
+          });
+        }
       } else if (evt.type === 'flow_step') {
         const flowItem = [...next].reverse().find((i) => i.kind === 'flow' && i.id === evt.flowId);
         if (flowItem) {
-          flowItem.completedSteps = evt.stepIndex || (flowItem.completedSteps + 1);
           flowItem.totalSteps = evt.totalSteps || flowItem.totalSteps;
+          // Step-machine path: update the existing step entry by id.
+          if (flowItem.stepMachine && evt.stepId) {
+            flowItem.steps = flowItem.steps || [];
+            const target = flowItem.steps.find((s) => s.id === evt.stepId);
+            if (target) {
+              target.status = evt.status || target.status;
+              if (evt.summary) target.summary = evt.summary;
+            }
+            // Track number of done steps for the progress bar.
+            flowItem.completedSteps = flowItem.steps.filter((s) => s.status === 'done').length;
+            // Clear any active interaction now that this step is done.
+            if (evt.status === 'done' && flowItem.currentStepInteraction?.stepId === evt.stepId) {
+              flowItem.currentStepInteraction = null;
+            }
+          } else {
+            // Legacy path: append.
+            flowItem.completedSteps = evt.stepIndex || (flowItem.completedSteps + 1);
+            flowItem.steps = flowItem.steps || [];
+            flowItem.steps.push({ index: flowItem.steps.length, label: evt.label || `Step ${flowItem.steps.length + 1}`, toolCallId: evt.toolCallId || null });
+          }
+        }
+      } else if (evt.type === 'form_request') {
+        const flowItem = [...next].reverse().find((i) => i.kind === 'flow' && i.id === evt.flowId);
+        if (flowItem) {
+          flowItem.currentStepInteraction = {
+            kind: 'form', stepId: evt.stepId,
+            spec: evt.spec, initialValues: evt.initialValues || null,
+          };
+          // Ensure the step exists & is marked awaiting.
           flowItem.steps = flowItem.steps || [];
-          flowItem.steps.push({ index: flowItem.steps.length, label: evt.label || `Step ${flowItem.steps.length + 1}`, toolCallId: evt.toolCallId || null });
+          const target = flowItem.steps.find((s) => s.id === evt.stepId);
+          if (target) target.status = 'awaiting_user';
+        } else {
+          // Bare form (not a flow) — render as a one-off form item.
+          next.push({
+            kind: 'form',
+            spec: evt.spec,
+            stepId: evt.stepId || null,
+            pendingToolCallId: evt.pendingToolCallId || null,
+            initialValues: evt.initialValues || null,
+            status: 'open',
+          });
+        }
+      } else if (evt.type === 'confirm_request') {
+        const flowItem = [...next].reverse().find((i) => i.kind === 'flow' && i.id === evt.flowId);
+        if (flowItem) {
+          flowItem.currentStepInteraction = {
+            kind: 'confirm', stepId: evt.stepId, summary: evt.summary,
+          };
+          flowItem.steps = flowItem.steps || [];
+          const target = flowItem.steps.find((s) => s.id === evt.stepId);
+          if (target) target.status = 'awaiting_user';
         }
       } else if (evt.type === 'flow_completed') {
         const flowItem = [...next].reverse().find((i) => i.kind === 'flow' && i.id === evt.flowId);
@@ -241,6 +351,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           flowItem.status = 'completed';
           flowItem.summary = evt.summary || '';
           flowItem.completedSteps = flowItem.totalSteps || flowItem.completedSteps;
+          flowItem.currentStepInteraction = null;
         }
         queueMicrotask(() => setActiveContext(null));
       } else if (evt.type === 'agent_handoff') {
@@ -349,6 +460,64 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
     }
   }
 
+  // Flow-step form submission. Optimistically record outputs locally; the
+  // server's flow_step/flow_completed events will reconcile.
+  async function submitFlowForm(flowId, stepId, values) {
+    if (busy || !conversationId) return;
+    setError(null);
+    setItems((prev) => {
+      const next = [...prev];
+      const flowItem = [...next].reverse().find((i) => i.kind === 'flow' && i.id === flowId);
+      if (flowItem) {
+        flowItem.stepOutputs = { ...(flowItem.stepOutputs || {}), [stepId]: values };
+        const target = flowItem.steps?.find((s) => s.id === stepId);
+        if (target) target.status = 'done';
+        flowItem.currentStepInteraction = null;
+      }
+      return next;
+    });
+    setBusy(true);
+    try {
+      await streamPost('/api/companion/chat', {
+        conversationId,
+        formSubmission: { flowId, stepId, values },
+      }, handleEvent);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitFlowConfirm(flowId, stepId, accepted, cancelTo) {
+    if (busy || !conversationId) return;
+    setError(null);
+    setItems((prev) => {
+      const next = [...prev];
+      const flowItem = [...next].reverse().find((i) => i.kind === 'flow' && i.id === flowId);
+      if (flowItem) {
+        if (accepted) {
+          flowItem.stepOutputs = { ...(flowItem.stepOutputs || {}), [stepId]: { confirmed: true } };
+          const target = flowItem.steps?.find((s) => s.id === stepId);
+          if (target) target.status = 'done';
+        }
+        flowItem.currentStepInteraction = null;
+      }
+      return next;
+    });
+    setBusy(true);
+    try {
+      await streamPost('/api/companion/chat', {
+        conversationId,
+        confirmResponse: { flowId, stepId, accepted, cancelTo: cancelTo || null },
+      }, handleEvent);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function decide(decision) {
     if (!pendingConfirm) return;
     setConfirmBusy(true);
@@ -432,7 +601,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
               // line up visually with the assistant's bubble instead of
               // stretching the full chat width.
               const COLUMN_ALIGN_KINDS = new Set([
-                'trace', 'tool', 'flow', 'card', 'agent_handoff',
+                'trace', 'tool', 'flow', 'form', 'card', 'agent_handoff',
                 'connector_error', 'connect_prompt',
               ]);
               const out = [];
@@ -444,6 +613,9 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
                     item={item}
                     userInitials={userInitials}
                     onSuggestion={send}
+                    onFlowFormSubmit={submitFlowForm}
+                    onFlowConfirm={submitFlowConfirm}
+                    busy={busy}
                     suggestionsDisabled={busy || i !== lastSuggestionIdx}
                   />
                 );
@@ -1356,11 +1528,39 @@ function ActiveContextPill({ context, onClear }) {
   );
 }
 
-function Item({ item, userInitials, onSuggestion, suggestionsDisabled = false, sources = [], onOpenSources }) {
+function Item({
+  item, userInitials, onSuggestion,
+  onFlowFormSubmit, onFlowConfirm, busy = false,
+  suggestionsDisabled = false, sources = [], onOpenSources,
+}) {
   if (item.kind === 'trace') {
     return <TraceCard route={item.route} intent={item.intent} connectors={item.connectors} />;
   }
-  if (item.kind === 'flow') return <FlowCard flow={item} />;
+  if (item.kind === 'flow') {
+    if (item.stepMachine) {
+      return (
+        <FlowTimeline
+          flow={item}
+          busy={busy}
+          onFormSubmit={(stepId, values) => onFlowFormSubmit?.(item.id, stepId, values)}
+          onConfirm={(stepId) => onFlowConfirm?.(item.id, stepId, true)}
+          onCancel={(stepId, cancelTo) => onFlowConfirm?.(item.id, stepId, false, cancelTo)}
+        />
+      );
+    }
+    return <FlowCard flow={item} />;
+  }
+  if (item.kind === 'form') {
+    return (
+      <FormCard
+        spec={item.spec}
+        initialValues={item.initialValues}
+        busy={busy}
+        onSubmit={() => { /* one-off; resume path handled separately */ }}
+        theme="teal"
+      />
+    );
+  }
   if (item.kind === 'agent_handoff') {
     return (
       <div style={{

@@ -1,6 +1,9 @@
 import React, { useState, useMemo } from 'react'
-import { ArrowLeft, Save, Trash2, Wrench, Bot, BookOpen, Workflow, Check, Sparkles } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, Wrench, Bot, BookOpen, Workflow, Check, Sparkles, ListChecks, LayoutTemplate, Wand2, Loader2 } from 'lucide-react'
 import { LogoChip } from '../components/Catalog'
+import FlowStepBuilder from './FlowStepBuilder.jsx'
+import FlowPreviewPane from './FlowPreviewPane.jsx'
+import { FLOW_TEMPLATES, instantiateTemplate } from '../../../../lib/flows/templates.mjs'
 
 /**
  * Flow detail editor (v7 unified).
@@ -30,6 +33,13 @@ export default function FlowDetail({
       typeof t === 'string' ? { connectorId: t, toolId: 'invoke' } : { ...t }
     )
   )
+  const [steps, setSteps] = useState(() => Array.isArray(flow.steps) ? flow.steps : [])
+  const [showTemplates, setShowTemplates] = useState(false)
+  const [scaffoldOpen, setScaffoldOpen] = useState(false)
+  const [scaffoldDesc, setScaffoldDesc] = useState('')
+  const [scaffoldBusy, setScaffoldBusy] = useState(false)
+  const [scaffoldError, setScaffoldError] = useState(null)
+  const [scaffoldWarnings, setScaffoldWarnings] = useState([])
 
   const connected = useMemo(() => connectors.filter((c) => c.status === 'connected'), [connectors])
 
@@ -55,7 +65,55 @@ export default function FlowDetail({
       instructions: instructions.trim(),
       onComplete: onComplete.trim() || null,
       tools,
+      steps,
     })
+  }
+
+  function applyTemplate(tpl) {
+    const inst = instantiateTemplate(tpl)
+    setName(inst.name || name)
+    setTrigger(inst.trigger || '')
+    setGoal(inst.goal || '')
+    setMode(inst.mode || 'suggested')
+    setSteps(inst.steps || [])
+    // Auto-populate the tool scope from the template's tool refs.
+    if (Array.isArray(inst.tools)) setTools(inst.tools.map((t) => ({ ...t })))
+    setShowTemplates(false)
+  }
+
+  async function runScaffold() {
+    if (!scaffoldDesc.trim()) return
+    setScaffoldBusy(true)
+    setScaffoldError(null)
+    try {
+      const res = await fetch('/api/navigator-assistant?action=scaffold-flow', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: scaffoldDesc,
+          connectors: connectors.map((c) => ({
+            id: c.id, name: c.name, kind: c.kind, status: c.status,
+            tools: (c.tools || []).map((t) => ({ id: t.id, name: t.name, description: t.description })),
+          })),
+        }),
+      })
+      const body = await res.json()
+      if (!res.ok || !body?.flow) throw new Error(body?.error || `scaffold failed (${res.status})`)
+      const draft = body.flow
+      setName(draft.name || name || 'Drafted flow')
+      setTrigger(draft.trigger || '')
+      setGoal(draft.goal || '')
+      setMode(draft.mode || 'suggested')
+      setSteps(Array.isArray(draft.steps) ? draft.steps : [])
+      setScaffoldWarnings(body.unknownTools || [])
+      setScaffoldOpen(false)
+      setScaffoldDesc('')
+    } catch (err) {
+      setScaffoldError(err.message)
+    } finally {
+      setScaffoldBusy(false)
+    }
   }
 
   const toolSummary = useMemo(() => formatToolSummary(tools, connectors), [tools, connectors])
@@ -179,11 +237,49 @@ export default function FlowDetail({
             </Field>
           </Section>
 
+          {/* Steps */}
+          <Section
+            title="Steps"
+            icon={<ListChecks size={14} className="text-[#0EA5E9]" />}
+            description="Compose what Navigator does when this flow fires — collect inputs, call tools, ask the user to confirm."
+          >
+            {steps.length === 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                <button
+                  onClick={() => setShowTemplates(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-[#E5E7EB] hover:bg-[#F9FAFB] rounded-lg text-[12px] font-semibold text-[#111827]"
+                >
+                  <LayoutTemplate size={13} className="text-[#0EA5E9]" />
+                  Start from a template
+                </button>
+                <button
+                  onClick={() => setScaffoldOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-br from-[#00C7B2] to-[#0EA5E9] hover:opacity-95 text-white rounded-lg text-[12px] font-semibold"
+                >
+                  <Wand2 size={13} />
+                  Draft with AI
+                </button>
+              </div>
+            )}
+            <FlowStepBuilder steps={steps} onChange={setSteps} connectors={connectors} />
+            {scaffoldWarnings.length > 0 && (
+              <div className="mt-3 px-3 py-2 bg-[#FEF3C7] border border-[#FCD34D] rounded-lg text-[11px] text-[#92400E]">
+                Some scaffolded tools aren't in this workspace:&nbsp;
+                {scaffoldWarnings.map((w, i) => (
+                  <span key={i} className="font-mono">
+                    {i > 0 && ', '}{w.connectorId}.{w.toolId}
+                  </span>
+                ))}
+                . Pick connected ones in those steps before activating.
+              </div>
+            )}
+          </Section>
+
           {/* Tools picker */}
           <Section
             title="Tools available in this flow"
             icon={<Wrench size={14} className="text-[#7C3AED]" />}
-            description="Select from your connected connectors. The Navigator brain can only use what you give it."
+            description="Pre-authorize connectors for AI fallback. Tools used in step configs are auto-allowed."
           >
             {connected.length === 0 ? (
               <div className="text-[12px] text-[#94A3B8] italic px-3 py-3 bg-[#F9FAFB] rounded-lg">
@@ -261,39 +357,117 @@ export default function FlowDetail({
 
         {/* Right column — live preview */}
         <div className="space-y-6">
+          <FlowPreviewPane flow={{
+            id: flow.id || 'preview',
+            name, mode, goal, steps,
+          }} />
           <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
             <h3 className="flex items-center gap-1.5 text-[13px] font-bold text-[#111827] mb-3">
               <Workflow size={14} className="text-[#7C3AED]" />
               Flow definition
             </h3>
             <pre className="p-4 bg-[#111827] text-[#86EFAC] rounded-lg text-[11px] leading-relaxed overflow-x-auto font-mono whitespace-pre-wrap break-words">
-{formatDefinition({ trigger, goal, tools: toolSummary, mode, instructions, onComplete })}
+{formatDefinition({ trigger, goal, tools: toolSummary, mode, instructions, onComplete, stepCount: steps.length })}
             </pre>
           </div>
+        </div>
+      </div>
 
-          <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
-            <h3 className="flex items-center gap-1.5 text-[13px] font-bold text-[#111827] mb-3">
-              <Sparkles size={14} className="text-[#7C3AED]" />
-              Trace simulation
-            </h3>
-            <p className="text-[11px] text-[#6B7280] mb-3">
-              What the employee will see when this flow fires.
-            </p>
-            <div className="space-y-2">
-              <TraceBubble name={name} mode={mode} goal={goal} />
-              <TraceConfirm goal={goal} />
-            </div>
-          </div>
+      {showTemplates && (
+        <TemplatesModal
+          templates={FLOW_TEMPLATES}
+          onApply={applyTemplate}
+          onClose={() => setShowTemplates(false)}
+        />
+      )}
+      {scaffoldOpen && (
+        <ScaffoldModal
+          value={scaffoldDesc}
+          onChange={setScaffoldDesc}
+          onRun={runScaffold}
+          onClose={() => { if (!scaffoldBusy) setScaffoldOpen(false) }}
+          busy={scaffoldBusy}
+          error={scaffoldError}
+        />
+      )}
+    </div>
+  )
+}
+
+function TemplatesModal({ templates, onApply, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-[15px] font-bold text-[#111827] flex items-center gap-2">
+            <LayoutTemplate size={16} className="text-[#0EA5E9]" />
+            Start from a template
+          </h3>
+          <button onClick={onClose} className="text-[#94A3B8] hover:text-[#475569] text-[20px] leading-none">×</button>
+        </div>
+        <p className="text-[12px] text-[#6B7280] mb-3">Forking a template populates this flow's steps and tools. You can edit before saving.</p>
+        <div className="space-y-2">
+          {templates.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => onApply(t.template)}
+              className="w-full text-left p-3 bg-[#F9FAFB] hover:bg-[#F3F4F6] border border-[#E5E7EB] rounded-lg flex items-start gap-3"
+            >
+              <div className="text-[20px] leading-none">{t.icon}</div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-bold text-[#111827]">{t.template.name}</div>
+                <div className="text-[11px] text-[#6B7280] mt-0.5">{t.summary}</div>
+              </div>
+            </button>
+          ))}
         </div>
       </div>
     </div>
   )
 }
 
-function formatDefinition({ trigger, goal, tools, mode, instructions, onComplete }) {
+function ScaffoldModal({ value, onChange, onRun, onClose, busy, error }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-[15px] font-bold text-[#111827] flex items-center gap-2">
+            <Wand2 size={16} className="text-[#00C7B2]" />
+            Draft a flow with AI
+          </h3>
+          <button onClick={onClose} className="text-[#94A3B8] hover:text-[#475569] text-[20px] leading-none">×</button>
+        </div>
+        <p className="text-[12px] text-[#6B7280] mb-2">Describe what you want this flow to do. Navigator will draft steps using the connectors in this workspace.</p>
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          rows={4}
+          placeholder="When someone wants to file an expense, ask for the amount and category, then submit it."
+          className="w-full px-3 py-2 text-[13px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#00C7B2] outline-none"
+          disabled={busy}
+        />
+        {error && <div className="mt-2 text-[11px] text-[#B91C1C]">{error}</div>}
+        <div className="mt-3 flex items-center justify-end gap-2">
+          <button onClick={onClose} disabled={busy} className="px-3 py-1.5 text-[12px] font-semibold text-[#475569] hover:bg-[#F3F4F6] rounded-lg disabled:opacity-50">Cancel</button>
+          <button
+            onClick={onRun}
+            disabled={busy || !value.trim()}
+            className="px-4 py-1.5 text-[12px] font-semibold bg-[#00C7B2] hover:bg-[#00736A] text-white rounded-lg flex items-center gap-1.5 disabled:opacity-50"
+          >
+            {busy ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
+            {busy ? 'Drafting…' : 'Draft flow'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function formatDefinition({ trigger, goal, tools, mode, instructions, onComplete, stepCount }) {
   const rows = [
     ['trigger', trigger || '(none)'],
     ['goal', goal || '(none)'],
+    ['steps', stepCount ? `${stepCount} step${stepCount === 1 ? '' : 's'}` : '(none)'],
     ['tools', tools || '(none)'],
     ['mode', mode],
   ]
@@ -314,51 +488,6 @@ function formatToolSummary(tools, connectors) {
       return `${label}.${t.toolId}`
     })
     .join(', ')
-}
-
-function TraceBubble({ name, mode, goal }) {
-  return (
-    <div className="flex items-start gap-2">
-      <div className="w-7 h-7 rounded-full bg-[#7C3AED] text-white text-[10px] font-bold flex items-center justify-center shrink-0">N</div>
-      <div className="flex-1 min-w-0 bg-[#F5F3FF] border border-[#DDD6FE] rounded-2xl rounded-tl-sm px-3 py-2">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-[9px] font-bold uppercase tracking-widest text-[#7C3AED] bg-white px-1.5 py-0.5 rounded">Flow</span>
-          <span className="text-[12px] font-bold text-[#111827] truncate">{name || 'Untitled flow'}</span>
-          <span
-            className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ml-auto shrink-0"
-            style={
-              mode === 'required'
-                ? { background: '#F59E0B', color: '#FFFFFF' }
-                : { background: '#FFFFFF', color: '#2563EB', border: '1px solid #BFDBFE' }
-            }
-          >
-            {mode === 'required' ? 'Required' : 'Suggested'}
-          </span>
-        </div>
-        <p className="text-[11px] text-[#6B7280] italic leading-snug">{goal || 'Goal not set yet'}</p>
-        <p className="text-[12px] text-[#111827] mt-2 leading-snug">
-          I can help with that — let me start a {`{flow}`}.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-function TraceConfirm({ goal }) {
-  return (
-    <div className="flex items-start gap-2">
-      <div className="w-7 h-7 rounded-full bg-[#7C3AED] text-white text-[10px] font-bold flex items-center justify-center shrink-0">N</div>
-      <div className="flex-1 min-w-0 bg-white border border-[#E5E7EB] rounded-2xl rounded-tl-sm px-3 py-2">
-        <div className="text-[11px] font-semibold text-[#374151] mb-1.5">Ready to proceed</div>
-        <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg px-2.5 py-2 text-[11px] text-[#475569] mb-2">
-          {goal || 'Goal: not set'}
-        </div>
-        <button className="w-full px-3 py-1.5 bg-[#7C3AED] text-white text-[11px] font-semibold rounded-lg">
-          Continue
-        </button>
-      </div>
-    </div>
-  )
 }
 
 function Section({ title, icon, description, children }) {

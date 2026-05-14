@@ -39,6 +39,7 @@ export default async function handler(req, res) {
     if (action === 'save')                    return await handleSave(req, res);
     if (action === 'bulk-save')               return await handleBulkSave(req, res);
     if (action === 'delete')                  return await handleDelete(req, res, url);
+    if (action === 'scaffold-flow')           return await handleScaffoldFlow(req, res);
     res.status(400).json({ error: 'unknown action' });
   } catch (err) {
     res.status(500).json({ error: err.message || 'internal error' });
@@ -450,4 +451,77 @@ function composeInstructions({ mainInstructions, glossary, promptBody, matchedPa
     parts.push(`# Knowledge sources\n\n${sources}`);
   }
   return parts.join('\n\n---\n\n');
+}
+
+// ── scaffold-flow ──────────────────────────────────────────────────────────
+//
+// Best-effort: turn a one-sentence description + the workspace's available
+// connectors into a draft flow JSON the admin can refine. Returns:
+//   { ok, flow: { name, trigger, goal, mode, steps[] }, unknownTools: [...] }
+
+async function handleScaffoldFlow(req, res) {
+  const body = await readJsonBody(req);
+  const description = (body?.description || '').trim();
+  const connectors = Array.isArray(body?.connectors) ? body.connectors : [];
+  if (!description) return res.status(400).json({ error: 'description required' });
+  if (!process.env.OPENAI_API_KEY) return res.status(500).json({ error: 'OPENAI_API_KEY not configured' });
+
+  const toolCatalog = [];
+  for (const c of connectors) {
+    const kind = c.kind || 'mcp';
+    const tools = Array.isArray(c.tools) ? c.tools : [];
+    if (kind === 'agent') toolCatalog.push(`${c.id} (agent: ${c.name}) → invoke`);
+    else if (kind === 'kb') toolCatalog.push(`${c.id} (KB: ${c.name}) → search`);
+    else {
+      for (const t of tools) toolCatalog.push(`${c.id} (${c.name}) → ${t.id || t.name} — ${t.description || ''}`);
+    }
+  }
+
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const sys = `You are a flow designer for an enterprise assistant. Output JSON only.
+
+Step types:
+- form: collect user input (fields: id, label, type ['text'|'textarea'|'number'|'email'|'url'|'date'|'select'|'checkbox'|'radio'], required, options? for select/radio)
+- tool: invoke a tool. {tool: {connectorId, toolId}, args: {...}} — args may reference earlier form outputs via {{stepId.fieldId}}
+- confirm: review summary before commit. summary: {title, rows:[{label,value}], confirmLabel, cancelLabel, cancelTo?}
+
+ONLY reference connector/tool ids from the catalog below. If something isn't available, prefer adding a form step over inventing a tool.
+
+Catalog:
+${toolCatalog.join('\n') || '(empty)'}
+
+Return exactly this JSON shape (no markdown, no preamble):
+{
+  "name": "...",
+  "trigger": "Short sentence the employee might say",
+  "goal": "What success looks like",
+  "mode": "suggested",
+  "steps": [ ... ]
+}`;
+
+  let parsed = null;
+  try {
+    const resp = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: sys },
+        { role: 'user', content: description },
+      ],
+    });
+    const txt = resp.choices[0].message.content || '{}';
+    parsed = JSON.parse(txt);
+  } catch (err) {
+    return res.status(502).json({ error: 'scaffold failed', detail: err.message });
+  }
+
+  const known = new Set(connectors.map((c) => c.id));
+  const unknownTools = [];
+  for (const s of parsed?.steps || []) {
+    if (s.type === 'tool' && !known.has(s.tool?.connectorId)) {
+      unknownTools.push({ stepId: s.id, connectorId: s.tool?.connectorId, toolId: s.tool?.toolId });
+    }
+  }
+  return res.status(200).json({ ok: true, flow: parsed, unknownTools });
 }

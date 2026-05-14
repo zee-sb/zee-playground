@@ -24,6 +24,7 @@ import {
 import { getBlueprint, saveBlueprint, patchBlueprintField } from '../lib/blueprints.mjs';
 import { embed } from '../lib/embeddings.mjs';
 import { dbConfigured } from '../lib/db.mjs';
+import { loadPrompt as loadDiscoveryPrompt } from '../lib/discovery/load-prompt.mjs';
 
 const ALLOWED_ICONS = [
   'Sparkles', 'HeartHandshake', 'Briefcase', 'Megaphone', 'Wrench',
@@ -387,61 +388,7 @@ async function passAWorkspace({ channels, topPosts, deepPosts, orgSignals, langu
     isDepartmentGroup: g.isDepartmentGroup,
   }));
 
-  const system = `You analyze an enterprise intranet and produce the foundational configuration for an AI assistant suite called "Navigator". The output is WORKSPACE-LEVEL — not individual Assistants (those come later).
-
-You will receive:
-- channels (news surfaces): id, title, real post count
-- 15 most-engaged recent posts: title, teaser, channel
-- full body of the top 3 posts (richest tone signal)
-- pages (deeper reference content like policies, hubs): title, description, body excerpt
-- groups (org segmentation + opt-in programs): name, description, isDepartmentGroup
-- user-directory signals: departments, locations, top authors, custom field keys
-- detected workspace languages
-
-Produce STRICT JSON with this exact shape:
-
-{
-  "companyName": "string — infer from content (e.g. 'Staffbase'); hedge with 'this company' if genuinely unclear",
-  "companyMission": "one short sentence describing what this company DOES — its product/service/mission. Infer from page bodies and post content. Hedge if unclear.",
-  "overview": "one paragraph on the workspace: who uses it, how, what dominates the content mix",
-  "tone": ["2-3 short adjectives describing voice (e.g. 'warm', 'celebratory', 'news-driven', 'formal')"],
-  "mainInstructions": "the top-level Navigator orchestrator system prompt that every Assistant inherits. Follow EXACTLY the template below. 400-650 words.",
-  "glossary": [{ "term": "...", "definition": "..." }, ...],
-  "workspaceFacts": ["short phrase fact", ...],
-  "questionTypes": ["question category Navigator should handle", ...]
-}
-
-\`questionTypes\` is REQUIRED — 6-12 concrete categories as short phrases (e.g. "Company news & leadership updates", "HR policies, benefits, PTO", "IT support and access requests", "Onboarding for new hires", "Travel & expense policies", "Internal directory lookups", "Product roadmap & strategy", "Event participation & registration"). Base them on the actual signals (channels, pages, groups, departments). The same categories should appear inside \`mainInstructions\` under the "WHAT NAVIGATOR HELPS WITH" section as bullets, but you MUST also return them in the \`questionTypes\` array. Never leave \`questionTypes\` empty.
-
-\`glossary\` should be 8-15 entries of WORKSPACE-SPECIFIC acronyms, division names, internal programs, ERG names, product nicknames. Skip generic enterprise terms (HR, IT, PTO, ETA, EOD). Mine page bodies, post bodies, group names, and custom field keys.
-
-\`mainInstructions\` template — produce it filled in, NOT with placeholders. Use these section headings verbatim, as plain text (no markdown):
-
-  ROLE
-  <1-2 sentences. State that this is Navigator, the AI assistant for [companyName] employees. Describe the AI's purpose at a high level (help employees find information, answer questions about the company, route to the right Assistant, ground answers in linked intranet content). DO NOT use sycophantic phrases like "Let's work together" or "make this an even better place".>
-
-  ABOUT [COMPANY]
-  <2-4 sentences of company context: what [companyName] does, mission/product, scale (using the real user count if available), notable structure (departments, locations). Mention the dominant content themes you observed. Keep it factual.>
-
-  TONE & LANGUAGE
-  <2-3 sentences. State the observed tone adjectives as the voice Navigator should adopt. If multiple languages were detected, state the language policy: "Respond in the user's language. Default to <dominant locale>. Supported: <list>." If only one language, just name it.>
-
-  WHAT NAVIGATOR HELPS WITH
-  <Bullet list (use "- " prefix) of question categories — same as questionTypes but written naturally as employee-facing items.>
-
-  WHAT NAVIGATOR DOES NOT HANDLE
-  <Bullet list. Include: personal/legal/medical advice; confidential HR cases (escalate to HR helpdesk); anything off-topic to work. Adapt to signals if specific exclusions are obvious.>
-
-  ROUTING
-  <2-4 sentences naming the major Assistants and when to route to each. Reference the actual department names and content themes you observed.>
-
-  GLOSSARY
-  <Inline the workspace glossary as "- TERM — definition" lines so the orchestrator can recognize internal jargon. Include 6-10 highest-value terms (not all of them — keep this section tight).>
-
-  WORKSPACE-SPECIFIC NOTES
-  <2-5 sentences of things worth knowing about THIS company that an AI agent helping employees should know. Examples: prominent programs, recent restructuring observed in posts, multi-language workforce specifics, notable ERGs. Avoid generic platitudes.>
-
-Do not output anything outside the JSON object.`;
+  const system = loadDiscoveryPrompt('passA-workspace');
 
   const response = await client.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -557,56 +504,9 @@ async function passBAssistants({ channels, topPosts, deepPosts, orgSignals, lang
     name: g.name, description: g.description, isDepartmentGroup: g.isDepartmentGroup,
   }));
 
-  const system = `You analyze an enterprise intranet and propose the FULL Assistant lineup for Navigator. The workspace context (overview, glossary, main instructions) has already been generated in a previous pass — you receive it as input. Your job: produce 5-9 Assistants that cover both common universal needs (HR, IT, People Experience, Onboarding, Learning, Travel) AND workspace-specific topic clusters derived from the actual channels, pages, and groups.
-
-You will be given:
-- channels (news surfaces) with descriptions + real post counts
-- top 20 engaged posts (titles + teasers)
-- 3 deep-content post excerpts
-- pages (reference content — policies, hubs, deeper than posts)
-- groups (org segmentation: department mirrors + program/ERG opt-ins)
-- aggregated org signals: departments, locations, top authors, custom field keys
-- workspace context from the previous pass (use it to keep the Assistant prompts grounded in this specific company)
-
-Output rules:
-- Produce 5-9 Assistants. Aim for COVERAGE — be generous with proposing universal Assistants like HR, IT Helpdesk, People Experience, Onboarding, Learning & Development, Travel & Expenses. Only skip a universal Assistant if there is genuinely NO signal it would be useful here.
-- Each Assistant's \`systemPromptSnippet\` must be 120-220 words, written in second-person ("You are..."), with:
-  1. Role definition (one sentence).
-  2. Scope: 3-5 specific topics it handles, naming actual workspace concepts/channels/pages when relevant.
-  3. Tone matching the workspace tone.
-  4. Grounding rules (what knowledge sources to use; cite linked content; say "I don't know" if not in sources). When a relevant Page exists, mention pages explicitly as a richer reference source than channel posts.
-  5. Escalation: when to refer the user to a human (e.g. HR helpdesk for sensitive cases).
-- Use the glossary terms from the workspace context naturally inside the prompts where relevant — that's how the Assistant "knows" the company's language.
-- \`topicClusters\` group channels by theme — 3-7 clusters, NOT one per Assistant. A cluster may have no matching Assistant if the channels are tangential, and an Assistant can exist with no cluster (universal Assistants).
-
-Strict JSON schema:
-{
-  "topicClusters": [
-    {
-      "name": "string (2-4 words)",
-      "description": "string (one sentence)",
-      "lucideIcon": "one of: ${ALLOWED_ICONS.join(', ')}",
-      "channelIds": ["..."],
-      "samplePostTitles": ["..."]
-    }
-  ],
-  "proposedAssistants": [
-    {
-      "clusterName": "either a topicClusters[].name OR 'Universal' for always-include Assistants like HR/IT/Onboarding",
-      "name": "Assistant name (e.g. 'HR Assistant', 'IT Helpdesk', 'People Experience Helper')",
-      "description": "one sentence employee-facing description",
-      "lucideIcon": "from allowed list",
-      "systemPromptSnippet": "120-220 word system prompt",
-      "knowledgeSources": [
-        { "channelId": "must be from the input channels (only if a relevant channel exists; can be empty array for universal Assistants when no content channel matches)", "channelTitle": "string" }
-      ],
-      "alwaysInclude": false,    // true for HR/IT/Onboarding etc. that we propose even without a matching channel
-      "signalsUsed": ["one-line reason this Assistant was proposed — which signals, departments, channels, or post patterns triggered it"]
-    }
-  ]
-}
-
-Lucide icons MUST be from the allowed list; default to Sparkles if unsure.`;
+  const system = loadDiscoveryPrompt('passB-assistants', {
+    allowedIcons: ALLOWED_ICONS.join(', '),
+  });
 
   const response = await client.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -805,33 +705,7 @@ async function handleOptimizeMainInstructions(req, res) {
   } catch {}
 
   const client = new OpenAI({ apiKey });
-  const system = `You are an expert prompt engineer optimizing a workspace-level orchestrator system prompt for an enterprise AI assistant called Navigator.
-
-You will be given:
-- a DRAFT system prompt written by an admin
-- optional WORKSPACE CONTEXT (company name, tone adjectives, glossary, languages)
-
-Your job: produce an OPTIMIZED version that preserves the admin's intent and content but enforces this exact section structure (use these headings verbatim, as plain text, no markdown):
-
-  ROLE
-  ABOUT [COMPANY]
-  TONE & LANGUAGE
-  WHAT NAVIGATOR HELPS WITH
-  WHAT NAVIGATOR DOES NOT HANDLE
-  ROUTING
-  GLOSSARY
-  WORKSPACE-SPECIFIC NOTES
-
-Rules:
-- Keep the admin's facts, scope decisions, and tone. Do NOT invent new policies or routes the admin didn't mention.
-- Reorganize content into the right sections; tighten phrasing; remove fluff and sycophancy.
-- WHAT NAVIGATOR HELPS WITH and WHAT NAVIGATOR DOES NOT HANDLE must be bullet lists with "- " prefix.
-- GLOSSARY must be "- TERM — definition" lines.
-- Total length: 400-700 words.
-- Do not use markdown bold/italics; plain text only.
-- Output STRICT JSON: { "optimized": "...the rewritten prompt as one string..." }
-
-If the draft is missing a section, infer the most reasonable content for that section from the rest of the draft and the workspace context — never leave a section empty.`;
+  const system = loadDiscoveryPrompt('optimize-main');
 
   const response = await client.chat.completions.create({
     model: 'gpt-4o-mini',
