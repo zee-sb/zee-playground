@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Sparkles, Plug, Send, Loader2, MapPin, Zap, LogOut, RotateCcw, Building2, Trophy, Menu, MessageSquarePlus, Database, ChevronRight, X } from 'lucide-react';
+import { Sparkles, Plug, Send, Loader2, MapPin, Zap, LogOut, RotateCcw, Building2, Trophy, Menu, MessageSquarePlus, Database, ChevronRight, X, Volume2, VolumeX, Mic } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import ToolCallCard from './ToolCallCard.jsx';
 import TraceCard from './TraceCard.jsx';
@@ -9,6 +9,8 @@ import FormCard from '../../components/FormCard.jsx';
 import ConfirmWriteModal from './ConfirmWriteModal.jsx';
 import AnalyticsChartCard from './AnalyticsChartCard.jsx';
 import CardRouter from './cards/CardRouter.jsx';
+import VoiceComposer from './VoiceComposer.jsx';
+import { useTts } from './useTts.js';
 import { TypingIndicator } from '../../chat-widget/TypingIndicator.jsx';
 import { streamPost, listMessages } from './api.js';
 import { markdownComponents, sanitizeStreamingMarkdown } from './lib/markdown.jsx';
@@ -33,7 +35,12 @@ function reduceMessages(rows) {
   for (const row of rows) {
     const c = row.content || {};
     if (row.role === 'user') {
-      out.push({ kind: 'msg', role: 'user', text: typeof c === 'string' ? c : (c.text || '') });
+      out.push({
+        kind: 'msg',
+        role: 'user',
+        text: typeof c === 'string' ? c : (c.text || ''),
+        inputModality: typeof c === 'object' && c?.input_modality ? c.input_modality : 'text',
+      });
     } else if (row.role === 'assistant') {
       // Hydrate the trace card from the message's stored trace (orchestrator
       // attaches `trace` to the first assistant message of each turn). This
@@ -179,6 +186,27 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [openSources, setOpenSources] = useState(null); // array of tool items, or null
   const [error, setError] = useState(null);
+  // Voice context — sticky per conversation. Set by:
+  //   1) STT detected language on first hold-to-talk
+  //   2) The user tapping the language pill
+  //   3) "switch to <lang>" intent caught by the orchestrator
+  const [sessionLang, setSessionLang] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    try { return window.localStorage.getItem('companion.sessionLang') || null; }
+    catch { return null; }
+  });
+  const [continuousMode, setContinuousMode] = useState(false);
+  const tts = useTts();
+  // Tracks which assistant messages we've already auto-played TTS for, so a
+  // re-render of `items` doesn't kick playback twice.
+  const autoPlayedRef = useRef(new Set());
+  // True for the duration of an assistant turn that was kicked off by voice
+  // input. Set on send(), cleared on streaming completion.
+  const lastSendWasVoiceRef = useRef(false);
+  // VoiceComposer hands us a `start()` so we can re-open the mic when TTS
+  // finishes in continuous mode.
+  const voiceAutoStartRef = useRef(null);
+  const registerAutoStart = useCallback((fn) => { voiceAutoStartRef.current = fn; }, []);
   // Active context pill — set when the orchestrator picks an assistant/flow
   // for the current turn. Cleared when the flow completes or Studio is empty.
   const [activeContext, setActiveContext] = useState(null);
@@ -208,6 +236,58 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [items, busy]);
+
+  // Auto-play TTS on the latest completed assistant message — but only when
+  // (a) the user's last turn was voice (so typists don't get an unexpected
+  // audio response) or (b) continuous mode is on. The autoPlayedRef gate
+  // makes sure a re-render doesn't replay a message we already kicked off.
+  useEffect(() => {
+    if (busy) return;
+    if (!lastSendWasVoiceRef.current && !continuousMode) return;
+    // Find the most recent assistant message that has finished streaming.
+    let latestIdx = -1;
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.kind === 'msg' && it.role === 'assistant' && !it.streaming && it.text) {
+        latestIdx = i;
+        break;
+      }
+    }
+    if (latestIdx < 0) return;
+    const key = `idx-${latestIdx}`;
+    if (autoPlayedRef.current.has(key)) return;
+    autoPlayedRef.current.add(key);
+    // Clear the voice flag so the NEXT turn doesn't auto-play unless it too
+    // was voice-initiated. Continuous mode keeps it on.
+    lastSendWasVoiceRef.current = false;
+    tts.play(`msg-${latestIdx}`, items[latestIdx].text, sessionLang);
+  }, [items, busy, continuousMode, sessionLang, tts]);
+
+  // When TTS finishes in continuous mode, re-open the mic so the user can
+  // reply without touching the screen. useTts's playingId flips to null both
+  // on natural end and on tap-to-stop; we only want the natural-end case to
+  // re-arm, so we track the last-played id.
+  const lastPlayedIdRef = useRef(null);
+  useEffect(() => {
+    if (tts.playingId) {
+      lastPlayedIdRef.current = tts.playingId;
+      return;
+    }
+    if (!continuousMode) return;
+    if (!lastPlayedIdRef.current) return;
+    // Don't re-open the mic mid-turn (the user might still be typing) or if
+    // a flow is awaiting interaction.
+    if (busy) return;
+    const awaitingInteraction = items.some(
+      (i) => i.kind === 'flow' && i.currentStepInteraction
+    );
+    if (awaitingInteraction) return;
+    // Small breath so the UI updates before the mic mic pulse re-appears.
+    const t = setTimeout(() => {
+      try { voiceAutoStartRef.current?.(); } catch { /* */ }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [tts.playingId, continuousMode, busy, items]);
 
   // Load Studio-driven Hero chips once per mount. Empty Studio → keep
   // legacy chip fallback inside <Hero>.
@@ -319,6 +399,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           flowItem.currentStepInteraction = {
             kind: 'form', stepId: evt.stepId,
             spec: evt.spec, initialValues: evt.initialValues || null,
+            extractedFieldIds: evt.extractedFieldIds || [],
           };
           // Ensure the step exists & is marked awaiting.
           flowItem.steps = flowItem.steps || [];
@@ -332,7 +413,15 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
             stepId: evt.stepId || null,
             pendingToolCallId: evt.pendingToolCallId || null,
             initialValues: evt.initialValues || null,
+            extractedFieldIds: evt.extractedFieldIds || [],
             status: 'open',
+          });
+        }
+      } else if (evt.type === 'language_switched') {
+        if (evt.lang) {
+          queueMicrotask(() => {
+            setSessionLang(evt.lang);
+            try { window.localStorage.setItem('companion.sessionLang', evt.lang); } catch { /* */ }
           });
         }
       } else if (evt.type === 'confirm_request') {
@@ -446,19 +535,33 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
     });
   }, []);
 
-  async function send(text) {
+  async function send(text, meta = {}) {
     if (!text.trim() || busy || !conversationId) return;
     setError(null);
-    setItems((p) => [...p, { kind: 'msg', role: 'user', text }]);
+    lastSendWasVoiceRef.current = meta.inputModality === 'voice';
+    setItems((p) => [...p, { kind: 'msg', role: 'user', text, inputModality: meta.inputModality || 'text' }]);
     setBusy(true);
+    const payload = { conversationId, message: text };
+    if (meta.inputModality) payload.inputModality = meta.inputModality;
+    if (meta.lang || sessionLang) payload.lang = meta.lang || sessionLang;
+    if (meta.lang && meta.lang !== sessionLang) {
+      setSessionLang(meta.lang);
+      try { window.localStorage.setItem('companion.sessionLang', meta.lang); } catch { /* */ }
+    }
     try {
-      await streamPost('/api/companion/chat', { conversationId, message: text }, handleEvent);
+      await streamPost('/api/companion/chat', payload, handleEvent);
     } catch (err) {
       setError(err.message);
     } finally {
       setBusy(false);
     }
   }
+
+  const handleLanguageChange = useCallback((lang) => {
+    if (!lang) return;
+    setSessionLang(lang);
+    try { window.localStorage.setItem('companion.sessionLang', lang); } catch { /* */ }
+  }, []);
 
   // Flow-step form submission. Optimistically record outputs locally; the
   // server's flow_step/flow_completed events will reconcile.
@@ -610,6 +713,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
                 const node = (
                   <Item
                     key={i}
+                    itemIndex={i}
                     item={item}
                     userInitials={userInitials}
                     onSuggestion={send}
@@ -617,6 +721,8 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
                     onFlowConfirm={submitFlowConfirm}
                     busy={busy}
                     suggestionsDisabled={busy || i !== lastSuggestionIdx}
+                    tts={tts}
+                    sessionLang={sessionLang}
                   />
                 );
                 if (COLUMN_ALIGN_KINDS.has(item.kind)) {
@@ -648,11 +754,21 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
         </div>
       )}
 
-      <Composer
+      <VoiceComposer
         onSubmit={send}
         disabled={busy || !conversationId || triviaActive}
         placeholder={triviaActive ? 'Pick a card above to continue' : undefined}
         isMobile={isMobile}
+        sessionLang={sessionLang}
+        onLanguageChange={handleLanguageChange}
+        continuousMode={continuousMode}
+        onToggleContinuousMode={(next) => {
+          setContinuousMode(!!next);
+          // Stop any in-flight TTS when leaving continuous mode so the mic
+          // doesn't re-open after the toggle was just turned off.
+          if (!next) tts.stop();
+        }}
+        registerAutoStart={registerAutoStart}
       />
 
       {pendingConfirm && (
@@ -1529,9 +1645,10 @@ function ActiveContextPill({ context, onClear }) {
 }
 
 function Item({
-  item, userInitials, onSuggestion,
+  item, itemIndex, userInitials, onSuggestion,
   onFlowFormSubmit, onFlowConfirm, busy = false,
   suggestionsDisabled = false, sources = [], onOpenSources,
+  tts, sessionLang,
 }) {
   if (item.kind === 'trace') {
     return <TraceCard route={item.route} intent={item.intent} connectors={item.connectors} />;
@@ -1555,6 +1672,7 @@ function Item({
       <FormCard
         spec={item.spec}
         initialValues={item.initialValues}
+        extractedFieldIds={item.extractedFieldIds}
         busy={busy}
         onSubmit={() => { /* one-off; resume path handled separately */ }}
         theme="teal"
@@ -1633,7 +1751,23 @@ function Item({
           <span>{userInitials}</span>
         </div>
         <div className="cw-msg-body">
-          <div className="cw-bubble cw-user">{item.text}</div>
+          <div className="cw-bubble cw-user" style={{ position: 'relative' }}>
+            {item.text}
+            {item.inputModality === 'voice' && (
+              <span
+                title="You said this with voice"
+                style={{
+                  position: 'absolute', top: -4, right: -4,
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: 'rgba(124, 58, 237, 0.95)', color: 'white',
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                }}
+              >
+                <Mic size={9} />
+              </span>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -1644,12 +1778,31 @@ function Item({
         <span><Sparkles size={14} /></span>
       </div>
       <div className="cw-msg-body" style={{ maxWidth: '100%' }}>
-        <div className="cw-bubble cw-ai" style={{ fontSize: 13, lineHeight: 1.5 }}>
+        <div className="cw-bubble cw-ai" style={{ fontSize: 13, lineHeight: 1.5, position: 'relative' }}>
           {item.text ? (
             <ReactMarkdown components={markdownComponents}>
               {sanitizeStreamingMarkdown(item.text, item.streaming)}
             </ReactMarkdown>
           ) : (item.streaming ? <span style={{ color: '#A1A1AA' }}>…</span> : null)}
+          {tts && !item.streaming && item.text && (
+            <button
+              type="button"
+              onClick={() => tts.play(`msg-${itemIndex}`, item.text, sessionLang)}
+              aria-label={tts.playingId === `msg-${itemIndex}` ? 'Stop playback' : 'Read aloud'}
+              title={tts.playingId === `msg-${itemIndex}` ? 'Stop playback' : 'Read aloud'}
+              style={{
+                position: 'absolute', bottom: -6, right: -6,
+                width: 24, height: 24, borderRadius: '50%',
+                background: tts.playingId === `msg-${itemIndex}` ? '#7C3AED' : 'rgba(124,58,237,0.12)',
+                color: tts.playingId === `msg-${itemIndex}` ? 'white' : '#5B21B6',
+                border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)',
+              }}
+            >
+              {tts.playingId === `msg-${itemIndex}` ? <VolumeX size={12} /> : <Volume2 size={12} />}
+            </button>
+          )}
         </div>
         {!item.streaming && (() => {
           const peopleSources = sources.filter((s) => extractUserCards(s).length > 0);

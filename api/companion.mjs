@@ -14,6 +14,8 @@ import { runOrchestratedTurn } from '../lib/orchestrator/index.mjs';
 import { CONNECTORS } from '../lib/connector-registry.mjs';
 import { loadStudio, materializeActiveScope, userToAudience } from '../lib/studio-config.mjs';
 import { listConnectionsForUser } from '../lib/connections.mjs';
+import { getVoiceProvider } from '../lib/voice/provider.mjs';
+import { redactPII } from '../lib/voice/pii-redact.mjs';
 
 function baseUrlOf(req) {
   const proto = req.headers['x-forwarded-proto'] || 'http';
@@ -51,6 +53,8 @@ export default async function handler(req, res) {
     if (path === '/api/companion/chat')          return await chat(req, res);
     if (path === '/api/companion/confirm')       return await confirm(req, res);
     if (path === '/api/companion/hero')          return await hero(req, res);
+    if (path === '/api/companion/transcribe')    return await transcribe(req, res);
+    if (path === '/api/companion/tts')           return await tts(req, res);
     // DELETE /api/companion/conversations/:id — owner-only.
     const delMatch = path.match(/^\/api\/companion\/conversations\/([^/]+)$/);
     if (delMatch && req.method === 'DELETE') return await deleteConversation(req, res, delMatch[1]);
@@ -179,7 +183,7 @@ async function chat(req, res) {
     return;
   }
 
-  const { conversationId, message, formSubmission, confirmResponse } = req.body || {};
+  const { conversationId, message, formSubmission, confirmResponse, inputModality, lang } = req.body || {};
   if (!conversationId) {
     res.status(400).json({ error: 'conversationId is required' });
     return;
@@ -190,6 +194,13 @@ async function chat(req, res) {
     res.status(400).json({ error: 'message or flow submission required' });
     return;
   }
+  const modality = inputModality === 'voice' ? 'voice' : 'text';
+  // Session language is per-conversation, sticky. Update it from the inbound
+  // turn when the client tells us (voice detection or explicit pill switch)
+  // and the value is a 2-letter ISO code.
+  const inboundLang = typeof lang === 'string' && /^[a-z]{2}(-[a-zA-Z]{2,3})?$/.test(lang)
+    ? lang.toLowerCase().slice(0, 2)
+    : null;
   const flowSubmission = formSubmission
     ? { kind: 'form', flowId: formSubmission.flowId, stepId: formSubmission.stepId, values: formSubmission.values || {} }
     : confirmResponse
@@ -220,11 +231,48 @@ async function chat(req, res) {
   const emit = (obj) => res.write(JSON.stringify(obj) + '\n');
 
   try {
-    if (message) {
+    // Resolve the session language: client-provided wins, otherwise inherit
+    // from the most recent assistant turn's stored session_lang.
+    let sessionLang = inboundLang;
+    if (!sessionLang) {
+      const prior = await sql`
+        select content from messages
+        where conversation_id = ${conversationId}
+          and content ? 'session_lang'
+        order by created_at desc limit 1
+      `;
+      sessionLang = prior[0]?.content?.session_lang || null;
+    }
+    if (inboundLang) {
+      // Record the language detection / switch on the session for audit.
       await sql`
         insert into messages (conversation_id, role, content)
-        values (${conversationId}, 'user', ${JSON.stringify({ text: message })}::jsonb)
+        values (${conversationId}, 'system', ${JSON.stringify({ session_lang: inboundLang, source: modality === 'voice' ? 'voice_detect' : 'explicit' })}::jsonb)
       `;
+    }
+
+    if (message) {
+      const userPayload = { text: message };
+      if (modality === 'voice') userPayload.input_modality = 'voice';
+      if (sessionLang) userPayload.stt_language = sessionLang;
+      await sql`
+        insert into messages (conversation_id, role, content)
+        values (${conversationId}, 'user', ${JSON.stringify(userPayload)}::jsonb)
+      `;
+      if (modality === 'voice') {
+        // Compliance row — modality + lang only; never the audio bytes.
+        try {
+          await sql`
+            insert into voice_audit (conversation_id, user_id, modality, language, transcript_hash)
+            values (${conversationId}, ${session.userId}, 'voice', ${sessionLang || null}, ${hashTranscript(message)})
+          `;
+        } catch (err) {
+          // Migration may not be applied yet — log and continue, don't break the chat.
+          if (!/relation .* does not exist/i.test(err.message)) {
+            console.warn('[companion/chat] voice_audit insert failed:', err.message);
+          }
+        }
+      }
     } else if (flowSubmission) {
       // Persist a synthetic user-facing record of the submission so the chat
       // history (and reload) shows what the user did, without bloating the
@@ -305,6 +353,8 @@ async function chat(req, res) {
       branchId: studio?.branchId || null,
       userConnections: userConnectionProviders,
       flowSubmission,
+      sessionLang,
+      inputModality: modality,
     });
     if (result.status === 'await_confirm') {
       await sql`
@@ -530,6 +580,104 @@ async function rpc(baseUrl, endpoint, method, params, userId) {
     } catch { /* skip non-JSON */ }
   }
   return null;
+}
+
+// ── POST /api/companion/transcribe — voice → text via the active provider ──
+//
+// Body shape: JSON { audio: "<base64>", mimeType: "audio/webm", languageHint? }
+// We chose base64 JSON over multipart so this works without adding a parser
+// dep on the Vercel serverless runtime. Audio bytes are passed straight to
+// the voice provider — never persisted.
+async function transcribe(req, res) {
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+  const session = await getUserFromReq(req);
+  if (!session) {
+    res.status(401).json({ error: 'not_signed_in' });
+    return;
+  }
+  const { audio, mimeType, languageHint } = req.body || {};
+  if (!audio || typeof audio !== 'string') {
+    res.status(400).json({ error: 'audio (base64 string) is required' });
+    return;
+  }
+  // Strip an optional data: URL prefix so the client can send either form.
+  const b64 = audio.includes(',') ? audio.split(',', 2)[1] : audio;
+  let buf;
+  try { buf = Buffer.from(b64, 'base64'); }
+  catch { res.status(400).json({ error: 'invalid base64' }); return; }
+  if (buf.length === 0) { res.status(400).json({ error: 'empty audio' }); return; }
+  // 25MB hard cap (matches OpenAI whisper limits). Frontline clips are seconds.
+  if (buf.length > 25 * 1024 * 1024) { res.status(413).json({ error: 'audio too large' }); return; }
+
+  try {
+    const provider = getVoiceProvider();
+    const result = await provider.transcribe({
+      audio: buf,
+      mimeType: typeof mimeType === 'string' ? mimeType : 'audio/webm',
+      languageHint: typeof languageHint === 'string' ? languageHint : undefined,
+    });
+    const { text: redactedText, redactions } = redactPII(result.text || '');
+    res.status(200).json({
+      text: redactedText,
+      language: result.language || null,
+      confidence: typeof result.confidence === 'number' ? result.confidence : null,
+      redactions,
+      provider: provider.name,
+    });
+  } catch (err) {
+    console.error('[companion/transcribe]', err);
+    res.status(500).json({ error: 'transcribe_failed', message: err.message || String(err) });
+  }
+}
+
+// ── POST /api/companion/tts — text → spoken audio via the active provider ──
+async function tts(req, res) {
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+  const session = await getUserFromReq(req);
+  if (!session) {
+    res.status(401).json({ error: 'not_signed_in' });
+    return;
+  }
+  const { text, voice, lang } = req.body || {};
+  if (!text || typeof text !== 'string') {
+    res.status(400).json({ error: 'text is required' });
+    return;
+  }
+  // Cap input size to keep latency bounded and prevent abuse.
+  const safe = text.slice(0, 2000);
+  try {
+    const provider = getVoiceProvider();
+    const { audio, contentType } = await provider.synthesize({
+      text: safe,
+      voice: typeof voice === 'string' ? voice : undefined,
+      lang: typeof lang === 'string' ? lang.toLowerCase().slice(0, 2) : undefined,
+    });
+    res.setHeader('Content-Type', contentType || 'audio/mpeg');
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).send(audio);
+  } catch (err) {
+    console.error('[companion/tts]', err);
+    res.status(500).json({ error: 'tts_failed', message: err.message || String(err) });
+  }
+}
+
+// FNV-1a 32-bit hash — cheap, dependency-free. Used for voice_audit linkage
+// only: lets compliance correlate a transcript to its turn without storing
+// the text itself.
+function hashTranscript(text) {
+  let h = 0x811c9dc5;
+  const s = String(text || '');
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h.toString(16);
 }
 
 function rowToOpenAi(row) {

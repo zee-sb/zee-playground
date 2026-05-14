@@ -2,7 +2,7 @@
 // current step interactive (form / confirm / running tool) and prior steps
 // collapsed to a one-line summary.
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CheckCircle2, Circle, Loader2, ClipboardList, ShieldCheck, Wrench, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 import FormCard from '../../components/FormCard.jsx';
 import ConfirmCard from '../../components/ConfirmCard.jsx';
@@ -128,6 +128,12 @@ function StepRow({
   const isDone = status === 'done';
   const isWaiting = status === 'awaiting_user' || isCurrent;
   const [expanded, setExpanded] = useState(isWaiting);
+  // Step rows mount on `flow_started` (before the active step is known) and
+  // then the active step is announced by a later `form_request` / `confirm_request`
+  // event. Sync `expanded` so the live step opens itself without a tap.
+  useEffect(() => {
+    if (isWaiting) setExpanded(true);
+  }, [isWaiting]);
 
   const indicatorColor = isDone
     ? STAFFBASE_TEAL_DEEP
@@ -189,7 +195,8 @@ function StepRow({
             {isCurrent && currentStepInteraction?.kind === 'form' && (
               <FormCard
                 spec={currentStepInteraction.spec}
-                initialValues={stepOutputs[step.id]}
+                initialValues={currentStepInteraction.initialValues || stepOutputs[step.id]}
+                extractedFieldIds={currentStepInteraction.extractedFieldIds}
                 busy={busy}
                 onSubmit={(values) => onFormSubmit?.(step.id, values)}
                 theme="teal"

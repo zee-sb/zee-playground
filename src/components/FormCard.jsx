@@ -7,8 +7,8 @@
 //     fields: [{ id, label, type, required?, description?, placeholder?,
 //                defaultValue?, options?, validation? }] }
 
-import React, { useMemo, useState } from 'react';
-import { ClipboardList, CheckCircle, Loader2 } from 'lucide-react';
+import React, { useMemo, useRef, useEffect, useState } from 'react';
+import { ClipboardList, CheckCircle, Loader2, Mic } from 'lucide-react';
 import { validate } from './formValidation.js';
 import {
   STAFFBASE_TEAL, STAFFBASE_TEAL_DEEP, NEUTRAL_BORDER, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
@@ -34,6 +34,7 @@ function initialValuesFor(spec, override) {
 export default function FormCard({
   spec,
   initialValues,
+  extractedFieldIds,
   busy = false,
   onSubmit,
   onCancel,
@@ -46,13 +47,34 @@ export default function FormCard({
   const [errors, setErrors] = useState({});
   const [showAllErrors, setShowAllErrors] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(submitted);
+  // Track which fields the user has touched since the form opened — once
+  // touched, we drop the "from your message" marker so corrections feel clean.
+  const [touched, setTouched] = useState({});
+  const extractedSet = useMemo(
+    () => new Set(Array.isArray(extractedFieldIds) ? extractedFieldIds : []),
+    [extractedFieldIds],
+  );
+  const hasExtracted = extractedSet.size > 0;
 
   const fields = spec?.fields || [];
+
+  // Auto-focus the first empty required field so a voice-prefilled form drops
+  // the user straight into whatever's still missing.
+  const firstEmptyRequiredRef = useRef(null);
+  useEffect(() => {
+    if (firstEmptyRequiredRef.current && hasExtracted) {
+      try { firstEmptyRequiredRef.current.focus({ preventScroll: true }); } catch { /* */ }
+    }
+    // Intentionally only on mount — re-focusing on every value change would
+    // fight the user's cursor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const liveValidation = useMemo(() => validate(spec, values), [spec, values]);
 
   function setField(id, raw) {
     setValues((v) => ({ ...v, [id]: raw }));
+    if (!touched[id]) setTouched((t) => ({ ...t, [id]: true }));
     if (showAllErrors) {
       // Re-validate live once the user has tried to submit once.
       const { errors: nextErrors } = validate(spec, { ...values, [id]: raw });
@@ -111,18 +133,49 @@ export default function FormCard({
         </div>
       )}
 
+      {hasExtracted && (
+        <div style={{
+          margin: '0 0 10px',
+          padding: '6px 10px',
+          background: palette.accentBg,
+          border: `1px dashed ${palette.accent}`,
+          borderRadius: 8,
+          fontSize: 11.5,
+          color: palette.accentDeep,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}>
+          <Mic size={11} />
+          <span>Pre-filled from your message — please check before submitting.</span>
+        </div>
+      )}
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {fields.map((f) => (
-          <FieldRow
-            key={f.id}
-            field={f}
-            value={values[f.id]}
-            error={errors[f.id]}
-            onChange={(v) => setField(f.id, v)}
-            disabled={busy}
-            palette={palette}
-          />
-        ))}
+        {(() => {
+          let firstEmptyRequiredAssigned = false;
+          return fields.map((f) => {
+            const value = values[f.id];
+            const isExtracted = extractedSet.has(f.id) && !touched[f.id];
+            const isEmptyRequired = f.required && (value === '' || value === undefined || value === null);
+            const inputRef = (!firstEmptyRequiredAssigned && isEmptyRequired)
+              ? (firstEmptyRequiredAssigned = true, firstEmptyRequiredRef)
+              : null;
+            return (
+              <FieldRow
+                key={f.id}
+                field={f}
+                value={value}
+                error={errors[f.id]}
+                onChange={(v) => setField(f.id, v)}
+                disabled={busy}
+                palette={palette}
+                extracted={isExtracted}
+                inputRef={inputRef}
+              />
+            );
+          });
+        })()}
       </div>
 
       {showAllErrors && Object.keys(errors).length > 0 && (
@@ -167,15 +220,20 @@ export default function FormCard({
   );
 }
 
-function FieldRow({ field, value, error, onChange, disabled, palette }) {
+function FieldRow({ field, value, error, onChange, disabled, palette, extracted = false, inputRef = null }) {
   const baseInput = {
     width: '100%',
     fontSize: 13,
     padding: '8px 10px',
-    border: `1px solid ${error ? '#FCA5A5' : NEUTRAL_BORDER}`,
+    border: error
+      ? '1px solid #FCA5A5'
+      : extracted
+        ? `1px solid ${palette.accent}`
+        : `1px solid ${NEUTRAL_BORDER}`,
+    boxShadow: extracted && !error ? `inset 0 0 0 1px ${palette.accent}` : 'none',
     borderRadius: 8,
     color: TEXT_PRIMARY,
-    background: disabled ? '#F8FAFC' : '#FFFFFF',
+    background: disabled ? '#F8FAFC' : (extracted ? palette.accentBg : '#FFFFFF'),
     outline: 'none',
     boxSizing: 'border-box',
     fontFamily: 'inherit',
@@ -186,6 +244,7 @@ function FieldRow({ field, value, error, onChange, disabled, palette }) {
   if (field.type === 'textarea') {
     control = (
       <textarea
+        ref={inputRef}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
         placeholder={field.placeholder || ''}
@@ -197,6 +256,7 @@ function FieldRow({ field, value, error, onChange, disabled, palette }) {
   } else if (field.type === 'select') {
     control = (
       <select
+        ref={inputRef}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
@@ -253,6 +313,7 @@ function FieldRow({ field, value, error, onChange, disabled, palette }) {
       : 'text';
     control = (
       <input
+        ref={inputRef}
         type={htmlType}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
@@ -277,12 +338,29 @@ function FieldRow({ field, value, error, onChange, disabled, palette }) {
     <div>
       <label
         style={{
-          display: 'block', fontSize: 11, fontWeight: 600,
+          display: 'flex', alignItems: 'center', gap: 6,
+          fontSize: 11, fontWeight: 600,
           textTransform: 'uppercase', letterSpacing: '0.04em',
           color: TEXT_MUTED, marginBottom: 4,
         }}
       >
-        {field.label}{field.required && <span style={{ color: '#B91C1C', marginLeft: 3 }}>*</span>}
+        <span>
+          {field.label}{field.required && <span style={{ color: '#B91C1C', marginLeft: 3 }}>*</span>}
+        </span>
+        {extracted && (
+          <span
+            style={{
+              fontSize: 9, fontWeight: 700, letterSpacing: '0.05em',
+              padding: '1px 5px', borderRadius: 999,
+              background: palette.accent, color: 'white',
+              textTransform: 'uppercase',
+              display: 'inline-flex', alignItems: 'center', gap: 3,
+            }}
+            title="Pre-filled from what you said. Edit to override."
+          >
+            <Mic size={9} /> from your message
+          </span>
+        )}
       </label>
       {control}
       {field.description && (
