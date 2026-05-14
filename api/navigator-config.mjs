@@ -3,14 +3,17 @@
 // Mirrors api/navigator-setup.mjs and api/navigator-assistant.mjs:
 // single dispatcher, action picked from ?action= query param.
 //
-//   GET  /api/navigator-config?action=load   → load current config + revision
-//   POST /api/navigator-config?action=save   → save config (optimistic CAS)
+//   GET  /api/navigator-config?action=load&branch=<id>   → load + revision
+//   POST /api/navigator-config?action=save&branch=<id>   → save (optimistic CAS)
 //
-// The branch is resolved server-side via getBranch() — one branch per
-// deployment for this prototype. Assistants are NOT in this blob; they
-// live in navigator_assistants and are managed by /api/navigator-assistant.
+// Branch comes from ?branch=<branchId> (the gallery's active tenant). For
+// backward compat during the single→multi-tenant transition, omitting the
+// param falls back to the only registered tenant. Assistants are NOT in
+// this blob; they live in navigator_assistants and are managed by
+// /api/navigator-assistant.
 
-import { getBranch } from '../lib/staffbase.mjs';
+import { withStaffbaseContext } from '../lib/staffbase.mjs';
+import { resolveBranchId, getTenantContext } from '../lib/tenants.mjs';
 import {
   getConfig,
   saveConfig,
@@ -44,16 +47,30 @@ export default async function handler(req, res) {
         currentRevision: err.currentRevision,
       });
     }
+    if (err.code === 'tenant_not_found') {
+      return res.status(404).json({ error: 'tenant_not_found' });
+    }
     res.status(500).json({ error: err.message || 'internal error' });
   }
 }
 
-async function getActiveBranch() {
-  try {
-    return await getBranch();
-  } catch {
-    return null;
+// Resolve the active tenant for this request. Returns { branchId, branchName,
+// tenantCtx } on success, or null when the caller didn't supply a tenant and
+// none is registered yet. Throws when the supplied tenant id is unknown.
+async function getActiveTenant(req) {
+  const branchId = await resolveBranchId(req);
+  if (!branchId) return null;
+  const ctx = await getTenantContext(branchId);
+  if (!ctx) {
+    const err = new Error('tenant_not_found');
+    err.code = 'tenant_not_found';
+    throw err;
   }
+  return {
+    branchId: ctx.branchId,
+    branchName: ctx.displayName,
+    ctx,
+  };
 }
 
 async function readJsonBody(req) {
@@ -72,14 +89,14 @@ function extractBlueprintGroups(blueprintRow) {
 }
 
 // ── load ───────────────────────────────────────────────────────────────────
-async function handleLoad(_req, res) {
+async function handleLoad(req, res) {
   if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
-  const branch = await getActiveBranch();
-  if (!branch?.id) return res.status(503).json({ error: 'branch_unavailable' });
+  const tenant = await getActiveTenant(req);
+  if (!tenant) return res.status(503).json({ error: 'branch_unavailable' });
 
   const [config, blueprintRow] = await Promise.all([
-    getConfig(branch.id),
-    getBlueprint(branch.id).catch(() => null),
+    getConfig(tenant.branchId),
+    getBlueprint(tenant.branchId).catch(() => null),
   ]);
   const blueprintGroups = extractBlueprintGroups(blueprintRow);
   if (!config) {
@@ -88,8 +105,8 @@ async function handleLoad(_req, res) {
     // first save, so getConfig's null state and a freshly inserted row are
     // distinguishable in logs.
     return res.status(200).json({
-      branchId: branch.id,
-      branchName: branch.name,
+      branchId: tenant.branchId,
+      branchName: tenant.branchName,
       config: {
         connectors: [],
         flows: [],
@@ -101,8 +118,8 @@ async function handleLoad(_req, res) {
     });
   }
   return res.status(200).json({
-    branchId: branch.id,
-    branchName: branch.name,
+    branchId: tenant.branchId,
+    branchName: tenant.branchName,
     config: {
       connectors: config.connectors,
       flows: config.flows,
@@ -121,8 +138,8 @@ async function handleSave(req, res) {
     return res.status(405).json({ error: 'method_not_allowed' });
   }
   if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
-  const branch = await getActiveBranch();
-  if (!branch?.id) return res.status(503).json({ error: 'branch_unavailable' });
+  const tenant = await getActiveTenant(req);
+  if (!tenant) return res.status(503).json({ error: 'branch_unavailable' });
 
   const body = await readJsonBody(req);
   const { config, baseRevision } = body || {};
@@ -133,19 +150,19 @@ async function handleSave(req, res) {
   // Make sure a row exists so the CAS-update has something to hit. This is a
   // no-op if the row was already created on a prior save.
   if (baseRevision === 0 || baseRevision == null) {
-    await ensureConfigRow(branch.id);
+    await ensureConfigRow(tenant.branchId);
   }
 
   const saved = await saveConfig({
-    branchId: branch.id,
+    branchId: tenant.branchId,
     config,
     baseRevision: baseRevision ?? 1,
     userId: null,
   });
 
   return res.status(200).json({
-    branchId: branch.id,
-    branchName: branch.name,
+    branchId: tenant.branchId,
+    branchName: tenant.branchName,
     config: {
       connectors: saved.connectors,
       flows: saved.flows,
@@ -162,39 +179,41 @@ async function handleSave(req, res) {
 // are synchronous; pass ?deep=true to also run the LLM-judged assistant
 // overlap check. Deep results are memoized by (branchId, revision) so
 // re-checking the same state doesn't burn tokens.
-async function handleHealth(_req, res, url) {
+async function handleHealth(req, res, url) {
   if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
-  const branch = await getActiveBranch();
-  if (!branch?.id) return res.status(503).json({ error: 'branch_unavailable' });
+  const tenant = await getActiveTenant(req);
+  if (!tenant) return res.status(503).json({ error: 'branch_unavailable' });
   const deep = url.searchParams.get('deep') === 'true';
 
   const [config, blueprintRow, assistants] = await Promise.all([
-    getConfig(branch.id).catch(() => null),
-    getBlueprint(branch.id).catch(() => null),
-    listAssistants(branch.id).catch(() => []),
+    getConfig(tenant.branchId).catch(() => null),
+    getBlueprint(tenant.branchId).catch(() => null),
+    listAssistants(tenant.branchId).catch(() => []),
   ]);
   const blueprint = blueprintRow?.blueprint || null;
   const revision = config?.revision || 0;
 
   // Deep cache key — same revision + same deep flag = same answer.
-  const cacheKey = `${branch.id}:${revision}:${deep ? 'deep' : 'shallow'}`;
+  const cacheKey = `${tenant.branchId}:${revision}:${deep ? 'deep' : 'shallow'}`;
   const cached = deepHealthCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return res.status(200).json({
-      branchId: branch.id,
-      branchName: branch.name,
+      branchId: tenant.branchId,
+      branchName: tenant.branchName,
       revision,
       cached: true,
       ...cached.value,
     });
   }
 
-  const result = await checkConfigHealth({
+  // checkConfigHealth may invoke Staffbase API calls (deep judge) — wrap so
+  // the tenant credentials are in scope.
+  const result = await withStaffbaseContext(tenant.ctx, () => checkConfigHealth({
     config: config || {},
     blueprint,
     assistants,
     deep,
-  });
+  }));
 
   // Stamp revision into the summary so the client can detect drift.
   result.summary.revision = revision;
@@ -210,8 +229,8 @@ async function handleHealth(_req, res, url) {
   }
 
   return res.status(200).json({
-    branchId: branch.id,
-    branchName: branch.name,
+    branchId: tenant.branchId,
+    branchName: tenant.branchName,
     revision,
     cached: false,
     ...result,
@@ -228,19 +247,19 @@ async function handleHealth(_req, res, url) {
 async function handleReseed(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
   if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
-  const branch = await getActiveBranch();
-  if (!branch?.id) return res.status(503).json({ error: 'branch_unavailable' });
+  const tenant = await getActiveTenant(req);
+  if (!tenant) return res.status(503).json({ error: 'branch_unavailable' });
 
   // 1) Wipe assistants for this branch and re-insert the seed list.
-  const existing = await listAssistants(branch.id);
+  const existing = await listAssistants(tenant.branchId);
   for (const a of existing) {
-    await deleteAssistant({ branchId: branch.id, id: a.id });
+    await deleteAssistant({ branchId: tenant.branchId, id: a.id });
   }
   const seedAssistants = buildSeedAssistants();
   const created = [];
   for (const a of seedAssistants) {
     const row = await createAssistant({
-      branchId: branch.id,
+      branchId: tenant.branchId,
       assistant: a,
       source: a.source || 'seed',
       templateId: null,
@@ -252,19 +271,19 @@ async function handleReseed(req, res) {
   // 2) Rewrite the navigator_config row to the seed payload. CAS-safe:
   //    fetch current revision first, then save with that revision so we
   //    don't trip the optimistic concurrency check.
-  await ensureConfigRow(branch.id);
-  const current = await getConfig(branch.id);
+  await ensureConfigRow(tenant.branchId);
+  const current = await getConfig(tenant.branchId);
   const seedPayload = buildSeedConfigPayload();
   const saved = await saveConfig({
-    branchId: branch.id,
+    branchId: tenant.branchId,
     config: seedPayload,
     baseRevision: current?.revision ?? 0,
     userId: null,
   });
 
   return res.status(200).json({
-    branchId: branch.id,
-    branchName: branch.name,
+    branchId: tenant.branchId,
+    branchName: tenant.branchName,
     config: {
       connectors: saved.connectors,
       flows: saved.flows,

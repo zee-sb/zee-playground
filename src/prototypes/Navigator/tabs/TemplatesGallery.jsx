@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import AudiencePicker from '../components/AudiencePicker'
 import ConflictWarnings, { hasHardConflict } from '../components/ConflictWarnings'
+import { useActiveTenant } from '../../AIAssistant/useActiveTenant'
 
 // Lucide icon name → component, scoped to what the template catalog uses.
 const TEMPLATE_ICONS = {
@@ -20,6 +21,8 @@ const resolveTemplateIcon = (name) => TEMPLATE_ICONS[name] || Sparkles
  * against existing Assistants.
  */
 export default function TemplatesGallery({ tenant, existingAssistants = [], onBack, onAdd }) {
+  const { branchId } = useActiveTenant()
+  const branchQ = branchId ? `&branch=${encodeURIComponent(branchId)}` : ''
   const [templates, setTemplates] = useState([])
   const [suggestedFlags, setSuggestedFlags] = useState({})
   const [loadErr, setLoadErr] = useState(null)
@@ -28,7 +31,7 @@ export default function TemplatesGallery({ tenant, existingAssistants = [], onBa
   useEffect(() => {
     ;(async () => {
       try {
-        const r = await fetch('/api/navigator-assistant?action=templates')
+        const r = await fetch(`/api/navigator-assistant?action=templates${branchQ}`)
         const body = await r.json()
         if (!r.ok) throw new Error(body.error || 'Failed to load templates')
         setTemplates(body.templates || [])
@@ -128,7 +131,7 @@ function TemplatePreviewDrawer({ template, tenant, onClose, onAdd }) {
     setErr(null)
     ;(async () => {
       try {
-        const r = await fetch('/api/navigator-assistant?action=create-from-template', {
+        const r = await fetch(`/api/navigator-assistant?action=create-from-template${branchQ}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ templateId: template.id }),
@@ -154,7 +157,7 @@ function TemplatePreviewDrawer({ template, tenant, onClose, onAdd }) {
     try {
       const finalDraft = { ...draft, audience }
       // Persist server-side
-      const r = await fetch('/api/navigator-assistant?action=save', {
+      const r = await fetch(`/api/navigator-assistant?action=save${branchQ}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ assistant: finalDraft, source: `template:${template.id}`, templateId: template.id }),

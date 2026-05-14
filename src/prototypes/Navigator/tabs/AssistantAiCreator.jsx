@@ -4,6 +4,7 @@ import {
 } from 'lucide-react'
 import AudiencePicker from '../components/AudiencePicker'
 import ConflictWarnings, { hasHardConflict } from '../components/ConflictWarnings'
+import { useActiveTenant } from '../../AIAssistant/useActiveTenant'
 
 /**
  * AssistantAiCreator — natural-language Assistant creation.
@@ -14,6 +15,8 @@ import ConflictWarnings, { hasHardConflict } from '../components/ConflictWarning
  *   3. Customer reviews the draft, can edit, then saves.
  */
 export default function AssistantAiCreator({ tenant, existingAssistants = [], onBack, onSave }) {
+  const { branchId } = useActiveTenant()
+  const branchQ = branchId ? `&branch=${encodeURIComponent(branchId)}` : ''
   const [step, setStep] = useState(1) // 1 describe, 2 drafting/result
   const [description, setDescription] = useState('')
   const [audience, setAudience] = useState({ everyone: true, roles: [], locations: [] })
@@ -43,7 +46,7 @@ export default function AssistantAiCreator({ tenant, existingAssistants = [], on
     setStreamErr(null)
 
     try {
-      const r = await fetch('/api/navigator-assistant?action=create-from-description', {
+      const r = await fetch(`/api/navigator-assistant?action=create-from-description${branchQ}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ description, audience }),
@@ -130,7 +133,7 @@ export default function AssistantAiCreator({ tenant, existingAssistants = [], on
         instructions: editedInstructions,
         audience,
       }
-      const r = await fetch('/api/navigator-assistant?action=save', {
+      const r = await fetch(`/api/navigator-assistant?action=save${branchQ}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ assistant: final, source: 'custom_ai' }),

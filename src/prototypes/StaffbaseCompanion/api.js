@@ -1,16 +1,33 @@
 // Frontend helpers for /api/auth/*, /api/connections/*, /api/companion/*.
 
-export async function getMe() {
-  const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
-  if (res.status === 401) return null;
+// Append `?branch=<id>` so the backend's resolveBranchId() picks up the
+// active tenant. All /api/companion/* helpers thread this through; the
+// auth/* helpers don't (they're tenant-neutral).
+function withBranch(url, branchId) {
+  if (!branchId) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}branch=${encodeURIComponent(branchId)}`;
+}
+
+// /api/auth/me now returns 401 with code 'tenant_mismatch' when the session
+// is bound to a different tenant than the one currently active. We surface
+// that as { mismatch: true } so the Companion shell can attempt an
+// auto-sign-in for the new tenant using the cached email.
+export async function getMe(branchId) {
+  const res = await fetch(withBranch('/api/auth/me', branchId), { credentials: 'same-origin' });
+  if (res.status === 401) {
+    let body = null;
+    try { body = await res.json(); } catch { /* */ }
+    if (body?.code === 'tenant_mismatch') return { mismatch: true, sessionBranchId: body.sessionBranchId };
+    return null;
+  }
   const ct = res.headers.get('content-type') || '';
   if (!ct.includes('application/json')) return null;
   if (!res.ok) return null;
   return await res.json();
 }
 
-export async function signInWithEmail(email) {
-  const res = await fetch('/api/auth/staffbase/login', {
+export async function signInWithEmail(email, branchId) {
+  const res = await fetch(withBranch('/api/auth/staffbase/login', branchId), {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
@@ -20,8 +37,13 @@ export async function signInWithEmail(email) {
   try { body = await res.json(); } catch { /* non-json */ }
   if (!res.ok) {
     const code = body?.error || `http_${res.status}`;
-    const err = new Error(code);
+    // The auth backend now surfaces the underlying error message for the
+    // generic `internal_error` catch-all (prototype-friendly debuggability).
+    // Preserve it on the thrown Error so the picker can show it verbatim.
+    const detail = body?.message || null;
+    const err = new Error(detail ? `${code}: ${detail}` : code);
     err.code = code;
+    err.detail = detail;
     throw err;
   }
   return body.user;
@@ -55,14 +77,14 @@ export async function disconnectProvider(provider) {
   if (!res.ok) throw new Error(`disconnect failed: ${res.status}`);
 }
 
-export async function listConversations() {
-  const res = await fetch('/api/companion/conversations', { credentials: 'same-origin' });
+export async function listConversations(branchId) {
+  const res = await fetch(withBranch('/api/companion/conversations', branchId), { credentials: 'same-origin' });
   if (!res.ok) throw new Error(`conversations failed: ${res.status}`);
   return (await res.json()).conversations;
 }
 
-export async function createConversation(title) {
-  const res = await fetch('/api/companion/conversations', {
+export async function createConversation(title, branchId) {
+  const res = await fetch(withBranch('/api/companion/conversations', branchId), {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
@@ -72,8 +94,8 @@ export async function createConversation(title) {
   return (await res.json()).conversation;
 }
 
-export async function deleteConversation(conversationId) {
-  const res = await fetch(`/api/companion/conversations/${encodeURIComponent(conversationId)}`, {
+export async function deleteConversation(conversationId, branchId) {
+  const res = await fetch(withBranch(`/api/companion/conversations/${encodeURIComponent(conversationId)}`, branchId), {
     method: 'DELETE',
     credentials: 'same-origin',
   });
@@ -81,8 +103,8 @@ export async function deleteConversation(conversationId) {
   return true;
 }
 
-export async function listMessages(conversationId) {
-  const res = await fetch(`/api/companion/messages?conversationId=${encodeURIComponent(conversationId)}`, {
+export async function listMessages(conversationId, branchId) {
+  const res = await fetch(withBranch(`/api/companion/messages?conversationId=${encodeURIComponent(conversationId)}`, branchId), {
     credentials: 'same-origin',
   });
   if (!res.ok) throw new Error(`messages failed: ${res.status}`);

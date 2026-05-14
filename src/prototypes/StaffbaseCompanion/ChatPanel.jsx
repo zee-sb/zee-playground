@@ -14,7 +14,15 @@ import { useTts } from './useTts.js';
 import { TypingIndicator } from '../../chat-widget/TypingIndicator.jsx';
 import { streamPost, listMessages } from './api.js';
 import { markdownComponents, sanitizeStreamingMarkdown } from './lib/markdown.jsx';
+import { useActiveTenant } from '../AIAssistant/useActiveTenant';
 import '../../chat-widget/styles.css';
+
+// Append `?branch=<id>` to API URLs so multi-tenant routes scope to the
+// active Staffbase workspace.
+function withBranchQuery(url, branchId) {
+  if (!branchId) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}branch=${encodeURIComponent(branchId)}`;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -180,6 +188,7 @@ function reduceMessages(rows) {
 // ── Main panel ──────────────────────────────────────────────────────────────
 
 export default function ChatPanel({ conversationId, user, connections = [], onNavigateConnections, onSignOut, onNewConversation, onOpenHistory, onConversationRenamed, isMobile = false }) {
+  const { branchId } = useActiveTenant();
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState(null);
@@ -221,7 +230,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
     if (!conversationId) { setItems([]); return; }
     (async () => {
       try {
-        const rows = await listMessages(conversationId);
+        const rows = await listMessages(conversationId, branchId);
         if (cancelled) return;
         setItems(reduceMessages(rows));
         const pendingRow = [...rows].reverse().find((r) => r.role === 'system' && r.content?.pendingConfirmation);
@@ -231,7 +240,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
       }
     })();
     return () => { cancelled = true; };
-  }, [conversationId]);
+  }, [conversationId, branchId]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -293,7 +302,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
   // legacy chip fallback inside <Hero>.
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/companion/hero')
+    fetch(withBranchQuery('/api/companion/hero', branchId))
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (cancelled || !data) return;
@@ -303,7 +312,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
       })
       .catch(() => { /* ignore */ });
     return () => { cancelled = true; };
-  }, [conversationId]);
+  }, [conversationId, branchId]);
 
   const handleEvent = useCallback((evt) => {
     setItems((prev) => {
@@ -549,7 +558,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
       try { window.localStorage.setItem('companion.sessionLang', meta.lang); } catch { /* */ }
     }
     try {
-      await streamPost('/api/companion/chat', payload, handleEvent);
+      await streamPost(withBranchQuery('/api/companion/chat', branchId), payload, handleEvent);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -581,7 +590,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
     });
     setBusy(true);
     try {
-      await streamPost('/api/companion/chat', {
+      await streamPost(withBranchQuery('/api/companion/chat', branchId), {
         conversationId,
         formSubmission: { flowId, stepId, values },
       }, handleEvent);
@@ -610,7 +619,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
     });
     setBusy(true);
     try {
-      await streamPost('/api/companion/chat', {
+      await streamPost(withBranchQuery('/api/companion/chat', branchId), {
         conversationId,
         confirmResponse: { flowId, stepId, accepted, cancelTo: cancelTo || null },
       }, handleEvent);
@@ -625,7 +634,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
     if (!pendingConfirm) return;
     setConfirmBusy(true);
     try {
-      await streamPost('/api/companion/confirm', { conversationId, decision }, handleEvent);
+      await streamPost(withBranchQuery('/api/companion/confirm', branchId), { conversationId, decision }, handleEvent);
     } catch (err) {
       setError(err.message);
     } finally {

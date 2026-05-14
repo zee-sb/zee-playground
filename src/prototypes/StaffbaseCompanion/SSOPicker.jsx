@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Sparkles, ShieldCheck, ArrowRight } from 'lucide-react';
-import { signInWithEmail, logout } from './api.js';
+import { signInWithEmail } from './api.js';
+import { useActiveTenant } from '../AIAssistant/useActiveTenant';
 
 const AUTH_ERROR_COPY = {
   state_mismatch: 'Sign-in attempt expired. Try again.',
@@ -10,39 +11,50 @@ const AUTH_ERROR_COPY = {
   domain_not_allowed: 'Only @staffbase.com Google Workspace accounts can sign in to this demo.',
   access_denied: 'You declined the Google consent screen.',
   google_disabled: 'Google sign-in is temporarily unavailable — sign in with your email below.',
+  no_active_tenant: 'No workspace selected. Pick one from the gallery first.',
 };
 
 const SIGNIN_ERROR_COPY = {
   invalid_email: 'Please enter a valid email address.',
-  user_not_found: "We couldn't find that email in the Staffbase directory.",
+  user_not_found: "We couldn't find that email in this workspace's directory.",
   directory_lookup_failed: 'Could not reach the Staffbase directory. Try again in a moment.',
   db_not_configured: 'The companion database is not configured (set DATABASE_URL).',
+  no_active_tenant: 'No workspace selected. Pick one from the gallery first.',
+  tenant_not_found: 'The selected workspace is not registered.',
 };
 
-export default function SSOPicker({ authError, onBack, onSignedIn }) {
+export default function SSOPicker({ authError, tenant: tenantProp, onBack, onSignedIn }) {
+  const { branchId, tenant: tenantFromCtx } = useActiveTenant();
+  const tenant = tenantProp || tenantFromCtx;
+  const tenantName = tenant?.displayName || null;
   const errMsg = authError ? (AUTH_ERROR_COPY[authError] || `Sign-in error: ${authError}`) : null;
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [signInError, setSignInError] = useState(null);
 
-  useEffect(() => {
-    // If the picker is showing, the user is by definition not signed in
-    // (parent already checked /api/auth/me). Proactively clear any stale
-    // session cookie left over from an earlier flow.
-    logout().catch(() => { /* best-effort */ });
-  }, []);
+  // Don't auto-logout on mount: with per-tenant sessions, the cookie may
+  // still be valid for a different tenant the user expects to switch back
+  // to. The login endpoint will overwrite the cookie on success anyway.
 
   async function submit(e) {
     e.preventDefault();
     if (busy) return;
     setBusy(true);
     setSignInError(null);
+    const trimmed = email.trim();
     try {
-      await signInWithEmail(email.trim());
-      onSignedIn?.();
+      await signInWithEmail(trimmed, branchId);
+      onSignedIn?.(trimmed);
     } catch (err) {
       const code = err.code || err.message;
-      setSignInError(SIGNIN_ERROR_COPY[code] || `Sign-in failed: ${code}`);
+      const detail = err.detail;
+      const friendly = SIGNIN_ERROR_COPY[code];
+      // When the backend surfaces a detail message (e.g. "column
+      // staffbase_branch_id does not exist" — migrations not applied),
+      // show it so the dev can act on it without tailing server logs.
+      setSignInError(
+        friendly || (detail ? `Sign-in failed: ${detail}` : `Sign-in failed: ${code}`)
+      );
     } finally {
       setBusy(false);
     }
@@ -64,9 +76,16 @@ export default function SSOPicker({ authError, onBack, onSignedIn }) {
           <div className="w-14 h-14 mx-auto mb-6 rounded-2xl bg-[#7C3AED] grid place-items-center text-white shadow-lg">
             <Sparkles size={28} />
           </div>
-          <h1 className="text-[24px] font-bold tracking-tight mb-2">Staffbase Companion</h1>
+          <h1 className="text-[24px] font-bold tracking-tight mb-2">
+            {tenantName ? `Sign in to ${tenantName}` : 'Staffbase Companion'}
+          </h1>
+          {tenant?.workspaceUrl && (
+            <div className="text-[12px] text-[#A1A1AA] -mt-1 mb-3 font-mono">{tenant.workspaceUrl}</div>
+          )}
           <p className="text-[15px] text-[#71717A] leading-relaxed mb-8">
-            Enter your Staffbase email to continue. You'll be signed in as that teammate for the demo.
+            {tenantName
+              ? `Enter your email as it appears in the ${tenantName} directory. Each workspace is a separate account — your conversation history and connections live in this workspace only.`
+              : "Enter your Staffbase email to continue. You'll be signed in as that teammate for the demo."}
           </p>
 
           {errMsg && (

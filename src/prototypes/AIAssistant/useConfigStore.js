@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   STORAGE_KEY,
+  keyForBranch,
   loadConfig,
   saveConfig,
   clearConfig,
@@ -48,10 +49,18 @@ async function safeJson(resp) {
   try { return await resp.json(); } catch { return null; }
 }
 
-async function fetchServerConfig() {
+// Tack the active branch onto a server URL. Server routes accept `branch` as
+// a query param to scope each request to one Staffbase tenant.
+function withBranch(url, branchId) {
+  if (!branchId) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}branch=${encodeURIComponent(branchId)}`;
+}
+
+async function fetchServerConfig(branchId) {
   let resp;
   try {
-    resp = await fetch(`${CONFIG_ENDPOINT}?action=load`, {
+    resp = await fetch(withBranch(`${CONFIG_ENDPOINT}?action=load`, branchId), {
       method: 'GET',
       credentials: 'include',
       headers: { 'Cache-Control': 'no-cache' },
@@ -68,10 +77,10 @@ async function fetchServerConfig() {
   return safeJson(resp);
 }
 
-async function pushServerConfig(payload) {
+async function pushServerConfig(payload, branchId) {
   let resp;
   try {
-    resp = await fetch(`${CONFIG_ENDPOINT}?action=save`, {
+    resp = await fetch(withBranch(`${CONFIG_ENDPOINT}?action=save`, branchId), {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -101,20 +110,20 @@ async function pushServerConfig(payload) {
 
 // ── Assistant transport (DB authoritative) ──────────────────────────────────
 
-async function fetchServerAssistants() {
+async function fetchServerAssistants(branchId) {
   let resp;
   try {
-    resp = await fetch(`${ASSISTANT_ENDPOINT}?action=list`, { credentials: 'include' });
+    resp = await fetch(withBranch(`${ASSISTANT_ENDPOINT}?action=list`, branchId), { credentials: 'include' });
   } catch { return null }
   if (!resp.ok) return null;
   const data = await safeJson(resp);
   return Array.isArray(data?.assistants) ? data.assistants : null;
 }
 
-async function pushServerAssistants(assistants) {
+async function pushServerAssistants(assistants, branchId) {
   let resp;
   try {
-    resp = await fetch(`${ASSISTANT_ENDPOINT}?action=bulk-save`, {
+    resp = await fetch(withBranch(`${ASSISTANT_ENDPOINT}?action=bulk-save`, branchId), {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -133,19 +142,19 @@ async function pushServerAssistants(assistants) {
 // different table than navigator_config, so it gets its own fetch + setters
 // on this hook.
 
-async function fetchServerBlueprint() {
+async function fetchServerBlueprint(branchId) {
   let resp;
   try {
-    resp = await fetch(`${SETUP_ENDPOINT}?action=load`, { credentials: 'include' });
+    resp = await fetch(withBranch(`${SETUP_ENDPOINT}?action=load`, branchId), { credentials: 'include' });
   } catch { return null; }
   if (resp.status === 204 || !resp.ok) return null;
   return safeJson(resp);
 }
 
-async function saveMainInstructionsRequest(text) {
+async function saveMainInstructionsRequest(text, branchId) {
   let resp;
   try {
-    resp = await fetch(`${SETUP_ENDPOINT}?action=update-main-instructions`, {
+    resp = await fetch(withBranch(`${SETUP_ENDPOINT}?action=update-main-instructions`, branchId), {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -163,14 +172,14 @@ async function saveMainInstructionsRequest(text) {
   return safeJson(resp);
 }
 
-async function optimizeMainInstructionsRequest(text) {
+async function optimizeMainInstructionsRequest(text, branchId, audience) {
   let resp;
   try {
-    resp = await fetch(`${SETUP_ENDPOINT}?action=optimize-main-instructions`, {
+    resp = await fetch(withBranch(`${SETUP_ENDPOINT}?action=optimize-main-instructions`, branchId), {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mainInstructions: text }),
+      body: JSON.stringify({ mainInstructions: text, audience: audience || null }),
     });
   } catch (err) {
     throw new Error(err.message || 'network_error');
@@ -184,10 +193,10 @@ async function optimizeMainInstructionsRequest(text) {
   return safeJson(resp);
 }
 
-async function callReseed() {
+async function callReseed(branchId) {
   let resp;
   try {
-    resp = await fetch(`${CONFIG_ENDPOINT}?action=reseed`, {
+    resp = await fetch(withBranch(`${CONFIG_ENDPOINT}?action=reseed`, branchId), {
       method: 'POST',
       credentials: 'include',
     });
@@ -253,12 +262,17 @@ function buildServerPayload(config) {
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-export function useConfigStore({ onConflict } = {}) {
+export function useConfigStore({ onConflict, branchId = null } = {}) {
+  // Track the active tenant so callbacks that fire later (debounced pushes,
+  // visibility re-fetches) always hit the right workspace.
+  const branchIdRef = useRef(branchId);
+  useEffect(() => { branchIdRef.current = branchId }, [branchId]);
+
   const [config, setConfigState] = useState(() => {
-    const loaded = loadConfig()
+    const loaded = loadConfig(branchId)
     if (loaded) return loaded
     const seeded = buildSeedConfig()
-    saveConfig(seeded)
+    saveConfig(seeded, branchId)
     return seeded
   })
   // Blueprint snapshot from workspace_blueprints. Loaded async on mount;
@@ -270,29 +284,52 @@ export function useConfigStore({ onConflict } = {}) {
   const lastFetchRef = useRef(0);
   const initialPushDoneRef = useRef(false);
 
-  // Persist every change to localStorage immediately. Cross-tab sync via the
-  // storage event still works because saveConfig writes synchronously.
+  // Persist every change to localStorage immediately, keyed by the active
+  // tenant so each workspace has its own offline snapshot.
   useEffect(() => {
-    saveConfig(config)
-  }, [config])
+    saveConfig(config, branchId)
+  }, [config, branchId])
 
-  // Cross-tab sync (same browser).
+  // Cross-tab sync (same browser) — listen on the branch-specific key only.
   useEffect(() => {
     if (typeof window === 'undefined') return
+    const watchedKey = keyForBranch(branchId);
     function onStorage(e) {
-      if (e.key !== STORAGE_KEY) return
-      const next = loadConfig()
+      if (e.key !== watchedKey) return
+      const next = loadConfig(branchId)
       if (next) setConfigState(next)
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
-  }, [])
+  }, [branchId])
 
-  // First-mount server fetch + push-if-empty.
+  // When the active tenant changes, re-hydrate from the new branch's
+  // localStorage (or fall back to a seeded snapshot for a never-visited
+  // tenant). The server-fetch effects below also re-run because they list
+  // branchId in their deps.
+  const lastBranchRef = useRef(branchId);
+  useEffect(() => {
+    if (lastBranchRef.current === branchId) return;
+    lastBranchRef.current = branchId;
+    revisionRef.current = 0;
+    initialPushDoneRef.current = false;
+    assistantsInitialPushDoneRef.current = false;
+    assistantsSignatureRef.current = null;
+    setBlueprintState(null);
+    const loaded = loadConfig(branchId);
+    if (loaded) setConfigState(loaded);
+    else {
+      const seeded = buildSeedConfig();
+      saveConfig(seeded, branchId);
+      setConfigState(seeded);
+    }
+  }, [branchId])
+
+  // First-mount server fetch + push-if-empty. Re-runs on branchId change.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const payload = await fetchServerConfig().catch((err) => {
+      const payload = await fetchServerConfig(branchId).catch((err) => {
         console.warn('[useConfigStore] server fetch error:', err.message);
         return null;
       });
@@ -309,12 +346,12 @@ export function useConfigStore({ onConflict } = {}) {
             const pushed = await pushServerConfig({
               config: buildServerPayload(config),
               baseRevision: 0,
-            });
+            }, branchId);
             if (!cancelled && pushed) revisionRef.current = pushed.revision || 1;
           } catch (err) {
             // Conflict on first push → server already has something. Refetch.
             if (err.code === 'revision_conflict') {
-              const refetched = await fetchServerConfig().catch(() => null);
+              const refetched = await fetchServerConfig(branchId).catch(() => null);
               if (!cancelled && refetched && !refetched.empty) {
                 revisionRef.current = refetched.revision || 0;
                 setConfigState((prev) => mergeServerConfig(prev, refetched));
@@ -331,7 +368,7 @@ export function useConfigStore({ onConflict } = {}) {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [branchId]);
 
   // First-mount assistants fetch — DB is canonical, localStorage is just an
   // offline cache. When the server returns assistants, replace local state.
@@ -341,7 +378,7 @@ export function useConfigStore({ onConflict } = {}) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const server = await fetchServerAssistants().catch(() => null);
+      const server = await fetchServerAssistants(branchId).catch(() => null);
       if (cancelled) return;
       if (Array.isArray(server) && server.length > 0) {
         // Server has assistants → trust them, replace local.
@@ -352,7 +389,7 @@ export function useConfigStore({ onConflict } = {}) {
       // Server empty. Push the local seed once so DB matches.
       if (!assistantsInitialPushDoneRef.current && (latestConfigRef.current.assistants || []).length > 0) {
         assistantsInitialPushDoneRef.current = true;
-        const pushed = await pushServerAssistants(latestConfigRef.current.assistants).catch(() => null);
+        const pushed = await pushServerAssistants(latestConfigRef.current.assistants, branchId).catch(() => null);
         if (!cancelled && Array.isArray(pushed)) {
           assistantsSignatureRef.current = signatureOf(pushed);
           setConfigState((prev) => ({ ...prev, assistants: pushed }));
@@ -361,19 +398,19 @@ export function useConfigStore({ onConflict } = {}) {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [branchId]);
 
   // First-mount blueprint fetch — fire-and-forget, fills the system prompt
-  // preview on the Home tab.
+  // preview on the Home tab. Re-runs on branchId change.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const bp = await fetchServerBlueprint().catch(() => null);
+      const bp = await fetchServerBlueprint(branchId).catch(() => null);
       if (cancelled || !bp) return;
       setBlueprintState(bp);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [branchId]);
 
   // Refetch on visibilitychange (covers cross-browser staleness without a
   // polling loop).
@@ -383,7 +420,7 @@ export function useConfigStore({ onConflict } = {}) {
       if (document.visibilityState !== 'visible') return;
       if (Date.now() - lastFetchRef.current < FETCH_DEBOUNCE_MS) return;
       (async () => {
-        const payload = await fetchServerConfig().catch(() => null);
+        const payload = await fetchServerConfig(branchIdRef.current).catch(() => null);
         lastFetchRef.current = Date.now();
         if (!payload || payload.empty) return;
         if ((payload.revision || 0) === revisionRef.current) return;
@@ -419,7 +456,7 @@ export function useConfigStore({ onConflict } = {}) {
     if (assistantsPushTimerRef.current) clearTimeout(assistantsPushTimerRef.current);
     assistantsPushTimerRef.current = setTimeout(async () => {
       assistantsPushTimerRef.current = null;
-      const pushed = await pushServerAssistants(latestConfigRef.current.assistants || []).catch(() => null);
+      const pushed = await pushServerAssistants(latestConfigRef.current.assistants || [], branchIdRef.current).catch(() => null);
       if (Array.isArray(pushed)) {
         const newSig = signatureOf(pushed);
         assistantsSignatureRef.current = newSig;
@@ -441,13 +478,13 @@ export function useConfigStore({ onConflict } = {}) {
         const pushed = await pushServerConfig({
           config: buildServerPayload(snapshot),
           baseRevision: revisionRef.current,
-        });
+        }, branchIdRef.current);
         if (pushed) revisionRef.current = pushed.revision || revisionRef.current;
       } catch (err) {
         if (err.code === 'revision_conflict') {
           // Refetch + surface to consumer. The hook user can show a toast and
           // re-render against the server's state.
-          const refetched = await fetchServerConfig().catch(() => null);
+          const refetched = await fetchServerConfig(branchIdRef.current).catch(() => null);
           if (refetched && !refetched.empty) {
             revisionRef.current = refetched.revision || 0;
             setConfigState((prev) => mergeServerConfig(prev, refetched));
@@ -496,9 +533,9 @@ export function useConfigStore({ onConflict } = {}) {
   // Local-only reset (legacy) — clears localStorage and re-seeds in memory.
   // Doesn't touch the server. Use `reseed()` for the canonical reset.
   const resetConfig = useCallback(() => {
-    clearConfig()
+    clearConfig(branchIdRef.current)
     const seeded = buildSeedConfig()
-    saveConfig(seeded)
+    saveConfig(seeded, branchIdRef.current)
     setConfigState(seeded)
     schedulePush();
   }, [schedulePush])
@@ -509,7 +546,7 @@ export function useConfigStore({ onConflict } = {}) {
   // connections so re-discovery / re-OAuth isn't needed. Returns true on
   // success so callers can show a toast.
   const reseed = useCallback(async () => {
-    const result = await callReseed()
+    const result = await callReseed(branchIdRef.current)
     if (!result) {
       // Server unreachable — fall back to the local-only reset so the demo
       // doesn't get wedged in offline mode.
@@ -527,7 +564,7 @@ export function useConfigStore({ onConflict } = {}) {
     })
     const withAssistants = { ...merged, assistants: result.assistants || [] }
     assistantsSignatureRef.current = signatureOf(withAssistants.assistants)
-    saveConfig(withAssistants)
+    saveConfig(withAssistants, branchIdRef.current)
     setConfigState(withAssistants)
     return true
   }, [resetConfig])
@@ -536,7 +573,7 @@ export function useConfigStore({ onConflict } = {}) {
   // Updates local blueprint state on success so the Home tab preview refreshes
   // without a round-trip.
   const saveMainInstructions = useCallback(async (text) => {
-    const result = await saveMainInstructionsRequest(text);
+    const result = await saveMainInstructionsRequest(text, branchIdRef.current);
     setBlueprintState((prev) => {
       if (!prev) return prev;
       const nextBlueprint = { ...(prev.blueprint || {}) };
@@ -549,8 +586,8 @@ export function useConfigStore({ onConflict } = {}) {
   // Run an LLM polish pass over the draft. Returns { original, optimized }.
   // Does NOT persist — caller is expected to call saveMainInstructions with
   // the optimized text if the user accepts the diff.
-  const optimizeMainInstructions = useCallback(async (text) => {
-    return await optimizeMainInstructionsRequest(text);
+  const optimizeMainInstructions = useCallback(async (text, audience) => {
+    return await optimizeMainInstructionsRequest(text, branchIdRef.current, audience);
   }, []);
 
   return {

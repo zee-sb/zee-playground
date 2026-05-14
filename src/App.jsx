@@ -7,6 +7,8 @@ import NavigatorAnalyticsDashboard from './prototypes/NavigatorAnalytics/Navigat
 import StaffbaseCompanion from './prototypes/StaffbaseCompanion'
 import MCPDemoStudio from './prototypes/MCPDemo/MCPDemoStudio'
 import A2ADemoStudio from './prototypes/A2ADemo/A2ADemoStudio'
+import { TenantProvider } from './prototypes/AIAssistant/useActiveTenant'
+import { TenantPicker } from './components/TenantPicker'
 
 // ── Registry ──────────────────────────────────────────────────────────
 // Three prototypes, all anchored to one canonical Staffbase Intranet workspace:
@@ -80,7 +82,10 @@ const Gallery = () => {
             </div>
             <span className="font-semibold text-[15px]">Staffbase Studio</span>
           </div>
-          <span className="text-[13px] text-[#A1A1AA]">{PROTOTYPES.length} Prototypes</span>
+          <div className="flex items-center gap-4">
+            <TenantPicker />
+            <span className="text-[13px] text-[#A1A1AA]">{PROTOTYPES.length} Prototypes</span>
+          </div>
         </div>
       </header>
 
@@ -96,7 +101,7 @@ const Gallery = () => {
           {PROTOTYPES.map(p => (
             <Link
               key={p.id}
-              to={`/prototypes/${p.id}`}
+              to={{ pathname: `/prototypes/${p.id}`, search: typeof window !== 'undefined' ? window.location.search : '' }}
               className="bg-white border border-[#E4E4E7] rounded-2xl overflow-hidden shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group flex flex-col"
             >
               <div className="h-[200px] grid place-items-center relative bg-[#F5F3FF]">
@@ -142,9 +147,11 @@ const PrototypeViewer = () => {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Gallery />} />
-      <Route path="/prototypes/:id/*" element={<PrototypeViewer />} />
-    </Routes>
+    <TenantProvider>
+      <Routes>
+        <Route path="/" element={<Gallery />} />
+        <Route path="/prototypes/:id/*" element={<PrototypeViewer />} />
+      </Routes>
+    </TenantProvider>
   );
 }

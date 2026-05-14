@@ -3,6 +3,7 @@ import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { Eye, RotateCcw, Bot, Wrench, BookOpen, Sparkles, Users, AlertCircle, ChevronRight, Building2, MapPin, Send, ChevronDown, ClipboardList, Workflow, Compass, ShieldCheck, Home } from 'lucide-react'
 import { StudioShell } from '../../components/StudioShell'
 import { useConfigStore } from '../AIAssistant/useConfigStore'
+import { useActiveTenant } from '../AIAssistant/useActiveTenant'
 import { deriveLiveOrchestrator, deriveLiveOrchestratorFor, assistantVisibleTo } from '../AIAssistant/configStore'
 import { pickRoleChips } from './chipRules'
 import { LogoChip } from './components/Catalog'
@@ -47,6 +48,7 @@ export default function NavigatorStudio() {
   const location = useLocation()
   const navigate = useNavigate()
 
+  const { branchId, tenant: activeTenant } = useActiveTenant()
   const {
     config,
     blueprint,
@@ -57,7 +59,7 @@ export default function NavigatorStudio() {
     reseed,
     saveMainInstructions,
     optimizeMainInstructions,
-  } = useConfigStore()
+  } = useConfigStore({ branchId })
   const [resetting, setResetting] = useState(false)
   const [promptEditorOpen, setPromptEditorOpen] = useState(false)
 
@@ -201,7 +203,16 @@ export default function NavigatorStudio() {
     }
   }
 
-  const tenant = config.tenant || { name: 'Staffbase', brandColor: '#00C7B2', workspace: 'campsite.staffbase.com' }
+  // The active tenant (gallery picker) wins for name / workspace URL — the
+  // seeded config blob defaults to Campsite, so without this overlay the
+  // header would lie about which workspace we're editing.
+  const seededTenant = config.tenant || {}
+  const tenant = {
+    name: activeTenant?.displayName || seededTenant.name || 'Staffbase',
+    workspace: activeTenant?.workspaceUrl || seededTenant.workspace || 'campsite.staffbase.com',
+    brandColor: seededTenant.brandColor || activeTenant?.brandColor || '#00C7B2',
+    groups: seededTenant.groups || [],
+  }
 
   return (
     <StudioShell activeSidebarItem="Navigator">
@@ -407,7 +418,7 @@ export default function NavigatorStudio() {
           initialText={blueprint?.blueprint?.workspace?.mainInstructions || ''}
           onClose={() => setPromptEditorOpen(false)}
           onSave={saveMainInstructions}
-          onOptimize={optimizeMainInstructions}
+          onOptimize={(text) => optimizeMainInstructions(text, config?.tenant?.audience || blueprint?.blueprint?.workspace?.audience || null)}
         />
       )}
     </StudioShell>

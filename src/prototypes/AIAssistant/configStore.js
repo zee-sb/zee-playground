@@ -25,8 +25,15 @@
 
 import { buildSeedClientConfig } from '../../../lib/seed.mjs'
 
+// Default key — kept for one-cycle backward compat with single-tenant snapshots.
+// New code should always go through keyForBranch() so storage is scoped per
+// Staffbase workspace (multi-tenant gallery picker).
 export const STORAGE_KEY = 'staffbase.navigator.config'
 export const CONFIG_VERSION = 7
+
+export function keyForBranch(branchId) {
+  return branchId ? `${STORAGE_KEY}:${branchId}` : STORAGE_KEY
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Demo users — client-only roster for the standalone "Sign in as" picker.
@@ -90,10 +97,10 @@ function isBrowser() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
 }
 
-export function loadConfig() {
+export function loadConfig(branchId = null) {
   if (!isBrowser()) return null
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
+    const raw = window.localStorage.getItem(keyForBranch(branchId))
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (!parsed || parsed.version !== CONFIG_VERSION) return null
@@ -104,18 +111,21 @@ export function loadConfig() {
   }
 }
 
-export function saveConfig(config) {
+export function saveConfig(config, branchId = null) {
   if (!isBrowser()) return
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...config, version: CONFIG_VERSION }))
+    window.localStorage.setItem(
+      keyForBranch(branchId),
+      JSON.stringify({ ...config, version: CONFIG_VERSION }),
+    )
   } catch (err) {
     console.warn('[configStore] save failed:', err)
   }
 }
 
-export function clearConfig() {
+export function clearConfig(branchId = null) {
   if (!isBrowser()) return
-  window.localStorage.removeItem(STORAGE_KEY)
+  window.localStorage.removeItem(keyForBranch(branchId))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

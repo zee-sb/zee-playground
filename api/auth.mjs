@@ -30,8 +30,9 @@ import {
 } from '../lib/session.mjs';
 import { sql, dbConfigured } from '../lib/db.mjs';
 import { resolveStaffbaseIdentity } from '../lib/staffbase-users.mjs';
-import { findUserByEmail as findStaffbaseUserByEmail } from '../lib/staffbase.mjs';
+import { findUserByEmail as findStaffbaseUserByEmail, withStaffbaseContext } from '../lib/staffbase.mjs';
 import { listConnectionsForUser } from '../lib/connections.mjs';
+import { resolveBranchId, getTenantContext } from '../lib/tenants.mjs';
 
 function appUrl(req) {
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, '');
@@ -58,7 +59,17 @@ export default async function handler(req, res) {
     res.status(404).json({ error: 'not_found', path });
   } catch (err) {
     console.error('[auth router]', path, err);
-    if (!res.headersSent) res.status(500).json({ error: 'internal_error' });
+    if (!res.headersSent) {
+      // Surface the underlying error message in this prototype so failures
+      // are debuggable from the browser without tailing server logs. No PII
+      // travels through this path — it's auth-flow exceptions like missing
+      // columns or directory-lookup failures.
+      res.status(500).json({
+        error: 'internal_error',
+        message: err?.message || String(err),
+        ...(err?.code ? { code: err.code } : {}),
+      });
+    }
   }
 }
 
@@ -117,7 +128,18 @@ async function googleCallback(req, res) {
     // customFields wherever the live API has something better. Falls back to
     // the seed for fields the intranet doesn't populate so we never display
     // a blank profile.
-    const live = await findStaffbaseUserByEmail(info.email);
+    // Google OAuth is currently disabled — when it's re-enabled, identity
+    // must be tenant-scoped just like the email-based login path. Without a
+    // branch here the insert would fail the not-null on staffbase_branch_id
+    // anyway.
+    const googleBranchId = await resolveBranchId(req);
+    if (!googleBranchId) {
+      return bounce('no_active_tenant');
+    }
+    const googleCtx = await getTenantContext(googleBranchId).catch(() => null);
+    const live = googleCtx
+      ? await withStaffbaseContext(googleCtx, () => findStaffbaseUserByEmail(info.email))
+      : await findStaffbaseUserByEmail(info.email);
     const displayName  = live?.name       || identity.name;
     const department   = live?.department || identity.department;
     const title        = live?.title      || identity.title;
@@ -126,9 +148,9 @@ async function googleCallback(req, res) {
     const avatarUrl    = live?.avatar     || null;         // real Staffbase photo
     const customFields = live?.customFields || {};
     const rows = await sql`
-      insert into users (staffbase_user_id, email, display_name, department, title, location, avatar_initials, avatar_url, custom_fields, last_login_at)
-      values (${identity.id}, ${identity.email}, ${displayName}, ${department}, ${title}, ${location}, ${avatarInit}, ${avatarUrl}, ${JSON.stringify(customFields)}::jsonb, now())
-      on conflict (staffbase_user_id) do update
+      insert into users (staffbase_branch_id, staffbase_user_id, email, display_name, department, title, location, avatar_initials, avatar_url, custom_fields, last_login_at)
+      values (${googleBranchId}, ${identity.id}, ${identity.email}, ${displayName}, ${department}, ${title}, ${location}, ${avatarInit}, ${avatarUrl}, ${JSON.stringify(customFields)}::jsonb, now())
+      on conflict (staffbase_branch_id, staffbase_user_id) do update
         set email           = excluded.email,
             display_name    = excluded.display_name,
             -- For these, prefer live values when present, retain stored on null.
@@ -148,7 +170,7 @@ async function googleCallback(req, res) {
       returning id
     `;
     const userId = rows[0].id;
-    const jwt = await issueSessionJwt(userId);
+    const jwt = await issueSessionJwt(userId, googleBranchId);
     res.setHeader('Set-Cookie', [sessionCookieHeader(jwt), clearStateCookieHeader()]);
     res.setHeader('Cache-Control', 'no-store');
     res.writeHead(302, { Location: `${base}/prototypes/staffbase-companion` });
@@ -177,8 +199,23 @@ async function me(req, res) {
     res.status(401).json({ error: 'not_signed_in' });
     return;
   }
+  // Tenant-scoped identity: the session is bound to the branch it was
+  // issued for. If the user has since switched tenants in the picker, we
+  // return 401 (and *don't* clear the cookie — the frontend will attempt
+  // an auto-sign-in for the new tenant using the cached email and revive
+  // its own session if the user exists there too).
+  const activeBranchId = await resolveBranchId(req);
+  if (session.branchId && activeBranchId && session.branchId !== activeBranchId) {
+    res.status(401).json({
+      error: 'session_tenant_mismatch',
+      code: 'tenant_mismatch',
+      sessionBranchId: session.branchId,
+      activeBranchId,
+    });
+    return;
+  }
   const rows = await sql`
-    select id, staffbase_user_id, email, display_name, department, title, location,
+    select id, staffbase_branch_id, staffbase_user_id, email, display_name, department, title, location,
            avatar_initials, avatar_url, custom_fields
     from users where id = ${session.userId}
   `;
@@ -200,10 +237,27 @@ async function me(req, res) {
   // Google OAuth), Campsite mints a Staffbase web session.
   const staffbaseSsoUrl = process.env.STAFFBASE_SSO_URL
     || 'https://campsite.staffbase.com/auth/saml/staffpranos';
+  // Surface the tenant identity the session is bound to, so the Companion
+  // can display "Signed in to <Tenant>" and treat tenant switches as
+  // account switches.
+  let tenant = null;
+  if (u.staffbase_branch_id) {
+    const tCtx = await getTenantContext(u.staffbase_branch_id).catch(() => null);
+    if (tCtx) {
+      tenant = {
+        branchId: u.staffbase_branch_id,
+        displayName: tCtx.displayName || null,
+        baseUrl: tCtx.baseUrl || null,
+        workspaceUrl: tCtx.workspaceUrl || null,
+        brandColor: tCtx.brandColor || null,
+      };
+    }
+  }
   res.status(200).json({
     user: {
       id: u.id,
       staffbaseUserId: u.staffbase_user_id,
+      staffbaseBranchId: u.staffbase_branch_id,
       email: u.email,
       displayName: u.display_name,
       department: u.department,
@@ -217,9 +271,10 @@ async function me(req, res) {
       avatarSourceUrl: u.avatar_url || null,
       customFields: u.custom_fields || {},
     },
+    tenant,
     staffbase: {
       ssoUrl: staffbaseSsoUrl,
-      workspace: 'campsite.staffbase.com',
+      workspace: tenant?.workspaceUrl || 'campsite.staffbase.com',
       ssoConfigId: (staffbaseSsoUrl.match(/\/auth\/saml\/([^/]+)/) || [])[1] || null,
     },
     connections: connections.map((c) => ({
@@ -302,13 +357,27 @@ async function refreshProfile(req, res) {
     res.status(401).json({ error: 'not_signed_in' });
     return;
   }
-  const row = await sql`select id, email from users where id = ${session.userId}`;
+  const row = await sql`select id, email, staffbase_branch_id from users where id = ${session.userId}`;
   if (!row.length) {
     res.status(401).json({ error: 'user_not_found' });
     return;
   }
   const { email } = row[0];
-  const live = await findStaffbaseUserByEmail(email);
+  // Refresh against the SAME tenant the user is signed into — not the
+  // env-var default. Without this, profile pulls could return data from a
+  // different workspace's directory and overwrite the cached row.
+  const refreshBranchId = session.branchId || row[0].staffbase_branch_id || null;
+  const refreshCtx = refreshBranchId ? await getTenantContext(refreshBranchId).catch(() => null) : null;
+  let live;
+  try {
+    live = refreshCtx
+      ? await withStaffbaseContext(refreshCtx, () => findStaffbaseUserByEmail(email))
+      : await findStaffbaseUserByEmail(email);
+  } catch (err) {
+    console.error('[auth/refresh-profile] directory lookup failed:', err.message);
+    res.status(502).json({ error: 'directory_lookup_failed' });
+    return;
+  }
   if (!live) {
     res.status(404).json({ error: 'profile_not_found_in_directory', email });
     return;
@@ -366,9 +435,26 @@ async function staffbaseLogin(req, res) {
     res.status(503).json({ error: 'db_not_configured' });
     return;
   }
+  // Identity is tenant-scoped: the same email in two Staffbase workspaces
+  // becomes two distinct user rows. The active branch comes from `?branch=`
+  // on the login request; `resolveBranchId` falls back to the only/first
+  // tenant for single-tenant deployments.
+  const branchId = await resolveBranchId(req);
+  if (!branchId) {
+    res.status(400).json({ error: 'no_active_tenant', code: 'no_active_tenant' });
+    return;
+  }
+  const tenantCtx = await getTenantContext(branchId);
+  if (!tenantCtx) {
+    res.status(404).json({ error: 'tenant_not_found', code: 'tenant_not_found' });
+    return;
+  }
+  // Resolve the email against THIS tenant's Staffbase directory — not the
+  // env-var default. Each workspace has its own user list, so the same
+  // email returns a different staffbaseUserId in each tenant.
   let live;
   try {
-    live = await findStaffbaseUserByEmail(email);
+    live = await withStaffbaseContext(tenantCtx, () => findStaffbaseUserByEmail(email));
   } catch (err) {
     console.error('[auth/staffbase/login] directory lookup failed:', err.message);
     res.status(502).json({ error: 'directory_lookup_failed' });
@@ -385,10 +471,12 @@ async function staffbaseLogin(req, res) {
     return displayName.slice(0, 2).toUpperCase();
   })();
   const customFields = live.customFields || {};
+  // Unique key is (staffbase_branch_id, staffbase_user_id) per migration 011.
+  // Same human in two tenants → two rows → two distinct users.id values.
   const rows = await sql`
-    insert into users (staffbase_user_id, email, display_name, department, title, location, avatar_initials, avatar_url, custom_fields, last_login_at)
-    values (${live.id}, ${live.email || email}, ${displayName}, ${live.department}, ${live.title}, ${live.location}, ${avatarInitials}, ${live.avatar}, ${JSON.stringify(customFields)}::jsonb, now())
-    on conflict (staffbase_user_id) do update
+    insert into users (staffbase_branch_id, staffbase_user_id, email, display_name, department, title, location, avatar_initials, avatar_url, custom_fields, last_login_at)
+    values (${branchId}, ${live.id}, ${live.email || email}, ${displayName}, ${live.department}, ${live.title}, ${live.location}, ${avatarInitials}, ${live.avatar}, ${JSON.stringify(customFields)}::jsonb, now())
+    on conflict (staffbase_branch_id, staffbase_user_id) do update
       set email           = excluded.email,
           display_name    = excluded.display_name,
           department      = coalesce(excluded.department, users.department),
@@ -405,7 +493,7 @@ async function staffbaseLogin(req, res) {
     returning id
   `;
   const userId = rows[0].id;
-  const jwt = await issueSessionJwt(userId);
+  const jwt = await issueSessionJwt(userId, branchId);
   res.setHeader('Set-Cookie', sessionCookieHeader(jwt));
   res.status(200).json({
     user: {

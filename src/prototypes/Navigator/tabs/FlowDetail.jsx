@@ -4,6 +4,7 @@ import { LogoChip } from '../components/Catalog'
 import FlowStepBuilder from './FlowStepBuilder.jsx'
 import FlowPreviewPane from './FlowPreviewPane.jsx'
 import { FLOW_TEMPLATES, instantiateTemplate } from '../../../../lib/flows/templates.mjs'
+import { useActiveTenant } from '../../AIAssistant/useActiveTenant'
 
 /**
  * Flow detail editor (v7 unified).
@@ -20,6 +21,7 @@ export default function FlowDetail({
   onSave,
   onDelete,
 }) {
+  const { branchId } = useActiveTenant()
   const [name, setName] = useState(flow.name || '')
   const [status, setStatus] = useState(flow.status || 'active')
   const [mode, setMode] = useState(flow.mode || 'suggested')
@@ -86,7 +88,7 @@ export default function FlowDetail({
     setScaffoldBusy(true)
     setScaffoldError(null)
     try {
-      const res = await fetch('/api/navigator-assistant?action=scaffold-flow', {
+      const res = await fetch(`/api/navigator-assistant?action=scaffold-flow${branchId ? `&branch=${encodeURIComponent(branchId)}` : ''}`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },

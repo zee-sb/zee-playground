@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useConfigStore } from '../../AIAssistant/useConfigStore'
+import { useActiveTenant } from '../../AIAssistant/useActiveTenant'
 
 const SESSION_CACHE_KEY = 'staffbase.navigator.health.session'
 
@@ -34,7 +35,8 @@ function signatureOf(config) {
 //   - `applyAutoFix(action, payload)` dispatches a closed-set fix through the
 //     existing useConfigStore setters; the next signature change refetches.
 export function useNavigatorHealth({ initialDeep = false } = {}) {
-  const { config, setAssistants, setConnectors, setFlows } = useConfigStore()
+  const { branchId } = useActiveTenant()
+  const { config, setAssistants, setConnectors, setFlows } = useConfigStore({ branchId })
   const [issues, setIssues] = useState(() => loadSessionCache()?.issues || [])
   const [summary, setSummary] = useState(() => loadSessionCache()?.summary || null)
   const [loading, setLoading] = useState(false)
@@ -53,7 +55,7 @@ export function useNavigatorHealth({ initialDeep = false } = {}) {
     const ctrl = new AbortController()
     abortRef.current = ctrl
     try {
-      const url = `/api/navigator-config?action=health${deep ? '&deep=true' : ''}`
+      const url = `/api/navigator-config?action=health${deep ? '&deep=true' : ''}${branchId ? `&branch=${encodeURIComponent(branchId)}` : ''}`
       const res = await fetch(url, { signal: ctrl.signal })
       if (!res.ok) throw new Error(`health check failed: ${res.status}`)
       const data = await res.json()
@@ -66,7 +68,7 @@ export function useNavigatorHealth({ initialDeep = false } = {}) {
     } finally {
       setLoading(false)
     }
-  }, [deep])
+  }, [deep, branchId])
 
   // Refetch on mount + signature change (debounced).
   useEffect(() => {

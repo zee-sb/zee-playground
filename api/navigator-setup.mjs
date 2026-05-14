@@ -20,11 +20,13 @@ import OpenAI from 'openai';
 import {
   listChannels, listRecentPosts, listUsers, searchPosts, getPost,
   listPages, listGroups, getUsersTotal, getBranch,
+  withStaffbaseContext,
 } from '../lib/staffbase.mjs';
 import { getBlueprint, saveBlueprint, patchBlueprintField } from '../lib/blueprints.mjs';
 import { embed } from '../lib/embeddings.mjs';
 import { dbConfigured } from '../lib/db.mjs';
 import { loadPrompt as loadDiscoveryPrompt } from '../lib/discovery/load-prompt.mjs';
+import { resolveBranchId, getTenantContext } from '../lib/tenants.mjs';
 
 const ALLOWED_ICONS = [
   'Sparkles', 'HeartHandshake', 'Briefcase', 'Megaphone', 'Wrench',
@@ -38,13 +40,29 @@ export default async function handler(req, res) {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const action = url.searchParams.get('action');
-    if (action === 'load') return await handleLoad(req, res);
-    if (action === 'discover') return await handleDiscover(req, res);
-    if (action === 'search-preview') return await handleSearchPreview(req, res, url);
-    if (action === 'match-pages') return await handleMatchPages(req, res, url);
-    if (action === 'update-main-instructions') return await handleUpdateMainInstructions(req, res);
-    if (action === 'optimize-main-instructions') return await handleOptimizeMainInstructions(req, res);
-    res.status(400).json({ error: 'unknown action — expected load | discover | search-preview | match-pages | update-main-instructions | optimize-main-instructions' });
+    // Resolve the active tenant (gallery picker → ?branch=) and run the rest
+    // of the request inside its credential frame.
+    const branchId = await resolveBranchId(req);
+    const tenantCtx = branchId ? await getTenantContext(branchId) : null;
+    if (branchId && !tenantCtx) {
+      return res.status(404).json({ error: 'tenant_not_found', code: 'tenant_not_found' });
+    }
+    // Without a registered tenant we fall through to the legacy env-var path
+    // (staffbase.mjs's AsyncLocalStorage fallback) so the first-run setup
+    // wizard can still discover before the tenant table is populated.
+    const dispatch = async () => {
+      if (action === 'load') return await handleLoad(req, res);
+      if (action === 'discover') return await handleDiscover(req, res, tenantCtx);
+      if (action === 'search-preview') return await handleSearchPreview(req, res, url);
+      if (action === 'match-pages') return await handleMatchPages(req, res, url);
+      if (action === 'update-main-instructions') return await handleUpdateMainInstructions(req, res);
+      if (action === 'optimize-main-instructions') return await handleOptimizeMainInstructions(req, res);
+      res.status(400).json({ error: 'unknown action — expected load | discover | search-preview | match-pages | update-main-instructions | optimize-main-instructions' });
+    };
+    if (tenantCtx) {
+      return await withStaffbaseContext(tenantCtx, dispatch);
+    }
+    return await dispatch();
   } catch (err) {
     const isAuthErr = /STAFFBASE_API_TOKEN is not configured/.test(err.message || '');
     res.status(isAuthErr ? 503 : 500).json({
@@ -120,7 +138,24 @@ async function handleMatchPages(req, res, url) {
 
 // ── discover ───────────────────────────────────────────────────────────────
 
-async function handleDiscover(_req, res) {
+const ALLOWED_AUDIENCE_KINDS = [
+  'internal_employees', 'external_event', 'customer_community',
+  'frontline_workforce', 'partner_portal', 'alumni', 'mixed', 'other',
+];
+
+function normalizeAudienceOverride(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const kind = ALLOWED_AUDIENCE_KINDS.includes(raw.kind) ? raw.kind : null;
+  const label = typeof raw.label === 'string' && raw.label.trim() ? raw.label.trim() : null;
+  if (!kind && !label) return null;
+  return {
+    kind: kind || 'mixed',
+    label: label || 'workspace members',
+    summary: typeof raw.summary === 'string' ? raw.summary : '',
+  };
+}
+
+async function handleDiscover(req, res, tenantCtx) {
   // Look up the Staffbase branch ID first — this is the persistence key.
   // Best-effort: if the branch lookup fails (e.g. token mis-scoped), we
   // continue without persistence and return the result in-memory only.
@@ -128,6 +163,15 @@ async function handleDiscover(_req, res) {
     console.warn('[navigator-setup] getBranch failed, skipping persistence:', err.message);
     return null;
   });
+
+  // Optional admin-supplied audience override. Accepts a request body of
+  // shape { audienceOverride: { kind, label, summary? } }. If present, the
+  // LLM is instructed to use it verbatim instead of inferring.
+  let audienceOverride = null;
+  try {
+    const body = await readJsonBody(req);
+    audienceOverride = normalizeAudienceOverride(body?.audienceOverride);
+  } catch {}
 
   // Parallel pull of all primary signals.
   const [channelsRaw, postsRaw, usersRaw, usersTotal, pagesRaw, groupsRaw] = await Promise.all([
@@ -198,23 +242,26 @@ async function handleDiscover(_req, res) {
   let fallbackReason = null;
   try {
     workspace = await passAWorkspace({
-      channels, topPosts, deepPosts, orgSignals, languages, pages, groups,
+      channels, topPosts, deepPosts, orgSignals, languages, pages, groups, audienceOverride,
     });
     openAiUsed = true;
   } catch (err) {
     fallbackReason = `workspace_pass: ${err.message || 'failed'}`;
-    workspace = buildFallbackWorkspace({ channels, orgSignals, languages });
+    workspace = buildFallbackWorkspace({ channels, orgSignals, languages, audienceOverride });
   }
 
   // ── Pass B: Assistant proposal — clusters + always-include universals.
+  // We pass the tenant's baseUrl so workspace links resolve to *this* tenant's
+  // intranet (not the env-var default).
+  const tenantBaseUrl = tenantCtx?.baseUrl || process.env.STAFFBASE_API_BASE || 'https://campsite.staffbase.com/api';
   let assistantsResult = null;
   try {
     assistantsResult = await passBAssistants({
-      channels, topPosts, deepPosts, orgSignals, languages, workspace, pages, groups,
+      channels, topPosts, deepPosts, orgSignals, languages, workspace, pages, groups, baseApiUrl: tenantBaseUrl,
     });
   } catch (err) {
     fallbackReason = (fallbackReason ? fallbackReason + '; ' : '') + `assistant_pass: ${err.message || 'failed'}`;
-    assistantsResult = buildFallbackAssistants({ channels, orgSignals });
+    assistantsResult = buildFallbackAssistants({ channels, orgSignals, baseApiUrl: tenantBaseUrl, audience: workspace?.audience });
   }
 
   // ── Page embeddings — written alongside the blueprint so Templates and
@@ -359,7 +406,7 @@ function summariseUsers(users, posts, { usersTotal, groups } = {}) {
 
 // ── Pass A: workspace overview + glossary + main instructions ──────────────
 
-async function passAWorkspace({ channels, topPosts, deepPosts, orgSignals, languages, pages, groups }) {
+async function passAWorkspace({ channels, topPosts, deepPosts, orgSignals, languages, pages, groups, audienceOverride }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
   const client = new OpenAI({ apiKey });
@@ -411,6 +458,14 @@ async function passAWorkspace({ channels, topPosts, deepPosts, orgSignals, langu
           locations: orgSignals.locations,
           customFieldKeys: orgSignals.customFieldKeys,
           topAuthors: orgSignals.topAuthors,
+          ...(audienceOverride ? {
+            audienceOverride: {
+              kind: audienceOverride.kind,
+              label: audienceOverride.label,
+              summary: audienceOverride.summary,
+              instruction: 'ADMIN-PROVIDED AUDIENCE — use this exact audience.kind and audience.label in the output and throughout the mainInstructions template. Do not re-infer the audience from content.',
+            },
+          } : {}),
         }),
       },
     ],
@@ -434,6 +489,25 @@ async function passAWorkspace({ channels, topPosts, deepPosts, orgSignals, langu
   parsed.companyMission = parsed.companyMission || '';
   parsed.workspaceFacts = Array.isArray(parsed.workspaceFacts) ? parsed.workspaceFacts : [];
   parsed.tone = Array.isArray(parsed.tone) ? parsed.tone : [];
+
+  // Audience: normalise the LLM-produced object. If the admin supplied an
+  // override, enforce it regardless of what the LLM returned (it shouldn't
+  // drift, but belt-and-suspenders).
+  const llmAudience = parsed.audience && typeof parsed.audience === 'object' ? parsed.audience : {};
+  parsed.audience = {
+    kind: ALLOWED_AUDIENCE_KINDS.includes(llmAudience.kind) ? llmAudience.kind : 'mixed',
+    label: typeof llmAudience.label === 'string' && llmAudience.label.trim()
+      ? llmAudience.label.trim()
+      : 'workspace members',
+    summary: typeof llmAudience.summary === 'string' ? llmAudience.summary : '',
+  };
+  if (audienceOverride) {
+    parsed.audience = {
+      kind: audienceOverride.kind,
+      label: audienceOverride.label,
+      summary: audienceOverride.summary || parsed.audience.summary,
+    };
+  }
 
   // Fallbacks: the LLM sometimes embeds the question types and glossary
   // ONLY inside mainInstructions and forgets to fill the dedicated arrays.
@@ -460,13 +534,15 @@ async function passAWorkspace({ channels, topPosts, deepPosts, orgSignals, langu
   return parsed;
 }
 
-function buildFallbackWorkspace({ channels, orgSignals, languages }) {
+function buildFallbackWorkspace({ channels, orgSignals, languages, audienceOverride }) {
   const deptNames = orgSignals.departments.slice(0, 6).map((d) => d.name).join(', ') || 'multiple teams';
   const langs = languages.length ? languages.join(', ') : 'en_US';
+  const audience = audienceOverride || { kind: 'mixed', label: 'workspace members', summary: '' };
   return {
+    audience,
     overview: `This Staffbase workspace has ${channels.length} content channels across ${deptNames}. ${orgSignals.totalUsers ? `Directory contains ${orgSignals.totalUsers} users.` : ''}`,
     tone: ['professional', 'collaborative'],
-    mainInstructions: `You are Navigator, an AI assistant for this workspace. Help employees find information, navigate company content, and get answers about policies and procedures. Always be helpful, accurate, and grounded in the company's content. Workspace languages: ${langs}. Departments include: ${deptNames}.`,
+    mainInstructions: `You are Navigator, an AI assistant for ${audience.label}. Help ${audience.label} find information, navigate workspace content, and get answers grounded in this workspace's sources. Always be helpful, accurate, and grounded in the workspace's content. Workspace languages: ${langs}.`,
     glossary: [],
     workspaceFacts: [
       `${channels.length} content channels`,
@@ -478,7 +554,7 @@ function buildFallbackWorkspace({ channels, orgSignals, languages }) {
 
 // ── Pass B: Assistant proposal ─────────────────────────────────────────────
 
-async function passBAssistants({ channels, topPosts, deepPosts, orgSignals, languages, workspace, pages, groups }) {
+async function passBAssistants({ channels, topPosts, deepPosts, orgSignals, languages, workspace, pages, groups, baseApiUrl }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
   const client = new OpenAI({ apiKey });
@@ -531,6 +607,7 @@ async function passBAssistants({ channels, topPosts, deepPosts, orgSignals, lang
           workspaceContext: {
             companyName: workspace?.companyName,
             companyMission: workspace?.companyMission,
+            audience: workspace?.audience,
             overview: workspace?.overview,
             tone: workspace?.tone,
             glossary: workspace?.glossary,
@@ -548,7 +625,7 @@ async function passBAssistants({ channels, topPosts, deepPosts, orgSignals, lang
   }
 
   // Enrich knowledgeSources with channel URLs + sanitise icons.
-  const baseUrl = process.env.STAFFBASE_API_BASE?.replace('/api', '') || 'https://campsite.staffbase.com';
+  const baseUrl = (baseApiUrl || process.env.STAFFBASE_API_BASE || 'https://campsite.staffbase.com/api').replace(/\/api\/?$/, '');
   const channelById = new Map(channels.map((c) => [c.id, c]));
   for (const a of parsed.proposedAssistants) {
     a.knowledgeSources = (a.knowledgeSources || [])
@@ -569,22 +646,42 @@ async function passBAssistants({ channels, topPosts, deepPosts, orgSignals, lang
     if (!ALLOWED_ICONS.includes(c.lucideIcon)) c.lucideIcon = 'Sparkles';
   }
 
+  // Defense in depth: even with the audience-aware Pass B prompt, the LLM
+  // occasionally falls back to its training-data defaults and slips in
+  // employee-only universals (HR / IT / Onboarding / Travel / Payroll /
+  // People Experience / L&D). When the audience clearly isn't an internal
+  // workforce, drop them post-hoc.
+  if (workspace?.audience?.kind && workspace.audience.kind !== 'internal_employees') {
+    const employeeOnly = /\b(hr|human resources|it helpdesk|it support|onboarding|travel\s*(?:&|and)\s*expenses?|payroll|people experience|learning\s*(?:&|and)\s*development|l\s*&\s*d)\b/i;
+    parsed.proposedAssistants = parsed.proposedAssistants.filter((a) => !(a.name && employeeOnly.test(a.name)));
+  }
+
   return parsed;
 }
 
-function buildFallbackAssistants({ channels, orgSignals }) {
-  const baseUrl = process.env.STAFFBASE_API_BASE?.replace('/api', '') || 'https://campsite.staffbase.com';
-  // A handful of universals + one-per-channel
-  const universals = [
-    { name: 'HR Assistant', description: 'Answers HR, benefits, PTO, and policy questions.', lucideIcon: 'HeartHandshake' },
-    { name: 'IT Helpdesk', description: 'Help with devices, software, access, and tickets.', lucideIcon: 'Wrench' },
-    { name: 'Onboarding Buddy', description: 'Guides new hires through their first 30 days.', lucideIcon: 'GraduationCap' },
-  ].map((u) => ({
+function buildFallbackAssistants({ channels, orgSignals, baseApiUrl, audience }) {
+  const baseUrl = (baseApiUrl || process.env.STAFFBASE_API_BASE || 'https://campsite.staffbase.com/api').replace(/\/api\/?$/, '');
+  const audienceLabel = audience?.label || 'workspace members';
+  const audienceKind = audience?.kind || 'mixed';
+
+  // Universals only make sense for an internal workforce. For other audience
+  // kinds, fall back to channel-driven Assistants only — the LLM is the
+  // right tool for inventing audience-specific universals, and the fallback
+  // path runs precisely when the LLM is unavailable.
+  const universalSpecs =
+    audienceKind === 'internal_employees'
+      ? [
+          { name: 'HR Assistant', description: 'Answers HR, benefits, PTO, and policy questions.', lucideIcon: 'HeartHandshake' },
+          { name: 'IT Helpdesk', description: 'Help with devices, software, access, and tickets.', lucideIcon: 'Wrench' },
+          { name: 'Onboarding Buddy', description: 'Guides new hires through their first 30 days.', lucideIcon: 'GraduationCap' },
+        ]
+      : [];
+  const universals = universalSpecs.map((u) => ({
     clusterName: 'Universal',
     name: u.name,
     description: u.description,
     lucideIcon: u.lucideIcon,
-    systemPromptSnippet: `You are ${u.name} for this workspace. Handle questions related to ${u.description.toLowerCase()} Be clear, accurate, and grounded in linked sources. If you don't know an answer, say so and suggest who to ask.`,
+    systemPromptSnippet: `You are ${u.name} for ${audienceLabel}. Handle questions related to ${u.description.toLowerCase()} Be clear, accurate, and grounded in linked sources. If you don't know an answer, say so and suggest who to ask.`,
     knowledgeSources: [],
     alwaysInclude: true,
     signalsUsed: ['fallback — OpenAI unavailable, including universal Assistants'],
@@ -684,8 +781,19 @@ async function handleOptimizeMainInstructions(req, res) {
     return res.status(400).json({ error: 'mainInstructions (string) is required' });
   }
 
-  // Pull workspace context (companyName, tone, glossary) so the polish pass
-  // can reinforce workspace-specific framing instead of generic boilerplate.
+  // The client may supply the current audience (from in-flight edits in the
+  // wizard) — that takes precedence over what's persisted in the blueprint.
+  const bodyAudience = body.audience && typeof body.audience === 'object'
+    ? {
+        kind: ALLOWED_AUDIENCE_KINDS.includes(body.audience.kind) ? body.audience.kind : 'mixed',
+        label: typeof body.audience.label === 'string' && body.audience.label.trim() ? body.audience.label.trim() : 'workspace members',
+        summary: typeof body.audience.summary === 'string' ? body.audience.summary : '',
+      }
+    : null;
+
+  // Pull workspace context (companyName, tone, glossary, audience) so the
+  // polish pass can reinforce workspace-specific framing instead of generic
+  // boilerplate.
   let workspaceContext = null;
   try {
     const branch = await getBranch();
@@ -696,6 +804,7 @@ async function handleOptimizeMainInstructions(req, res) {
         workspaceContext = {
           companyName: ws.companyName,
           companyMission: ws.companyMission,
+          audience: bodyAudience || ws.audience || null,
           tone: ws.tone,
           glossary: (ws.glossary || []).slice(0, 12),
           languages: row?.blueprint?.languages || [],
@@ -703,6 +812,12 @@ async function handleOptimizeMainInstructions(req, res) {
       }
     }
   } catch {}
+  // If we couldn't load a blueprint (e.g. discovery hasn't persisted yet)
+  // but the client still provided an audience, propagate it so the optimize
+  // pass respects the override.
+  if (!workspaceContext && bodyAudience) {
+    workspaceContext = { audience: bodyAudience };
+  }
 
   const client = new OpenAI({ apiKey });
   const system = loadDiscoveryPrompt('optimize-main');
@@ -718,6 +833,7 @@ async function handleOptimizeMainInstructions(req, res) {
         content: JSON.stringify({
           draft,
           workspaceContext,
+          audience: workspaceContext?.audience || null,
         }),
       },
     ],

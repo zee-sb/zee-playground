@@ -16,6 +16,8 @@ import { loadStudio, materializeActiveScope, userToAudience } from '../lib/studi
 import { listConnectionsForUser } from '../lib/connections.mjs';
 import { getVoiceProvider } from '../lib/voice/provider.mjs';
 import { redactPII } from '../lib/voice/pii-redact.mjs';
+import { withStaffbaseContext } from '../lib/staffbase.mjs';
+import { resolveBranchId, getTenantContext } from '../lib/tenants.mjs';
 
 function baseUrlOf(req) {
   const proto = req.headers['x-forwarded-proto'] || 'http';
@@ -76,23 +78,39 @@ async function conversations(req, res) {
     res.status(401).json({ error: 'not_signed_in' });
     return;
   }
+  // `branchId` is required for tenant-scoped listing/creation; if the
+  // caller didn't pass `?branch=`, `resolveBranchId` falls back to the
+  // first registered tenant which preserves the single-tenant UX.
+  const branchId = await resolveBranchId(req);
   if (req.method === 'GET') {
-    const rows = await sql`
-      select id, title, created_at, updated_at
-      from conversations
-      where user_id = ${session.userId}
-      order by updated_at desc
-      limit 50
-    `;
+    // When a branch is in scope, only return conversations for that tenant
+    // (plus legacy rows whose branch wasn't backfilled — protects the user
+    // from "where did my chats go" if migration 010 didn't run yet).
+    const rows = branchId
+      ? await sql`
+          select id, title, staffbase_branch_id, created_at, updated_at
+          from conversations
+          where user_id = ${session.userId}
+            and (staffbase_branch_id = ${branchId} or staffbase_branch_id is null)
+          order by updated_at desc
+          limit 50
+        `
+      : await sql`
+          select id, title, staffbase_branch_id, created_at, updated_at
+          from conversations
+          where user_id = ${session.userId}
+          order by updated_at desc
+          limit 50
+        `;
     res.status(200).json({ conversations: rows });
     return;
   }
   if (req.method === 'POST') {
     const title = (req.body && typeof req.body.title === 'string') ? req.body.title.slice(0, 200) : null;
     const rows = await sql`
-      insert into conversations (user_id, title)
-      values (${session.userId}, ${title})
-      returning id, title, created_at, updated_at
+      insert into conversations (user_id, title, staffbase_branch_id)
+      values (${session.userId}, ${title}, ${branchId})
+      returning id, title, staffbase_branch_id, created_at, updated_at
     `;
     res.status(201).json({ conversation: rows[0] });
     return;
@@ -149,9 +167,15 @@ async function messages(req, res) {
     res.status(400).json({ error: 'conversationId is required' });
     return;
   }
-  const own = await sql`select id from conversations where id = ${conversationId} and user_id = ${session.userId}`;
+  const own = await sql`select id, staffbase_branch_id from conversations where id = ${conversationId} and user_id = ${session.userId}`;
   if (!own.length) {
     res.status(404).json({ error: 'conversation_not_found' });
+    return;
+  }
+  const convoBranch = own[0].staffbase_branch_id || null;
+  const activeBranchForGuard = await resolveBranchId(req);
+  if (convoBranch && activeBranchForGuard && convoBranch !== activeBranchForGuard) {
+    res.status(409).json({ error: 'conversation_tenant_mismatch', code: 'tenant_mismatch', conversationBranchId: convoBranch });
     return;
   }
   const rows = await sql`
@@ -208,13 +232,29 @@ async function chat(req, res) {
       : null;
 
   const own = await sql`
-    select c.id, u.staffbase_user_id, u.email, u.display_name, u.department, u.title from conversations c
+    select c.id, c.staffbase_branch_id, u.staffbase_user_id, u.email, u.display_name, u.department, u.title from conversations c
     join users u on u.id = c.user_id
     where c.id = ${conversationId} and c.user_id = ${session.userId}
   `;
   if (!own.length) {
     res.status(404).json({ error: 'conversation_not_found' });
     return;
+  }
+  // Tenant guard: if the active branch doesn't match the conversation's
+  // recorded tenant, reject. Legacy rows with NULL branch get stamped to
+  // the current tenant on first use ("adopt-on-first-turn") so they don't
+  // remain ambiguous.
+  const convoBranch = own[0].staffbase_branch_id || null;
+  const activeBranchForGuard = await resolveBranchId(req);
+  if (convoBranch && activeBranchForGuard && convoBranch !== activeBranchForGuard) {
+    res.status(409).json({ error: 'conversation_tenant_mismatch', code: 'tenant_mismatch', conversationBranchId: convoBranch });
+    return;
+  }
+  if (!convoBranch && activeBranchForGuard) {
+    await sql`
+      update conversations set staffbase_branch_id = ${activeBranchForGuard}
+      where id = ${conversationId} and user_id = ${session.userId} and staffbase_branch_id is null
+    `;
   }
   const staffbaseUserId = own[0].staffbase_user_id;
   const userProfile = {
@@ -326,11 +366,15 @@ async function chat(req, res) {
         values (${conversationId}, 'system', ${JSON.stringify(content)}::jsonb)
       `;
     };
-    // Load Studio config + the user's OAuth connection list. Both feed into
-    // the orchestrator: Studio decides admin-enabled connectors, connections
-    // decide which provider-gated connectors the user can actually call.
+    // Resolve the active Staffbase tenant from ?branch= (or fall back to the
+    // only registered tenant). Load Studio + run the orchestrator inside its
+    // credential frame so every downstream Staffbase API call hits the right
+    // workspace.
+    const activeBranchId = await resolveBranchId(req);
+    const tenantCtx = activeBranchId ? await getTenantContext(activeBranchId) : null;
+
     const [studio, connections] = await Promise.all([
-      loadStudio({}).catch((err) => {
+      loadStudio({ branchId: activeBranchId }).catch((err) => {
         console.warn('[companion/chat] loadStudio failed:', err.message);
         return null;
       }),
@@ -338,7 +382,7 @@ async function chat(req, res) {
     ]);
     const userConnectionProviders = new Set((connections || []).map((c) => c.provider));
 
-    const result = await runOrchestratedTurn({
+    const runTurn = () => runOrchestratedTurn({
       openai,
       userId: session.userId,
       staffbaseUserId,
@@ -350,12 +394,13 @@ async function chat(req, res) {
       onToolResult,
       onSystemMessage,
       studio,
-      branchId: studio?.branchId || null,
+      branchId: studio?.branchId || activeBranchId || null,
       userConnections: userConnectionProviders,
       flowSubmission,
       sessionLang,
       inputModality: modality,
     });
+    const result = tenantCtx ? await withStaffbaseContext(tenantCtx, runTurn) : await runTurn();
     if (result.status === 'await_confirm') {
       await sql`
         insert into messages (conversation_id, role, content)
@@ -393,9 +438,15 @@ async function confirm(req, res) {
     return;
   }
 
-  const own = await sql`select id from conversations where id = ${conversationId} and user_id = ${session.userId}`;
+  const own = await sql`select id, staffbase_branch_id from conversations where id = ${conversationId} and user_id = ${session.userId}`;
   if (!own.length) {
     res.status(404).json({ error: 'conversation_not_found' });
+    return;
+  }
+  const convoBranch = own[0].staffbase_branch_id || null;
+  const activeBranchForGuard = await resolveBranchId(req);
+  if (convoBranch && activeBranchForGuard && convoBranch !== activeBranchForGuard) {
+    res.status(409).json({ error: 'conversation_tenant_mismatch', code: 'tenant_mismatch', conversationBranchId: convoBranch });
     return;
   }
 
@@ -417,9 +468,12 @@ async function confirm(req, res) {
   const base = baseUrlOf(req);
 
   // For Studio-driven flows, the write-confirm endpoint must also resolve
-  // against admin-authored connectors — not just the legacy registry.
-  const studio = await loadStudio({}).catch(() => null);
+  // against admin-authored connectors — not just the legacy registry. Honor
+  // the active tenant the user is operating against.
+  const activeBranchId = await resolveBranchId(req);
+  const studio = await loadStudio({ branchId: activeBranchId }).catch(() => null);
   const studioConnectors = studio?.config?.connectors || [];
+  const branchId = studio?.branchId || activeBranchId || null;
 
   try {
     for (const tc of pending.toolCalls) {
@@ -431,7 +485,7 @@ async function confirm(req, res) {
       if (decision === 'confirm') {
         emit({ type: 'tool_start', toolCallId: tc.id, name: tc.name, connector: connector?.id, args: tc.args, confirmed: true });
         try {
-          result = await rpc(base, endpoint, 'tools/call', { name: tc.name, arguments: tc.args }, session.userId);
+          result = await rpc(base, endpoint, 'tools/call', { name: tc.name, arguments: tc.args }, session.userId, branchId);
           if (result?.content) {
             const text = result.content.filter((c) => c.type === 'text').map((c) => c.text).join('');
             try { result = JSON.parse(text); } catch { result = text; }
@@ -527,8 +581,11 @@ async function hero(req, res) {
   } catch (err) {
     console.warn('[companion/hero] user lookup failed:', err.message);
   }
+  // Pick up the active tenant from ?branch= so the hero shows the right
+  // workspace's assistants + flows.
+  const heroBranchId = await resolveBranchId(req).catch(() => null);
   let studio = null;
-  try { studio = await loadStudio({}); }
+  try { studio = await loadStudio({ branchId: heroBranchId }); }
   catch (err) { console.warn('[companion/hero] loadStudio failed:', err.message); }
 
   if (!studio) {
@@ -559,8 +616,11 @@ async function hero(req, res) {
   });
 }
 
-async function rpc(baseUrl, endpoint, method, params, userId) {
-  const res = await fetch(`${baseUrl}${endpoint}`, {
+async function rpc(baseUrl, endpoint, method, params, userId, branchId) {
+  const url = branchId
+    ? `${baseUrl}${endpoint}${endpoint.includes('?') ? '&' : '?'}branch=${encodeURIComponent(branchId)}`
+    : `${baseUrl}${endpoint}`;
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

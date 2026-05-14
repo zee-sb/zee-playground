@@ -13,7 +13,7 @@
 //   - delete                     — remove a saved Assistant
 
 import OpenAI from 'openai';
-import { getBranch } from '../lib/staffbase.mjs';
+import { withStaffbaseContext } from '../lib/staffbase.mjs';
 import {
   getBlueprint,
   listAssistants,
@@ -25,30 +25,44 @@ import { embed, rankByTopic } from '../lib/embeddings.mjs';
 import { listTemplates, getTemplate } from '../lib/assistant-templates.mjs';
 import { dbConfigured } from '../lib/db.mjs';
 import { pairwiseAssistantOverlap } from '../lib/navigator-health.mjs';
+import { resolveBranchId, getTenantContext } from '../lib/tenants.mjs';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const action = url.searchParams.get('action');
-    if (action === 'list')                    return await handleList(req, res);
-    if (action === 'templates')               return await handleTemplates(req, res);
-    if (action === 'create-from-template')    return await handleCreateFromTemplate(req, res);
-    if (action === 'create-from-description') return await handleCreateFromDescription(req, res);
-    if (action === 'check-conflicts')         return await handleCheckConflicts(req, res);
-    if (action === 'save')                    return await handleSave(req, res);
-    if (action === 'bulk-save')               return await handleBulkSave(req, res);
-    if (action === 'delete')                  return await handleDelete(req, res, url);
-    if (action === 'scaffold-flow')           return await handleScaffoldFlow(req, res);
-    res.status(400).json({ error: 'unknown action' });
+    // Resolve active tenant once and stash it on the request so handlers can
+    // read it without re-parsing the URL.
+    const branchId = await resolveBranchId(req);
+    const tenantCtx = branchId ? await getTenantContext(branchId) : null;
+    if (branchId && !tenantCtx) {
+      return res.status(404).json({ error: 'tenant_not_found' });
+    }
+    req._activeBranchId = branchId;
+    const dispatch = async () => {
+      if (action === 'list')                    return await handleList(req, res);
+      if (action === 'templates')               return await handleTemplates(req, res);
+      if (action === 'create-from-template')    return await handleCreateFromTemplate(req, res);
+      if (action === 'create-from-description') return await handleCreateFromDescription(req, res);
+      if (action === 'check-conflicts')         return await handleCheckConflicts(req, res);
+      if (action === 'save')                    return await handleSave(req, res);
+      if (action === 'bulk-save')               return await handleBulkSave(req, res);
+      if (action === 'delete')                  return await handleDelete(req, res, url);
+      if (action === 'scaffold-flow')           return await handleScaffoldFlow(req, res);
+      res.status(400).json({ error: 'unknown action' });
+    };
+    if (tenantCtx) {
+      return await withStaffbaseContext(tenantCtx, dispatch);
+    }
+    return await dispatch();
   } catch (err) {
     res.status(500).json({ error: err.message || 'internal error' });
   }
 }
 
-async function getActiveBranchId() {
-  const b = await getBranch();
-  return b?.id || null;
+async function getActiveBranchId(req) {
+  return req?._activeBranchId || null;
 }
 
 async function readJsonBody(req) {
@@ -60,9 +74,9 @@ async function readJsonBody(req) {
 
 // ── list ───────────────────────────────────────────────────────────────────
 
-async function handleList(_req, res) {
+async function handleList(req, res) {
   if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
-  const branchId = await getActiveBranchId();
+  const branchId = await getActiveBranchId(req);
   if (!branchId) return res.status(503).json({ error: 'branch_unavailable' });
   const rows = await listAssistants(branchId);
   return res.status(200).json({ branchId, assistants: rows });
@@ -70,7 +84,7 @@ async function handleList(_req, res) {
 
 // ── templates ──────────────────────────────────────────────────────────────
 
-async function handleTemplates(_req, res) {
+async function handleTemplates(req, res) {
   const templates = listTemplates().map((t) => ({
     id: t.id,
     name: t.name,
@@ -82,7 +96,7 @@ async function handleTemplates(_req, res) {
   }));
   // Tag each template with a "suggested for you" hint if its topic keywords
   // overlap with the workspace's glossary or department names.
-  const branchId = await getActiveBranchId().catch(() => null);
+  const branchId = await getActiveBranchId(req);
   let suggestedFlags = {};
   if (branchId && dbConfigured()) {
     try {
@@ -115,7 +129,7 @@ async function handleCreateFromTemplate(req, res) {
   const tpl = getTemplate(templateId);
   if (!tpl) return res.status(404).json({ error: 'template not found' });
 
-  const branchId = await getActiveBranchId();
+  const branchId = await getActiveBranchId(req);
   if (!branchId) return res.status(503).json({ error: 'branch_unavailable' });
   const bp = await getBlueprint(branchId);
   if (!bp) return res.status(404).json({ error: 'no_blueprint', code: 'discovery_required' });
@@ -191,7 +205,7 @@ async function handleCreateFromDescription(req, res) {
   const audience = body.audience || { everyone: true, roles: [], locations: [] };
   if (!description) return res.status(400).json({ error: 'description required' });
 
-  const branchId = await getActiveBranchId();
+  const branchId = await getActiveBranchId(req);
   if (!branchId) return res.status(503).json({ error: 'branch_unavailable' });
   const bp = await getBlueprint(branchId);
   if (!bp) return res.status(404).json({ error: 'no_blueprint', code: 'discovery_required' });
@@ -323,7 +337,7 @@ async function handleCheckConflicts(req, res) {
   const body = await readJsonBody(req);
   const candidate = body.candidate;
   if (!candidate?.name) return res.status(400).json({ error: 'candidate.name required' });
-  const branchId = await getActiveBranchId();
+  const branchId = await getActiveBranchId(req);
   if (!branchId) return res.status(503).json({ error: 'branch_unavailable' });
   const existing = await listAssistants(branchId);
   const conflicts = await detectConflicts(existing, candidate);
@@ -344,7 +358,7 @@ async function handleSave(req, res) {
   const body = await readJsonBody(req);
   const { assistant, source, templateId } = body;
   if (!assistant?.name) return res.status(400).json({ error: 'assistant.name required' });
-  const branchId = await getActiveBranchId();
+  const branchId = await getActiveBranchId(req);
   if (!branchId) return res.status(503).json({ error: 'branch_unavailable' });
   const saved = await createAssistant({
     branchId,
@@ -372,7 +386,7 @@ async function handleBulkSave(req, res) {
   const body = await readJsonBody(req);
   const incoming = Array.isArray(body.assistants) ? body.assistants : null;
   if (!incoming) return res.status(400).json({ error: 'assistants array required' });
-  const branchId = await getActiveBranchId();
+  const branchId = await getActiveBranchId(req);
   if (!branchId) return res.status(503).json({ error: 'branch_unavailable' });
 
   const existing = await listAssistants(branchId);
@@ -426,7 +440,7 @@ async function handleDelete(req, res, url) {
   if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
   const id = url.searchParams.get('id');
   if (!id) return res.status(400).json({ error: 'id required' });
-  const branchId = await getActiveBranchId();
+  const branchId = await getActiveBranchId(req);
   if (!branchId) return res.status(503).json({ error: 'branch_unavailable' });
   const ok = await deleteAssistant({ branchId, id });
   return res.status(ok ? 200 : 404).json({ ok });

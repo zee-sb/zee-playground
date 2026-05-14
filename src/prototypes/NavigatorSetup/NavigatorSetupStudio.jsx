@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { StudioShell } from '../../components/StudioShell'
 import { useConfigStore } from '../AIAssistant/useConfigStore'
+import { useActiveTenant } from '../AIAssistant/useActiveTenant'
 
 const ICON_MAP = {
   Sparkles, HeartHandshake, Briefcase, Megaphone, Wrench,
@@ -60,7 +61,8 @@ const slug = (s) =>
   (s || 'cluster').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32)
 
 export default function NavigatorSetupStudio() {
-  const { setAssistants, setConnectors, setConfig } = useConfigStore()
+  const { branchId } = useActiveTenant()
+  const { setAssistants, setConnectors, setConfig } = useConfigStore({ branchId })
 
   const [phase, setPhase] = useState('loading') // loading | idle | discovering | ready | error
   const [discovery, setDiscovery] = useState(null)
@@ -78,15 +80,30 @@ export default function NavigatorSetupStudio() {
   const [expandedPrompts, setExpandedPrompts] = useState(() => new Set())
   const [editedMainInstructions, setEditedMainInstructions] = useState('')
   const [includeWorkspaceConfig, setIncludeWorkspaceConfig] = useState(true)
+  const [audience, setAudience] = useState(null) // { kind, label, summary }
+  const [audienceDraft, setAudienceDraft] = useState(null) // edit-buffer
+  const [audienceEditing, setAudienceEditing] = useState(false)
   const [toast, setToast] = useState(null)
   const toastTimer = useRef(null)
 
-  // When a discovery completes, switch every proposed Assistant on by default,
-  // and seed the editable main instructions from the LLM output.
+  // When a discovery completes, switch every proposed Assistant on by default
+  // (except employee-only ones on a non-employee workspace — those start
+  // unticked so admins don't accidentally apply them), and seed the editable
+  // main instructions + audience from the LLM output.
   useEffect(() => {
     if (!discovery?.proposedAssistants) return
-    setIncludedAssistantKeys(new Set(discovery.proposedAssistants.map((_, i) => i)))
+    const a = discovery.workspace?.audience || null
+    const nonEmployee = a?.kind && a.kind !== 'internal_employees'
+    setIncludedAssistantKeys(new Set(
+      discovery.proposedAssistants
+        .map((p, i) => ({ p, i }))
+        .filter(({ p }) => !(nonEmployee && isEmployeeOnlyAssistantName(p.name)))
+        .map(({ i }) => i)
+    ))
     setEditedMainInstructions(discovery.workspace?.mainInstructions || '')
+    setAudience(a)
+    setAudienceDraft(a)
+    setAudienceEditing(false)
   }, [discovery])
 
   useEffect(() => () => toastTimer.current && clearTimeout(toastTimer.current), [])
@@ -116,7 +133,7 @@ export default function NavigatorSetupStudio() {
     let cancelled = false
     ;(async () => {
       try {
-        const resp = await fetch('/api/navigator-setup?action=load')
+        const resp = await fetch(`/api/navigator-setup?action=load${branchId ? `&branch=${encodeURIComponent(branchId)}` : ''}`)
         if (cancelled) return
         if (resp.status === 204) {
           setPhase('idle')
@@ -154,12 +171,19 @@ export default function NavigatorSetupStudio() {
     return () => { cancelled = true }
   }, [])
 
-  const runDiscover = async () => {
+  const runDiscover = async ({ audienceOverride } = {}) => {
     setPhase('discovering')
     setErrorMsg(null)
     setErrorCode(null)
     try {
-      const resp = await fetch('/api/navigator-setup?action=discover')
+      const resp = await fetch(
+        `/api/navigator-setup?action=discover${branchId ? `&branch=${encodeURIComponent(branchId)}` : ''}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audienceOverride: audienceOverride || null }),
+        }
+      )
       const body = await parseJsonResponse(resp)
       if (!body) {
         setErrorMsg('Discovery endpoint is not available in this environment. Run `vercel dev` or deploy to exercise live discovery against the Staffbase API.')
@@ -201,7 +225,7 @@ export default function NavigatorSetupStudio() {
     setSearchResults(null)
     if (queryOverride) setSearchTerm(queryOverride)
     try {
-      const resp = await fetch(`/api/navigator-setup?action=search-preview&query=${encodeURIComponent(q)}`)
+      const resp = await fetch(`/api/navigator-setup?action=search-preview&query=${encodeURIComponent(q)}${branchId ? `&branch=${encodeURIComponent(branchId)}` : ''}`)
       const body = await parseJsonResponse(resp)
       if (!body) {
         setSearchErr('Search endpoint is not available in this environment.')
@@ -328,6 +352,7 @@ export default function NavigatorSetupStudio() {
             // New fields — additive, won't break older Navigator Studio code that ignores them.
             companyName: discovery.workspace?.companyName || prevTenant.companyName || '',
             companyMission: discovery.workspace?.companyMission || prevTenant.companyMission || '',
+            audience: audience || discovery.workspace?.audience || prevTenant.audience || null,
             languages: discovery.languages || [],
             glossary: discovery.workspace?.glossary || [],
             systemPrompt: editedMainInstructions.trim(),
@@ -409,6 +434,28 @@ export default function NavigatorSetupStudio() {
                   />
 
                   <SectionDivider
+                    title="Audience"
+                    subtitle="Who uses this workspace. Override and regenerate if the inferred audience is wrong."
+                  />
+                  <AudienceCard
+                    audience={audience}
+                    draft={audienceDraft}
+                    editing={audienceEditing}
+                    onStartEdit={() => { setAudienceDraft(audience); setAudienceEditing(true) }}
+                    onCancel={() => { setAudienceDraft(audience); setAudienceEditing(false) }}
+                    onDraftChange={setAudienceDraft}
+                    onSaveLabel={() => {
+                      setAudience(audienceDraft)
+                      setAudienceEditing(false)
+                    }}
+                    onRegenerate={() => {
+                      setAudience(audienceDraft)
+                      setAudienceEditing(false)
+                      runDiscover({ audienceOverride: audienceDraft })
+                    }}
+                  />
+
+                  <SectionDivider
                     title="Main Navigator instructions"
                     subtitle="The orchestrator-level system prompt every Assistant inherits. Edit before applying."
                   />
@@ -418,6 +465,7 @@ export default function NavigatorSetupStudio() {
                     tone={discovery.workspace?.tone}
                     workspaceFacts={discovery.workspace?.workspaceFacts}
                     overview={discovery.workspace?.overview}
+                    audience={audience}
                   />
 
                   {discovery.workspace?.glossary?.length > 0 && (
@@ -432,10 +480,15 @@ export default function NavigatorSetupStudio() {
 
                   <SectionDivider
                     title="Proposed Assistants"
-                    subtitle={`${discovery.proposedAssistants.length} Assistants — universal (HR, IT, etc.) plus content-driven from your channels.`}
+                    subtitle={
+                      audience?.kind && audience.kind !== 'internal_employees'
+                        ? `${discovery.proposedAssistants.length} Assistants — tailored to ${audience.label} and your channel content.`
+                        : `${discovery.proposedAssistants.length} Assistants — universal (HR, IT, etc.) plus content-driven from your channels.`
+                    }
                   />
                   <Phase3Proposal
                     discovery={discovery}
+                    audience={audience}
                     includedAssistantKeys={includedAssistantKeys}
                     onToggleIncluded={toggleIncluded}
                     expandedPrompts={expandedPrompts}
@@ -489,7 +542,7 @@ function Phase1Hero({ phase, onDiscover }) {
         <p className="text-[16px] text-[#71717A] mt-2 max-w-2xl leading-relaxed">
           One click analyzes your channels, posts, user directory, departments, and languages —
           then drafts a ready-to-use Navigator configuration: orchestrator instructions, a workspace
-          glossary, and a full Assistant lineup (HR, IT, Onboarding, plus content-driven ones).
+          glossary, and a full Assistant lineup tailored to whoever uses this workspace.
         </p>
 
         <button
@@ -957,7 +1010,122 @@ function QuestionTypesCard({ questionTypes }) {
 
 // ── Main Navigator Instructions ────────────────────────────────────────────
 
-function MainInstructionsCard({ value, onChange, tone, workspaceFacts, overview }) {
+// ── Audience ───────────────────────────────────────────────────────────────
+
+const AUDIENCE_KINDS = [
+  { value: 'internal_employees', label: 'Internal employees' },
+  { value: 'external_event', label: 'External event attendees' },
+  { value: 'customer_community', label: 'Customer community' },
+  { value: 'frontline_workforce', label: 'Frontline workforce' },
+  { value: 'partner_portal', label: 'Partner portal' },
+  { value: 'alumni', label: 'Alumni network' },
+  { value: 'mixed', label: 'Mixed' },
+  { value: 'other', label: 'Other' },
+]
+const audienceKindLabel = (k) => AUDIENCE_KINDS.find((o) => o.value === k)?.label || (k || 'Unknown')
+
+function AudienceCard({ audience, draft, editing, onStartEdit, onCancel, onDraftChange, onSaveLabel, onRegenerate }) {
+  const kind = audience?.kind || 'mixed'
+  const isInternal = kind === 'internal_employees'
+  const draftKind = draft?.kind || 'mixed'
+  const draftLabel = draft?.label || ''
+  return (
+    <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 rounded-lg bg-[#EFF6FF] grid place-items-center">
+            <Users size={16} className="text-[#2563EB]" />
+          </div>
+          <div>
+            <div className="text-[14px] font-semibold text-[#18181B]">Inferred audience</div>
+            <div className="text-[12px] text-[#71717A]">Drives the role, helps-with, and exclusions in the prompt below.</div>
+          </div>
+        </div>
+        {!editing && audience && (
+          <button
+            onClick={onStartEdit}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#E4E4E7] hover:border-[#7C3AED] hover:text-[#7C3AED] text-[12.5px] font-semibold text-[#52525B] transition-colors"
+          >
+            <Pencil size={13} />
+            Edit
+          </button>
+        )}
+      </div>
+
+      {!audience ? (
+        <div className="text-[12.5px] text-[#71717A]">No audience inferred yet.</div>
+      ) : !editing ? (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11.5px] font-semibold bg-[#EFF6FF] text-[#1D4ED8]">{audienceKindLabel(kind)}</span>
+            <span className="text-[13.5px] font-semibold text-[#18181B]">{audience.label || 'workspace members'}</span>
+          </div>
+          {audience.summary && (
+            <div className="text-[12.5px] text-[#52525B] leading-relaxed">{audience.summary}</div>
+          )}
+          {!isInternal && (
+            <div className="mt-2 flex items-start gap-1.5 text-[12px] text-[#92400E] bg-[#FEF3C7] border border-[#FDE68A] rounded-lg p-2">
+              <AlertTriangle size={13} className="mt-[1px] flex-shrink-0" />
+              <span>This isn’t an internal employee intranet — review the proposed Assistants below and remove any HR / IT / Onboarding suggestions that don’t fit.</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <label className="block">
+            <div className="text-[11.5px] font-semibold text-[#52525B] mb-1 uppercase tracking-wide">Kind</div>
+            <select
+              value={draftKind}
+              onChange={(e) => onDraftChange({ ...(draft || {}), kind: e.target.value })}
+              className="w-full text-[13px] px-3 py-2 bg-white border border-[#E4E4E7] rounded-lg focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] outline-none"
+            >
+              {AUDIENCE_KINDS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <div className="text-[11.5px] font-semibold text-[#52525B] mb-1 uppercase tracking-wide">Audience label (used verbatim in the prompt)</div>
+            <input
+              type="text"
+              value={draftLabel}
+              onChange={(e) => onDraftChange({ ...(draft || {}), label: e.target.value })}
+              placeholder="e.g. VOICES attendees"
+              className="w-full text-[13px] px-3 py-2 bg-white border border-[#E4E4E7] rounded-lg focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] outline-none"
+            />
+          </label>
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={onSaveLabel}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#18181B] hover:bg-[#27272A] text-white text-[12.5px] font-semibold"
+            >
+              <Check size={13} />
+              Save
+            </button>
+            <button
+              onClick={onRegenerate}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-[12.5px] font-semibold"
+            >
+              <RefreshCw size={13} />
+              Regenerate prompt with this audience
+            </button>
+            <button
+              onClick={onCancel}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#E4E4E7] hover:border-[#A1A1AA] text-[12.5px] font-semibold text-[#52525B]"
+            >
+              Cancel
+            </button>
+          </div>
+          <div className="text-[11.5px] text-[#71717A]">
+            “Save” updates the label without re-running discovery. “Regenerate” calls the LLM again with the new audience locked in — useful if the original inference was wrong.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MainInstructionsCard({ value, onChange, tone, workspaceFacts, overview, audience }) {
   const [editing, setEditing] = useState(false)
   return (
     <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
@@ -968,7 +1136,10 @@ function MainInstructionsCard({ value, onChange, tone, workspaceFacts, overview 
           </div>
           <div>
             <div className="text-[14px] font-semibold text-[#18181B]">Orchestrator system prompt</div>
-            <div className="text-[12px] text-[#71717A]">Inherited by every Assistant. ~{(value || '').split(/\s+/).filter(Boolean).length} words.</div>
+            <div className="text-[12px] text-[#71717A]">
+              Inherited by every Assistant. ~{(value || '').split(/\s+/).filter(Boolean).length} words.
+              {audience?.label ? ` · Audience: ${audience.label}` : ''}
+            </div>
           </div>
         </div>
         <button
@@ -1200,14 +1371,22 @@ function Phase2Results({
 
 // ── Phase 3 ────────────────────────────────────────────────────────────────
 
+// Heuristic: an Assistant whose name screams "employee universal" doesn't
+// belong on a non-employee workspace (event app, customer community, etc).
+// Used to surface a warning chip on the proposal card so the admin notices
+// and unticks it before applying.
+const EMPLOYEE_ONLY_ASSISTANT_RE = /\b(hr|human resources|it helpdesk|it support|onboarding|travel\s*(?:&|and)\s*expenses?|payroll|people experience|learning\s*(?:&|and)\s*development|l\s*&\s*d)\b/i
+const isEmployeeOnlyAssistantName = (name) => !!name && EMPLOYEE_ONLY_ASSISTANT_RE.test(name)
+
 function Phase3Proposal({
-  discovery, includedAssistantKeys, onToggleIncluded,
+  discovery, audience, includedAssistantKeys, onToggleIncluded,
   expandedPrompts, onTogglePromptExpanded,
 }) {
   const assistants = discovery.proposedAssistants
   const channelById = new Map(discovery.channels.map((c) => [c.id, c]))
   const universalCount = assistants.filter((a) => a.alwaysInclude || a.clusterName === 'Universal').length
   const contentCount = assistants.length - universalCount
+  const nonEmployeeAudience = audience?.kind && audience.kind !== 'internal_employees'
 
   return (
     <div>
@@ -1216,6 +1395,15 @@ function Phase3Proposal({
           <AlertTriangle size={14} className="text-[#A16207] shrink-0 mt-0.5" />
           <div className="text-[12px] text-[#713F12]">
             AI clustering unavailable ({discovery.meta?.fallbackReason || 'unknown'}). Showing a fallback proposal of one Assistant per channel.
+          </div>
+        </div>
+      )}
+
+      {nonEmployeeAudience && assistants.some((a) => isEmployeeOnlyAssistantName(a.name)) && (
+        <div className="mb-4 flex items-start gap-2 bg-[#FEF3C7] border border-[#FDE68A] rounded-xl px-3 py-2">
+          <AlertTriangle size={14} className="text-[#92400E] shrink-0 mt-0.5" />
+          <div className="text-[12px] text-[#78350F]">
+            This workspace serves {audience?.label || 'a non-employee audience'} — the highlighted “employee-only” Assistants below (HR, IT, Onboarding, etc.) are unlikely to fit. Untick them or regenerate from the Audience card.
           </div>
         </div>
       )}
@@ -1253,9 +1441,12 @@ function Phase3Proposal({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-[15px] font-bold text-[#18181B] leading-tight">{a.name}</div>
-                  <div className="flex items-center gap-1.5 mt-0.5">
+                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                     {isUniversal && (
                       <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#F5F3FF] text-[#5B21B6] border border-[#DDD6FE]">Universal</span>
+                    )}
+                    {nonEmployeeAudience && isEmployeeOnlyAssistantName(a.name) && (
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]">May not fit</span>
                     )}
                     <span className="text-[12px] text-[#A1A1AA]">{a.clusterName === 'Universal' ? '' : a.clusterName}</span>
                   </div>

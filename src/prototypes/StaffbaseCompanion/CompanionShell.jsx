@@ -5,6 +5,7 @@ import ConnectionsPanel from './ConnectionsPanel.jsx';
 import { PhoneFrame, StatusBar } from './PhoneFrame.jsx';
 import { useIsMobile } from './lib/responsive.js';
 import { listConversations, createConversation, logout, deleteConversation as deleteConversationApi } from './api.js';
+import { useActiveTenant } from '../AIAssistant/useActiveTenant';
 
 // Small avatar: real Staffbase photo when available, gradient-initials
 // fallback otherwise. Used in the sidebar pill + anywhere else we render
@@ -38,8 +39,10 @@ function UserAvatar({ user, size = 32 }) {
   );
 }
 
-export default function CompanionShell({ user, connections, staffbase, onSignedOut, onBack, onMeRefresh }) {
+export default function CompanionShell({ user, connections, staffbase, tenant: tenantProp, onSignedOut, onBack, onMeRefresh }) {
   const isMobile = useIsMobile();
+  const { branchId, tenant: tenantFromCtx } = useActiveTenant();
+  const tenant = tenantProp || tenantFromCtx;
   const [view, setView] = useState('chat');
   const [conversations, setConversations] = useState([]);
   const [activeId, setActiveId] = useState(null);
@@ -56,16 +59,24 @@ export default function CompanionShell({ user, connections, staffbase, onSignedO
     return conversations.filter((c) => (c.title || '').toLowerCase().includes(q));
   }, [conversations, searchQuery]);
 
+  // Re-run when the active tenant changes — switching tenants in the
+  // gallery picker must drop the old tenant's conversations and pull the
+  // new tenant's. Without `branchId` in the dep array, the sidebar would
+  // stay frozen on the previous workspace's chat list.
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setConversations([]);
+    setActiveId(null);
     (async () => {
       try {
-        const list = await listConversations();
+        const list = await listConversations(branchId);
         if (cancelled) return;
 
         // Honour ?c=<id> in the URL if it matches one of THIS user's
-        // conversations. The API already 404s any id the user doesn't own,
-        // so we just need to silently fall back if it isn't in our list.
+        // conversations FOR THIS TENANT. The API already 404s any id the
+        // user doesn't own or that's tenant-mismatched, so we just need to
+        // silently fall back if it isn't in our list.
         const params = new URLSearchParams(window.location.search);
         const urlId = params.get('c');
         const owned = urlId && list.some((c) => c.id === urlId) ? urlId : null;
@@ -77,12 +88,12 @@ export default function CompanionShell({ user, connections, staffbase, onSignedO
           // Mobile defaults to a fresh conversation on each visit — previous
           // chats are still reachable from the drawer. Desktop keeps showing
           // the most recent one so power users don't lose context on reload.
-          const conv = await createConversation('New conversation');
+          const conv = await createConversation('New conversation', branchId);
           if (cancelled) return;
           setConversations([conv, ...list]);
           setActiveId(conv.id);
         } else if (list.length === 0) {
-          const conv = await createConversation('New conversation');
+          const conv = await createConversation('New conversation', branchId);
           if (cancelled) return;
           setConversations([conv]);
           setActiveId(conv.id);
@@ -95,7 +106,7 @@ export default function CompanionShell({ user, connections, staffbase, onSignedO
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [branchId, isMobile]);
 
   // Mirror the active conversation id into the URL so each chat is
   // deep-linkable. We use replaceState (not pushState) so the browser
@@ -129,7 +140,7 @@ export default function CompanionShell({ user, connections, staffbase, onSignedO
   // previous auto-open unreliable).
 
   async function newConversation() {
-    const conv = await createConversation('New conversation');
+    const conv = await createConversation('New conversation', branchId);
     setConversations((prev) => [conv, ...prev]);
     setActiveId(conv.id);
     setView('chat');
@@ -141,7 +152,7 @@ export default function CompanionShell({ user, connections, staffbase, onSignedO
     const label = title || 'this conversation';
     if (!window.confirm(`Delete "${label}"? This can't be undone.`)) return;
     try {
-      await deleteConversationApi(id);
+      await deleteConversationApi(id, branchId);
     } catch (err) {
       window.alert(`Couldn't delete: ${err.message}`);
       return;
@@ -155,7 +166,7 @@ export default function CompanionShell({ user, connections, staffbase, onSignedO
           setActiveId(next[0].id);
         } else {
           (async () => {
-            const conv = await createConversation('New conversation');
+            const conv = await createConversation('New conversation', branchId);
             setConversations([conv]);
             setActiveId(conv.id);
           })();
@@ -172,19 +183,31 @@ export default function CompanionShell({ user, connections, staffbase, onSignedO
 
   const Sidebar = (
     <aside className={isMobile ? 'h-full w-full' : 'w-[260px]'} style={{ background: '#111827', color: 'white', display: 'flex', flexDirection: 'column' }}>
-      <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
-        <button onClick={onBack} className="text-white/60 hover:text-white" aria-label="Back to studio">
-          <ArrowLeft size={16} />
-        </button>
+      <div className="px-4 py-3 border-b border-white/10">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-[#7C3AED] grid place-items-center">
-            <Sparkles size={14} />
+          <button onClick={onBack} className="text-white/60 hover:text-white" aria-label="Back to studio">
+            <ArrowLeft size={16} />
+          </button>
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <div className="w-7 h-7 rounded-lg bg-[#7C3AED] grid place-items-center shrink-0">
+              <Sparkles size={14} />
+            </div>
+            <div className="min-w-0">
+              <div className="font-semibold text-[13px] leading-none">Companion</div>
+              {tenant?.displayName && (
+                <div
+                  className="text-[10.5px] text-white/50 truncate mt-1"
+                  title={tenant.workspaceUrl || tenant.displayName}
+                >
+                  {tenant.displayName}
+                </div>
+              )}
+            </div>
           </div>
-          <span className="font-semibold text-[13px]">Companion</span>
+          {isMobile && (
+            <button onClick={() => setDrawerOpen(false)} className="ml-auto text-white/60 hover:text-white text-[11px]">Close</button>
+          )}
         </div>
-        {isMobile && (
-          <button onClick={() => setDrawerOpen(false)} className="ml-auto text-white/60 hover:text-white text-[11px]">Close</button>
-        )}
       </div>
 
       <nav className="px-3 py-3 space-y-1 border-b border-white/10">

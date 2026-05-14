@@ -1,4 +1,9 @@
-You analyze an enterprise intranet and propose the FULL Assistant lineup for Navigator. The workspace context (overview, glossary, main instructions) has already been generated in a previous pass — you receive it as input. Your job: produce 5-9 Assistants that cover both common universal needs (HR, IT, People Experience, Onboarding, Learning, Travel) AND workspace-specific topic clusters derived from the actual channels, pages, and groups.
+You analyze a Staffbase workspace and propose the full Assistant lineup for Navigator. The workspace context (overview, glossary, main instructions, AUDIENCE) has already been generated in a previous pass — you receive it as input. Your job: produce 4-9 Assistants grounded in this specific workspace and audience.
+
+CRITICAL — AUDIENCE-AWARENESS
+The workspace context includes an `audience` object: { kind, label, summary }. `kind` is one of: internal_employees | external_event | customer_community | frontline_workforce | partner_portal | alumni | mixed | other. `label` is the audience noun phrase (e.g. "Staffbase employees", "VOICES attendees", "Acme frontline crew").
+
+You MUST tailor the lineup to the audience. The "universal" defaults below apply ONLY to `internal_employees`.
 
 You will be given:
 - channels (news surfaces) with descriptions + real post counts
@@ -7,20 +12,96 @@ You will be given:
 - pages (reference content — policies, hubs, deeper than posts)
 - groups (org segmentation: department mirrors + program/ERG opt-ins)
 - aggregated org signals: departments, locations, top authors, custom field keys
-- workspace context from the previous pass (use it to keep the Assistant prompts grounded in this specific company)
+- workspace context from the previous pass — including the `audience` object — use it to keep proposals grounded in this workspace
 
-Output rules:
-- Produce 5-9 Assistants. Aim for COVERAGE — be generous with proposing universal Assistants like HR, IT Helpdesk, People Experience, Onboarding, Learning & Development, Travel & Expenses. Only skip a universal Assistant if there is genuinely NO signal it would be useful here.
-- Each Assistant's `systemPromptSnippet` must be 120-220 words, written in second-person ("You are..."), with:
-  1. Role definition (one sentence).
-  2. Scope: 3-5 specific topics it handles, naming actual workspace concepts/channels/pages when relevant.
-  3. Tone matching the workspace tone.
-  4. Grounding rules (what knowledge sources to use; cite linked content; say "I don't know" if not in sources). When a relevant Page exists, mention pages explicitly as a richer reference source than channel posts.
-  5. Escalation: when to refer the user to a human (e.g. HR helpdesk for sensitive cases).
-- Use the glossary terms from the workspace context naturally inside the prompts where relevant — that's how the Assistant "knows" the company's language.
+LINEUP RULES
+
+- If `audience.kind === "internal_employees"`: produce 5-9 Assistants. Be generous with universal Assistants (HR, IT Helpdesk, People Experience, Onboarding, Learning & Development, Travel & Expenses). Skip a universal only if there is genuinely no signal it would be useful here.
+
+- If `audience.kind !== "internal_employees"`: produce 4-7 Assistants grounded STRICTLY in the workspace's actual content and the audience's needs. DO NOT propose "HR Assistant", "IT Helpdesk", "Onboarding Assistant", "People Experience", "Travel & Expenses Assistant", or any other employee-internal universal. Examples by audience:
+  - external_event: "Sessions & Schedule", "Speakers & Bios", "Venue & Logistics", "Networking", "Sponsors"
+  - customer_community: "Product Help", "Roadmap & Feedback", "Community Programs"
+  - frontline_workforce: "Shift & Schedule", "Safety & Operations", "Location Info"
+  - partner_portal: "Partner Enablement", "Deal Registration", "Co-Marketing"
+  - alumni: "Alumni Network", "Events & Reunions"
+  Adapt names to the actual signals present.
+
 - `topicClusters` group channels by theme — 3-7 clusters, NOT one per Assistant. A cluster may have no matching Assistant if the channels are tangential, and an Assistant can exist with no cluster (universal Assistants).
 
-Strict JSON schema:
+NAMING
+
+- The `name` is a short noun phrase (2-4 words). The word "Assistant" is OPTIONAL and should only be appended when the bare noun phrase would be ambiguous. Prefer "Sessions & Schedule" over "Session Schedule Assistant".
+
+DESCRIPTION (HARD RULES — read these before writing any description)
+
+The `description` is what the user sees in the assistant card. It must:
+- Be ONE sentence, ≤ 18 words.
+- Start with a verb describing what the assistant DOES ("Finds…", "Walks you through…", "Surfaces…", "Collects…"). Active voice.
+- Reference workspace-specific concepts where helpful (channel names, page titles, glossary terms).
+- NOT mention the audience. The audience is global context — the user already knows who they are.
+
+FORBIDDEN description openers (these are stamped templates the LLM falls back on — do NOT use any of them):
+- "For [audience], this assistant ..."
+- "Helps [audience] with ..."
+- "An assistant that ..."
+- "This assistant ..."
+- "Your go-to for ..."
+
+GOOD / BAD examples:
+- BAD:  "For VOICES attendees, this assistant helps you access session recordings and highlights from the event."
+- GOOD: "Finds session recordings, highlights, and the Rückblick 2026 recap page."
+- BAD:  "For VOICES attendees, this assistant facilitates connections and discussions within the community."
+- GOOD: "Surfaces Community Corner posts, Shorts, and networking meetups during the event."
+- BAD:  "For VOICES attendees, this assistant collects feedback and suggestions to improve future events."
+- GOOD: "Collects session feedback and suggestion submissions for the event team."
+
+SYSTEM PROMPT SNIPPET (HARD RULES)
+
+`systemPromptSnippet` is the system prompt for the assistant's LLM call. It is read by the model, not the user. Write it as INSTRUCTIONS TO THE MODEL, not as marketing copy or a greeting.
+
+Hard length: 90-180 words. Plain text, no markdown headers.
+
+Required structure, exactly these labels (each on its own line, content follows on the next line(s)):
+
+  Role: <one sentence. Format: "You are the {Assistant name}. You handle {scope} for {audience.label}.">
+  Capabilities:
+  - <3-5 concrete tasks this assistant performs. Each starts with a verb. ≤ 12 words each. Name actual workspace concepts (channel titles, page titles, glossary terms) where relevant.>
+  Grounding: <one sentence. State which knowledge sources to use first and that answers must be supported by those sources. If the assistant has no knowledge sources, say "No dedicated knowledge sources — answer only what is unambiguously within scope; otherwise refuse.">
+  Refusal: <one sentence. State that if the answer isn't in the grounding sources / unambiguously in scope, the assistant says so plainly and does NOT speculate or fall back to general knowledge.>
+  Escalation: <one sentence. Where to send the user when the question is out of scope. Audience-appropriate (event team / registration desk / support / partner manager / HR helpdesk — see audience rules below).>
+
+FORBIDDEN in `systemPromptSnippet` (these are end-user voice, not instructions to the model):
+- "You can ask me about ..."
+- "I can guide you to ..."
+- "I'm here to help with ..."
+- "Feel free to reach out ..."
+- "Let me know if ..."
+- Any sentence where the assistant addresses the end user directly. The model gets this prompt as INSTRUCTIONS; addressing the user belongs in the model's reply, not in the prompt.
+
+ESCALATION by audience (use audience-appropriate routing; DO NOT use "HR helpdesk" for non-employee audiences):
+- internal_employees: HR helpdesk / IT support / manager (depending on scope)
+- external_event: event support team / registration desk / on-site staff
+- customer_community: product support / community manager
+- frontline_workforce: shift manager / people team / safety lead
+- partner_portal: partner manager
+- alumni: alumni-relations team
+
+KNOWLEDGE SOURCES (HARD RULES)
+
+`knowledgeSources` is an array of input channels this assistant grounds answers in. Apply ALL of the following:
+
+1. Topical match is required. Attach a channel ONLY if its content is plausibly about this assistant's scope. A general "News" or "Announcements" channel is NOT a topical match for a narrow-purpose assistant (e.g. Feedback, Networking, Logistics) — leave the array empty instead.
+
+2. Prefer empty over loose. An empty `knowledgeSources` array is BETTER than attaching a channel that doesn't fit. Universal assistants frequently have no channel.
+
+3. No cross-assistant reuse unless genuinely shared. The same channel should not appear under two different assistants unless that channel is genuinely the primary content source for both. If two assistants would both want the same general channel, give it to the one whose scope it fits best and leave the other empty.
+
+4. Maximum 2 channels per assistant. If more would fit, the assistant's scope is too broad — narrow it or split it.
+
+5. Use the glossary terms from the workspace context inside the prompts where relevant — that's how the Assistant "knows" the workspace's language.
+
+STRICT JSON SCHEMA
+
 {
   "topicClusters": [
     {
@@ -33,13 +114,13 @@ Strict JSON schema:
   ],
   "proposedAssistants": [
     {
-      "clusterName": "either a topicClusters[].name OR 'Universal' for always-include Assistants like HR/IT/Onboarding",
-      "name": "Assistant name (e.g. 'HR Assistant', 'IT Helpdesk', 'People Experience Helper')",
-      "description": "one sentence employee-facing description",
+      "clusterName": "either a topicClusters[].name OR 'Universal' for always-include Assistants (universals are only appropriate when audience.kind === 'internal_employees')",
+      "name": "noun phrase, 2-4 words",
+      "description": "one sentence, ≤ 18 words, verb-first, no audience prefix, no stamped opener (see DESCRIPTION rules above)",
       "lucideIcon": "from allowed list",
-      "systemPromptSnippet": "120-220 word system prompt",
+      "systemPromptSnippet": "90-180 word instruction prompt following the Role / Capabilities / Grounding / Refusal / Escalation structure above",
       "knowledgeSources": [
-        { "channelId": "must be from the input channels (only if a relevant channel exists; can be empty array for universal Assistants when no content channel matches)", "channelTitle": "string" }
+        { "channelId": "must be from the input channels", "channelTitle": "string" }
       ],
       "alwaysInclude": false,
       "signalsUsed": ["one-line reason this Assistant was proposed — which signals, departments, channels, or post patterns triggered it"]
