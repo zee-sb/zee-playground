@@ -36,7 +36,9 @@ export default function TraceCard({ route, intent, connectors }) {
       : tier1?.kind === 'assistants'
         ? `Assistant · ${tier1.name || tier1.id}`
         : tier1?.kind === 'general_chat'
-          ? 'General chat'
+          ? (hasRouting
+              ? (directConnectorName ? `Tools · ${directConnectorName}` : 'Direct tools')
+              : 'General chat')
           : tier1?.kind === 'out_of_scope'
             ? 'Out of scope'
             : hasRouting
