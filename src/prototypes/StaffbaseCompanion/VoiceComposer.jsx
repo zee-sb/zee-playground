@@ -11,9 +11,10 @@
 //     anywhere on the mic chip to stop, or hit Cancel to exit the mode.
 //   - The text input is always there for typing.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Send, Loader2, Mic, X, Languages, Radio } from 'lucide-react';
 import { useVoiceInput } from './useVoiceInput.js';
+import SlashMenu, { workflowPrompt, expertPrompt, visibleCount, itemAt } from './SlashMenu.jsx';
 
 const LANG_LABEL = {
   en: 'EN', de: 'DE', es: 'ES', fr: 'FR', it: 'IT', pt: 'PT', nl: 'NL', ar: 'AR',
@@ -33,9 +34,28 @@ export default function VoiceComposer({
   continuousMode = false,
   onToggleContinuousMode,
   registerAutoStart,
+  // Server-filtered triggerable items (workflows + experts) for the slash
+  // quick-actions menu. Optional — if absent the menu simply never opens.
+  heroData,
 }) {
   const [value, setValue] = useState('');
   const taRef = useRef(null);
+
+  // Slash menu state. The menu opens whenever the input begins with "/" and
+  // there's no whitespace before the slash (i.e. it's the leading token).
+  // We track a selection index across both sections; the menu component
+  // exposes flat-index helpers so we don't have to know its internals.
+  const workflows = useMemo(() => heroData?.workflows || heroData?.flows || [], [heroData]);
+  const experts = useMemo(() => heroData?.experts || heroData?.assistants || [], [heroData]);
+  const slashOpen = value.startsWith('/');
+  const slashQuery = slashOpen ? value.slice(1) : '';
+  const [slashIndex, setSlashIndex] = useState(0);
+  const slashCount = useMemo(
+    () => (slashOpen ? visibleCount(workflows, experts, slashQuery) : 0),
+    [slashOpen, slashQuery, workflows, experts],
+  );
+  useEffect(() => { if (slashIndex >= slashCount) setSlashIndex(0); }, [slashCount, slashIndex]);
+  useEffect(() => { setSlashIndex(0); }, [slashQuery, slashOpen]);
 
   const { state, error, level, start, stop, cancel } = useVoiceInput({ languageHint: sessionLang || undefined });
 
@@ -61,7 +81,45 @@ export default function VoiceComposer({
     if (taRef.current) taRef.current.style.height = 'auto';
   }, [value, disabled, isRecording, isUploading, sessionLang, onSubmit]);
 
+  // Send a slash-menu pick: build the trigger phrase and submit just like a
+  // typed message. The orchestrator's intent classifier handles routing.
+  const sendSlashPick = useCallback((item, kind) => {
+    if (disabled || isRecording || isUploading) return;
+    const text = kind === 'flow' ? workflowPrompt(item) : expertPrompt(item);
+    onSubmit(text, { inputModality: 'text', lang: sessionLang || null, source: 'slash' });
+    setValue('');
+    if (taRef.current) {
+      taRef.current.style.height = 'auto';
+      taRef.current.focus();
+    }
+  }, [disabled, isRecording, isUploading, sessionLang, onSubmit]);
+
   function onKey(e) {
+    if (slashOpen && slashCount > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashIndex((i) => (i + 1) % slashCount);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashIndex((i) => (i - 1 + slashCount) % slashCount);
+        return;
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const pick = itemAt(workflows, experts, slashQuery, slashIndex);
+        if (pick) sendSlashPick(pick.item, pick.kind);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        // Close the menu by emptying the input — slash + query both go.
+        setValue('');
+        if (taRef.current) taRef.current.style.height = 'auto';
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); }
   }
   function onInput(e) {
@@ -117,6 +175,17 @@ export default function VoiceComposer({
 
   return (
     <div style={{ flexShrink: 0, position: 'relative', zIndex: 1, padding: '8px 12px 4px' }}>
+      {slashOpen && (
+        <SlashMenu
+          query={slashQuery}
+          workflows={workflows}
+          experts={experts}
+          isMobile={isMobile}
+          selectedIndex={slashIndex}
+          onHover={setSlashIndex}
+          onPick={sendSlashPick}
+        />
+      )}
       {/* Mode strip — continuous-mode toggle + status line. Only renders when
           something is happening (recording, uploading, or continuous mode on)
           to keep the resting state clean. */}

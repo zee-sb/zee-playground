@@ -998,6 +998,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           isMobile={isMobile}
           sessionLang={sessionLang}
           onLanguageChange={handleLanguageChange}
+          heroData={heroData}
           continuousMode={continuousMode}
           onToggleContinuousMode={(next) => {
             setContinuousMode(!!next);
