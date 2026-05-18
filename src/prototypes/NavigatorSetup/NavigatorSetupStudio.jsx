@@ -62,7 +62,8 @@ const slug = (s) =>
 
 export default function NavigatorSetupStudio() {
   const { branchId } = useActiveTenant()
-  const { setAssistants, setConnectors, setConfig } = useConfigStore({ branchId })
+  const { config, setAssistants, setConnectors, setConfig } = useConfigStore({ branchId })
+  const existingExperts = (config?.assistants || []).filter((e) => e.status !== 'archived')
 
   const [phase, setPhase] = useState('loading') // loading | idle | discovering | ready | error
   const [discovery, setDiscovery] = useState(null)
@@ -416,86 +417,85 @@ export default function NavigatorSetupStudio() {
                 glossaryCount={discovery.workspace?.glossary?.length || 0}
               />
 
-              {detailsOpen && (
-                <div className="mt-8">
-                  <SectionDivider title="Workspace overview" subtitle="The big picture — who works here, where, in what languages." />
-                  <WorkspaceOverview discovery={discovery} />
+              <div className="mt-8">
+                <SectionDivider
+                  title="Main Navigator instructions"
+                  subtitle="The orchestrator-level system prompt every Assistant inherits. Edit before applying."
+                />
+                <MainInstructionsCard
+                  value={editedMainInstructions}
+                  onChange={setEditedMainInstructions}
+                  tone={discovery.workspace?.tone}
+                  workspaceFacts={discovery.workspace?.workspaceFacts}
+                  overview={discovery.workspace?.overview}
+                  audience={audience}
+                />
 
-                  <SectionDivider title="What we found" subtitle="Channels and posts powering the workspace right now." />
-                  <Phase2Results
-                    discovery={discovery}
-                    searchTerm={searchTerm}
-                    onSearchTermChange={setSearchTerm}
-                    onSearchSubmit={() => runSearch()}
-                    searchResults={searchResults}
-                    searching={searching}
-                    searchErr={searchErr}
-                    onSuggestionClick={(q) => runSearch(q)}
+                <SectionDivider
+                  title="Proposed Assistants"
+                  subtitle={
+                    audience?.kind && audience.kind !== 'internal_employees'
+                      ? `${discovery.proposedAssistants.length} Assistants — tailored to ${audience.label} and your channel content.`
+                      : `${discovery.proposedAssistants.length} Assistants — universal (HR, IT, etc.) plus content-driven from your channels.`
+                  }
+                />
+                {existingExperts.length > 0 && (
+                  <RediscoveryBanner
+                    existingCount={existingExperts.length}
+                    newCount={discovery.proposedAssistants.length}
                   />
+                )}
+                <Phase3Proposal
+                  discovery={discovery}
+                  audience={audience}
+                  includedAssistantKeys={includedAssistantKeys}
+                  onToggleIncluded={toggleIncluded}
+                  expandedPrompts={expandedPrompts}
+                  onTogglePromptExpanded={togglePromptExpanded}
+                />
+                {existingExperts.length > 0 && (
+                  <ExistingAssistantsStrip experts={existingExperts} />
+                )}
 
-                  <SectionDivider
-                    title="Audience"
-                    subtitle="Who uses this workspace. Override and regenerate if the inferred audience is wrong."
-                  />
-                  <AudienceCard
-                    audience={audience}
-                    draft={audienceDraft}
-                    editing={audienceEditing}
-                    onStartEdit={() => { setAudienceDraft(audience); setAudienceEditing(true) }}
-                    onCancel={() => { setAudienceDraft(audience); setAudienceEditing(false) }}
-                    onDraftChange={setAudienceDraft}
-                    onSaveLabel={() => {
-                      setAudience(audienceDraft)
-                      setAudienceEditing(false)
-                    }}
-                    onRegenerate={() => {
-                      setAudience(audienceDraft)
-                      setAudienceEditing(false)
-                      runDiscover({ audienceOverride: audienceDraft })
-                    }}
-                  />
+                {detailsOpen && (
+                  <>
+                    <SectionDivider
+                      title="Audience"
+                      subtitle="Who uses this workspace. Override and regenerate if the inferred audience is wrong."
+                    />
+                    <AudienceCard
+                      audience={audience}
+                      draft={audienceDraft}
+                      editing={audienceEditing}
+                      onStartEdit={() => { setAudienceDraft(audience); setAudienceEditing(true) }}
+                      onCancel={() => { setAudienceDraft(audience); setAudienceEditing(false) }}
+                      onDraftChange={setAudienceDraft}
+                      onSaveLabel={() => {
+                        setAudience(audienceDraft)
+                        setAudienceEditing(false)
+                      }}
+                      onRegenerate={() => {
+                        setAudience(audienceDraft)
+                        setAudienceEditing(false)
+                        runDiscover({ audienceOverride: audienceDraft })
+                      }}
+                    />
 
-                  <SectionDivider
-                    title="Main Navigator instructions"
-                    subtitle="The orchestrator-level system prompt every Assistant inherits. Edit before applying."
-                  />
-                  <MainInstructionsCard
-                    value={editedMainInstructions}
-                    onChange={setEditedMainInstructions}
-                    tone={discovery.workspace?.tone}
-                    workspaceFacts={discovery.workspace?.workspaceFacts}
-                    overview={discovery.workspace?.overview}
-                    audience={audience}
-                  />
+                    <SectionDivider title="Workspace overview" subtitle="The signals Navigator used to infer this configuration." />
+                    <WorkspaceOverview discovery={discovery} condensed />
 
-                  {discovery.workspace?.glossary?.length > 0 && (
-                    <>
-                      <SectionDivider
-                        title="Workspace glossary"
-                        subtitle="Internal acronyms and program names Navigator should recognize."
-                      />
-                      <GlossaryCard glossary={discovery.workspace.glossary} />
-                    </>
-                  )}
-
-                  <SectionDivider
-                    title="Proposed Assistants"
-                    subtitle={
-                      audience?.kind && audience.kind !== 'internal_employees'
-                        ? `${discovery.proposedAssistants.length} Assistants — tailored to ${audience.label} and your channel content.`
-                        : `${discovery.proposedAssistants.length} Assistants — universal (HR, IT, etc.) plus content-driven from your channels.`
-                    }
-                  />
-                  <Phase3Proposal
-                    discovery={discovery}
-                    audience={audience}
-                    includedAssistantKeys={includedAssistantKeys}
-                    onToggleIncluded={toggleIncluded}
-                    expandedPrompts={expandedPrompts}
-                    onTogglePromptExpanded={togglePromptExpanded}
-                  />
-                </div>
-              )}
+                    {discovery.workspace?.glossary?.length > 0 && (
+                      <>
+                        <SectionDivider
+                          title="Workspace glossary"
+                          subtitle="Internal acronyms and program names Navigator should recognize."
+                        />
+                        <GlossaryCard glossary={discovery.workspace.glossary} />
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
             </>
           )}
         </div>
@@ -680,11 +680,11 @@ function ResultSummary({
         <div className="flex items-center gap-2">
           {detailsOpen ? <ChevronDown size={16} className="text-[#7C3AED]" /> : <ChevronRight size={16} className="text-[#71717A]" />}
           <span className="text-[13.5px] font-semibold text-[#18181B]">
-            {detailsOpen ? 'Hide details' : 'Inspect what we found'}
+            {detailsOpen ? 'Hide reasoning' : 'How Navigator inferred this'}
           </span>
         </div>
         <span className="text-[12px] text-[#71717A]">
-          {pageCount} pages · {groupCount} groups · {channelCount} channels · {postCount} posts analyzed
+          {channelCount} channels · {pageCount} pages · {postCount} posts analyzed
         </span>
       </button>
     </div>
@@ -762,7 +762,7 @@ function SectionDivider({ title, subtitle }) {
 
 // ── Workspace Overview ─────────────────────────────────────────────────────
 
-function WorkspaceOverview({ discovery }) {
+function WorkspaceOverview({ discovery, condensed = false }) {
   const { orgSignals, languages, workspace, pages, groups, channels } = discovery
   const totalUsers = orgSignals?.totalUsers || 0
   const sampledUsers = orgSignals?.sampledUsers || 0
@@ -809,69 +809,73 @@ function WorkspaceOverview({ discovery }) {
         <StatCard icon={Languages} label="Languages" value={languages.length} hint={languages.length > 0 ? languages.slice(0, 2).map(localeLabel).join(', ') + (languages.length > 2 ? '…' : '') : null} />
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-4">
-        <ListCard
-          icon={Building2}
-          title="Top departments"
-          empty="No department data in directory."
-          items={departments.slice(0, 8).map((d) => ({ label: d.name, value: d.count }))}
-        />
-        <ListCard
-          icon={MapIcon}
-          title="Top locations"
-          empty="No location data in directory."
-          items={locations.slice(0, 8).map((l) => ({ label: l.name, value: l.count }))}
-        />
-        <ListCard
-          icon={Megaphone}
-          title="Top contributors (50-post sample)"
-          empty="No author signals."
-          items={topAuthors.slice(0, 8).map((a) => ({ label: a.name, value: `${a.postCount} ${a.postCount === 1 ? 'post' : 'posts'}` }))}
-        />
-      </div>
+      {!condensed && (
+        <>
+          <div className="grid lg:grid-cols-3 gap-4">
+            <ListCard
+              icon={Building2}
+              title="Top departments"
+              empty="No department data in directory."
+              items={departments.slice(0, 8).map((d) => ({ label: d.name, value: d.count }))}
+            />
+            <ListCard
+              icon={MapIcon}
+              title="Top locations"
+              empty="No location data in directory."
+              items={locations.slice(0, 8).map((l) => ({ label: l.name, value: l.count }))}
+            />
+            <ListCard
+              icon={Megaphone}
+              title="Top contributors (50-post sample)"
+              empty="No author signals."
+              items={topAuthors.slice(0, 8).map((a) => ({ label: a.name, value: `${a.postCount} ${a.postCount === 1 ? 'post' : 'posts'}` }))}
+            />
+          </div>
 
-      {totalGroups > 0 && (
-        <GroupsCard groups={groups} />
-      )}
+          {totalGroups > 0 && (
+            <GroupsCard groups={groups} />
+          )}
 
-      {totalPages > 0 && (
-        <PagesCard pages={pages} />
-      )}
+          {totalPages > 0 && (
+            <PagesCard pages={pages} />
+          )}
 
-      {workspace?.questionTypes?.length > 0 && (
-        <QuestionTypesCard questionTypes={workspace.questionTypes} />
-      )}
+          {workspace?.questionTypes?.length > 0 && (
+            <QuestionTypesCard questionTypes={workspace.questionTypes} />
+          )}
 
-      {(orgSignals?.customFieldKeys?.length > 0 || workspace?.workspaceFacts?.length > 0) && (
-        <div className="grid lg:grid-cols-2 gap-4">
-          {workspace?.workspaceFacts?.length > 0 && (
-            <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
-              <div className="flex items-center gap-2 mb-3">
-                <Lightbulb size={14} className="text-[#D97706]" />
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">Workspace facts</span>
-              </div>
-              <ul className="space-y-1.5">
-                {workspace.workspaceFacts.map((f, i) => (
-                  <li key={i} className="text-[13px] text-[#3F3F46] leading-relaxed">• {f}</li>
-                ))}
-              </ul>
+          {(orgSignals?.customFieldKeys?.length > 0 || workspace?.workspaceFacts?.length > 0) && (
+            <div className="grid lg:grid-cols-2 gap-4">
+              {workspace?.workspaceFacts?.length > 0 && (
+                <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Lightbulb size={14} className="text-[#D97706]" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">Workspace facts</span>
+                  </div>
+                  <ul className="space-y-1.5">
+                    {workspace.workspaceFacts.map((f, i) => (
+                      <li key={i} className="text-[13px] text-[#3F3F46] leading-relaxed">• {f}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {orgSignals?.customFieldKeys?.length > 0 && (
+                <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Hash size={14} className="text-[#71717A]" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">Custom profile fields</span>
+                  </div>
+                  <p className="text-[12px] text-[#71717A] mb-2">Workspace-specific fields detected in user profiles.</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {orgSignals.customFieldKeys.map((k) => (
+                      <span key={k} className="text-[11.5px] px-2 py-0.5 rounded-md bg-[#F5F5F7] border border-[#E4E4E7] text-[#52525B] font-mono">{k}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
-          {orgSignals?.customFieldKeys?.length > 0 && (
-            <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
-              <div className="flex items-center gap-2 mb-3">
-                <Hash size={14} className="text-[#71717A]" />
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">Custom profile fields</span>
-              </div>
-              <p className="text-[12px] text-[#71717A] mb-2">Workspace-specific fields detected in user profiles.</p>
-              <div className="flex flex-wrap gap-1.5">
-                {orgSignals.customFieldKeys.map((k) => (
-                  <span key={k} className="text-[11.5px] px-2 py-0.5 rounded-md bg-[#F5F5F7] border border-[#E4E4E7] text-[#52525B] font-mono">{k}</span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        </>
       )}
     </div>
   )
@@ -1377,6 +1381,53 @@ function Phase2Results({
 // and unticks it before applying.
 const EMPLOYEE_ONLY_ASSISTANT_RE = /\b(hr|human resources|it helpdesk|it support|onboarding|travel\s*(?:&|and)\s*expenses?|payroll|people experience|learning\s*(?:&|and)\s*development|l\s*&\s*d)\b/i
 const isEmployeeOnlyAssistantName = (name) => !!name && EMPLOYEE_ONLY_ASSISTANT_RE.test(name)
+
+function RediscoveryBanner({ existingCount, newCount }) {
+  return (
+    <div className="bg-[#EEF2FF] border border-[#C7D2FE] rounded-2xl px-5 py-4 mb-4 flex items-start gap-3">
+      <RefreshCw size={16} className="text-[#4F46E5] mt-0.5 shrink-0" />
+      <div className="flex-1">
+        <div className="text-[13.5px] font-semibold text-[#312E81]">
+          Re-discovery mode — {existingCount} Assistant{existingCount === 1 ? '' : 's'} already configured
+        </div>
+        <p className="text-[12.5px] text-[#3730A3] mt-0.5 leading-relaxed">
+          {newCount > 0
+            ? `Navigator only proposes gaps below — ${newCount} net-new Assistant${newCount === 1 ? '' : 's'} suggested. Your existing Assistants stay as-is when you apply.`
+            : `Navigator did not find any new gaps to fill — your existing lineup already covers the workspace. Your existing Assistants stay as-is.`}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function ExistingAssistantsStrip({ experts }) {
+  if (!experts?.length) return null
+  return (
+    <div className="mt-6">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A] mb-3 flex items-center gap-2">
+        <CheckCircle2 size={13} className="text-[#16A34A]" />
+        Already configured · {experts.length}
+      </div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {experts.map((e) => (
+          <div key={e.id} className="bg-[#FAFAFA] border border-[#E4E4E7] rounded-2xl p-4 opacity-90">
+            <div className="flex items-start gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-white border border-[#E4E4E7] grid place-items-center shrink-0 text-[15px]">
+                {e.icon || '✨'}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[13.5px] font-semibold text-[#18181B] truncate">{e.name}</div>
+                {e.description && (
+                  <p className="text-[12px] text-[#52525B] mt-0.5 line-clamp-2 leading-relaxed">{e.description}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function Phase3Proposal({
   discovery, audience, includedAssistantKeys, onToggleIncluded,

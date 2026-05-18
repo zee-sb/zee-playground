@@ -5,6 +5,18 @@ The workspace context includes an `audience` object: { kind, label, summary }. `
 
 You MUST tailor the lineup to the audience. The "universal" defaults below apply ONLY to `internal_employees`.
 
+EXISTING ASSISTANTS — DO NOT DUPLICATE
+
+You may receive an `existingCoverage` object with two arrays:
+- `existingCoverage.experts`: Assistants the admin has ALREADY configured (name + description + instructions excerpt). Treat these topics as already covered.
+- `existingCoverage.connections`: connectors / knowledge sources already wired up.
+
+Rules:
+- Do NOT propose an Assistant that is semantically equivalent to one already in `existingCoverage.experts` (same domain, same job — match on intent, not just name).
+- Focus your proposals on **gaps**: topic clusters and audience needs that the existing lineup does not already cover.
+- It is acceptable (and expected) to return fewer than the usual 4-9 Assistants when the existing lineup already covers most clusters. Returning an empty `proposedAssistants` array is allowed if coverage is already complete.
+- Existing connectors listed in `existingCoverage.connections` are sources you may reference inside `knowledgeSources` for new Assistants — do not propose creating duplicate connectors.
+
 You will be given:
 - channels (news surfaces) with descriptions + real post counts
 - top 20 engaged posts (titles + teasers)

@@ -22,7 +22,8 @@ import {
   listPages, listGroups, getUsersTotal, getBranch,
   withStaffbaseContext,
 } from '../lib/staffbase.mjs';
-import { getBlueprint, saveBlueprint, patchBlueprintField } from '../lib/blueprints.mjs';
+import { getBlueprint, saveBlueprint, patchBlueprintField, listExperts } from '../lib/blueprints.mjs';
+import { getConfig as getNavigatorConfig } from '../lib/workspace-config.mjs';
 import { embed } from '../lib/embeddings.mjs';
 import { dbConfigured } from '../lib/db.mjs';
 import { loadPrompt as loadDiscoveryPrompt } from '../lib/discovery/load-prompt.mjs';
@@ -173,15 +174,33 @@ async function handleDiscover(req, res, tenantCtx) {
     audienceOverride = normalizeAudienceOverride(body?.audienceOverride);
   } catch {}
 
-  // Parallel pull of all primary signals.
-  const [channelsRaw, postsRaw, usersRaw, usersTotal, pagesRaw, groupsRaw] = await Promise.all([
+  // Parallel pull of all primary signals + any existing Navigator config
+  // for this branch so re-discovery can avoid proposing duplicates.
+  const [channelsRaw, postsRaw, usersRaw, usersTotal, pagesRaw, groupsRaw, existingExperts, existingConfig] = await Promise.all([
     listChannels({ limit: 50 }),
     listRecentPosts({ limit: 50 }),
     listUsers({ limit: 200 }).catch(() => []),
     getUsersTotal().catch(() => null),
     listPages({ limit: 200 }).catch(() => []),
     listGroups({ limit: 50 }).catch(() => []),
+    branch?.id ? listExperts(branch.id).catch(() => []) : Promise.resolve([]),
+    branch?.id ? getNavigatorConfig(branch.id).catch(() => null) : Promise.resolve(null),
   ]);
+
+  // Summarise existing assistants + connectors so Pass B can avoid duplicate
+  // proposals. Only non-archived experts count as "already covered".
+  const activeExperts = (existingExperts || []).filter((e) => e.status !== 'archived');
+  const existingCoverage = {
+    experts: activeExperts.map((e) => ({
+      name: e.name,
+      description: e.description || '',
+      instructions: (e.instructions || '').slice(0, 400),
+    })),
+    connections: ((existingConfig?.connections) || []).map((c) => ({
+      name: c.name || c.id,
+      kind: c.kind,
+    })),
+  };
 
   // ── Channels: keep the API-provided real postCount and lastPostPublishedAt
   // (the previous "sampled" count is kept under sampledPostCount for backward
@@ -258,10 +277,11 @@ async function handleDiscover(req, res, tenantCtx) {
   try {
     assistantsResult = await passBAssistants({
       channels, topPosts, deepPosts, orgSignals, languages, workspace, pages, groups, baseApiUrl: tenantBaseUrl,
+      existingCoverage,
     });
   } catch (err) {
     fallbackReason = (fallbackReason ? fallbackReason + '; ' : '') + `assistant_pass: ${err.message || 'failed'}`;
-    assistantsResult = buildFallbackAssistants({ channels, orgSignals, baseApiUrl: tenantBaseUrl, audience: workspace?.audience });
+    assistantsResult = buildFallbackAssistants({ channels, orgSignals, baseApiUrl: tenantBaseUrl, audience: workspace?.audience, existingCoverage });
   }
 
   // ── Page embeddings — written alongside the blueprint so Templates and
@@ -291,6 +311,11 @@ async function handleDiscover(req, res, tenantCtx) {
     groupsAnalyzed: groups.length,
     deepPostsFetched: deepPosts.length,
     persisted: Boolean(branch?.id && dbConfigured() && pageEmbeddings),
+    existingCoverage: {
+      expertCount: existingCoverage.experts.length,
+      connectionCount: existingCoverage.connections.length,
+      expertNames: existingCoverage.experts.map((e) => e.name),
+    },
   };
 
   const blueprintPayload = {
@@ -494,11 +519,14 @@ async function passAWorkspace({ channels, topPosts, deepPosts, orgSignals, langu
   // override, enforce it regardless of what the LLM returned (it shouldn't
   // drift, but belt-and-suspenders).
   const llmAudience = parsed.audience && typeof parsed.audience === 'object' ? parsed.audience : {};
+  const resolvedKind = ALLOWED_AUDIENCE_KINDS.includes(llmAudience.kind) ? llmAudience.kind : 'internal_employees';
+  const llmLabel = typeof llmAudience.label === 'string' && llmAudience.label.trim() ? llmAudience.label.trim() : '';
+  const defaultLabel = resolvedKind === 'internal_employees'
+    ? `${parsed.companyName && parsed.companyName !== 'this company' ? parsed.companyName + ' ' : ''}employees`.trim()
+    : 'workspace members';
   parsed.audience = {
-    kind: ALLOWED_AUDIENCE_KINDS.includes(llmAudience.kind) ? llmAudience.kind : 'mixed',
-    label: typeof llmAudience.label === 'string' && llmAudience.label.trim()
-      ? llmAudience.label.trim()
-      : 'workspace members',
+    kind: resolvedKind,
+    label: llmLabel || defaultLabel,
     summary: typeof llmAudience.summary === 'string' ? llmAudience.summary : '',
   };
   if (audienceOverride) {
@@ -537,7 +565,7 @@ async function passAWorkspace({ channels, topPosts, deepPosts, orgSignals, langu
 function buildFallbackWorkspace({ channels, orgSignals, languages, audienceOverride }) {
   const deptNames = orgSignals.departments.slice(0, 6).map((d) => d.name).join(', ') || 'multiple teams';
   const langs = languages.length ? languages.join(', ') : 'en_US';
-  const audience = audienceOverride || { kind: 'mixed', label: 'workspace members', summary: '' };
+  const audience = audienceOverride || { kind: 'internal_employees', label: 'employees', summary: '' };
   return {
     audience,
     overview: `This Staffbase workspace has ${channels.length} content channels across ${deptNames}. ${orgSignals.totalUsers ? `Directory contains ${orgSignals.totalUsers} users.` : ''}`,
@@ -554,7 +582,7 @@ function buildFallbackWorkspace({ channels, orgSignals, languages, audienceOverr
 
 // ── Pass B: Assistant proposal ─────────────────────────────────────────────
 
-async function passBAssistants({ channels, topPosts, deepPosts, orgSignals, languages, workspace, pages, groups, baseApiUrl }) {
+async function passBAssistants({ channels, topPosts, deepPosts, orgSignals, languages, workspace, pages, groups, baseApiUrl, existingCoverage }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
   const client = new OpenAI({ apiKey });
@@ -614,6 +642,7 @@ async function passBAssistants({ channels, topPosts, deepPosts, orgSignals, lang
             workspaceFacts: workspace?.workspaceFacts,
             questionTypes: workspace?.questionTypes,
           },
+          existingCoverage: existingCoverage || { experts: [], connections: [] },
         }),
       },
     ],
@@ -656,10 +685,18 @@ async function passBAssistants({ channels, topPosts, deepPosts, orgSignals, lang
     parsed.proposedAssistants = parsed.proposedAssistants.filter((a) => !(a.name && employeeOnly.test(a.name)));
   }
 
+  // Post-hoc dedupe against existing Experts — case-insensitive name match
+  // after stripping punctuation and the optional " Assistant" suffix.
+  const normalise = (s) => (s || '').toLowerCase().replace(/\bassistant\b/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const existingNames = new Set((existingCoverage?.experts || []).map((e) => normalise(e.name)));
+  if (existingNames.size > 0) {
+    parsed.proposedAssistants = parsed.proposedAssistants.filter((a) => !existingNames.has(normalise(a.name)));
+  }
+
   return parsed;
 }
 
-function buildFallbackAssistants({ channels, orgSignals, baseApiUrl, audience }) {
+function buildFallbackAssistants({ channels, orgSignals, baseApiUrl, audience, existingCoverage }) {
   const baseUrl = (baseApiUrl || process.env.STAFFBASE_API_BASE || 'https://campsite.staffbase.com/api').replace(/\/api\/?$/, '');
   const audienceLabel = audience?.label || 'workspace members';
   const audienceKind = audience?.kind || 'mixed';
@@ -710,7 +747,12 @@ function buildFallbackAssistants({ channels, orgSignals, baseApiUrl, audience })
     signalsUsed: ['fallback — one Assistant per channel'],
   }));
 
-  return { topicClusters: clusters, proposedAssistants: [...universals, ...proposed] };
+  // Dedupe against existing Experts on the fallback path too.
+  const normalise = (s) => (s || '').toLowerCase().replace(/\bassistant\b/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const existingNames = new Set((existingCoverage?.experts || []).map((e) => normalise(e.name)));
+  const combined = [...universals, ...proposed].filter((a) => !existingNames.has(normalise(a.name)));
+
+  return { topicClusters: clusters, proposedAssistants: combined };
 }
 
 // ── search-preview ─────────────────────────────────────────────────────────
