@@ -660,16 +660,15 @@ function CompanionShellInner({ user, connections, staffbase, tenant: tenantProp,
             }} />
             <div style={{
               position: 'relative', zIndex: 1, height: '100%',
-              maxWidth: 1080, margin: '0 auto', padding: '20px 24px 0',
+              maxWidth: 1080, margin: '0 auto', padding: '20px 24px 20px',
               display: 'flex', flexDirection: 'column', minHeight: 0,
             }}>
               <div style={{
                 flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
                 background: 'white',
-                borderRadius: '18px 18px 0 0',
+                borderRadius: 18,
                 boxShadow: '0 1px 0 rgba(15,23,42,0.04), 0 12px 40px rgba(15,23,42,0.06)',
-                border: '1px solid rgba(15,23,42,0.05)',
-                borderBottom: 'none',
+                border: `1px solid ${BRAND.hairline}`,
                 overflow: 'hidden',
               }}>
                 {ChatSurface}

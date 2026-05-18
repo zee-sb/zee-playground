@@ -12,8 +12,8 @@ const PANEL_WIDTH = 360;
 
 const TABS = [
   { id: 'sources', label: 'Sources', icon: BookOpen, hint: 'Tool results and citations for the current answer.' },
-  { id: 'flow', label: 'Flow', icon: Workflow, hint: 'Progress and steps of the active flow.' },
-  { id: 'trace', label: 'Trace', icon: GitBranch, hint: 'How the orchestrator routed your last message.' },
+  { id: 'flow', label: 'Workflow', icon: Workflow, hint: 'Progress and steps of the active workflow.' },
+  { id: 'trace', label: 'Trace', icon: GitBranch, hint: 'How Navigator routed your last message.' },
   { id: 'connections', label: 'Connections', icon: Plug, hint: 'External services this Navigator is wired up to.' },
 ];
 
@@ -275,8 +275,8 @@ function FlowTab({ flow }) {
     return (
       <EmptyState
         icon={Workflow}
-        title="No flow running"
-        body="Start a flow from the chat (Time off, Laptop request, etc.) and its full step-by-step timeline will appear here."
+        title="No workflow running"
+        body="Start a workflow from the chat (Time off, Laptop request, etc.) and its full step-by-step timeline will appear here."
       />
     );
   }
@@ -304,8 +304,8 @@ function FlowTab({ flow }) {
   return (
     <EmptyState
       icon={Workflow}
-      title="Flow active"
-      body={item.name || 'A flow is running. Its inline card in the chat shows the current step.'}
+      title="Workflow active"
+      body={item.name || 'A workflow is running. Its inline card in the chat shows the current step.'}
     />
   );
 }
@@ -317,7 +317,7 @@ function TraceTab({ trace }) {
       <EmptyState
         icon={GitBranch}
         title="No trace yet"
-        body="Ask anything and the routing decision — which assistant, MCP, or flow Navigator chose — will appear here for inspection."
+        body="Ask anything and Navigator's routing decision — which expert, MCP, or workflow it chose — will appear here for inspection."
       />
     );
   }

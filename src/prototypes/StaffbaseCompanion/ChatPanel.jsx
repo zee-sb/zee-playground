@@ -275,7 +275,23 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
   }, [items, inspector.enabled]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = endRef.current;
+    if (!el) return;
+    // Walk up to the closest scrollable ancestor and scroll IT to the
+    // bottom, instead of using scrollIntoView() — that helper scrolls every
+    // scrollable ancestor, and on desktop the layered desktop layout meant
+    // the canvas container also scrolled, pushing the whole chat card
+    // off-screen. Targeting the immediate scroll parent keeps the chat
+    // surface anchored and only the message list scrolls.
+    let parent = el.parentElement;
+    while (parent) {
+      const cs = getComputedStyle(parent);
+      if (cs.overflowY === 'auto' || cs.overflowY === 'scroll') {
+        parent.scrollTo({ top: parent.scrollHeight, behavior: 'smooth' });
+        return;
+      }
+      parent = parent.parentElement;
+    }
   }, [items, busy]);
 
   // Auto-play TTS on the latest completed assistant message — but only when
@@ -873,13 +889,22 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           )
         ) : (
           <div className="cw-root" style={{
-            flex: 1, display: 'flex', flexDirection: 'column', gap: 4,
-            // Desktop centres the reading column at ~760px so messages stay
-            // legible regardless of how wide the chat surface gets. Mobile
+            // Desktop centres the reading column at ~760px and anchors the
+            // content to the bottom of the scroll area (margin-top: auto)
+            // so short conversations don't leave a gaping void between the
+            // top of the chat surface and the composer. The `height: auto`
+            // override is load-bearing — `.cw-root` in chat-widget/styles.css
+            // sets height: 100% which would force the cw-root to fill the
+            // scroll area and defeat the margin-top: auto trick. Mobile
             // takes the full inner width (current behaviour preserved).
+            display: 'flex', flexDirection: 'column', gap: 4,
             width: '100%',
+            height: isMobile ? undefined : 'auto',
+            flex: isMobile ? '1' : '0 0 auto',
             maxWidth: isMobile ? undefined : 760,
-            margin: isMobile ? undefined : '0 auto',
+            marginLeft: isMobile ? undefined : 'auto',
+            marginRight: isMobile ? undefined : 'auto',
+            marginTop: isMobile ? undefined : 'auto',
             padding: isMobile ? undefined : '20px 24px 0',
             '--cw-primary': '#7C3AED', '--cw-primary-dark': '#6D28D9', '--cw-primary-light': '#EDE9FE',
           }}>
