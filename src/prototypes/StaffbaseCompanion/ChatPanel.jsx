@@ -383,8 +383,17 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
         const trace = [...next].reverse().find((i) => i.kind === 'trace');
         if (trace) trace.studioEmpty = evt.reason || 'legacy mode';
         queueMicrotask(() => setActiveContext(null));
-      } else if (evt.type === 'assistant_selected') {
-        queueMicrotask(() => setActiveContext({ kind: 'assistant', id: evt.assistantId, name: evt.name, icon: evt.icon }));
+      } else if (evt.type === 'expert_selected') {
+        queueMicrotask(() => setActiveContext({ kind: 'assistant', id: evt.expertId, name: evt.name, icon: evt.icon }));
+      } else if (evt.type === 'experts_selected') {
+        // Multi-expert routing — overwrite the active context with the last
+        // expert so the pill still shows something meaningful. A future
+        // multi-persona chip can read the full list from this event.
+        const list = Array.isArray(evt.assistants) ? evt.assistants : [];
+        const last = list[list.length - 1];
+        if (last) {
+          queueMicrotask(() => setActiveContext({ kind: 'assistant', id: last.id, name: last.name, icon: last.icon }));
+        }
       } else if (evt.type === 'flow_started') {
         queueMicrotask(() => setActiveContext({
           kind: 'flow', id: evt.flowId, name: evt.name,
@@ -549,17 +558,6 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           flowItem.currentStepInteraction = null;
         }
         queueMicrotask(() => setActiveContext(null));
-      } else if (evt.type === 'agent_handoff') {
-        next.push({ kind: 'agent_handoff', agentId: evt.agentId, agentName: evt.agentName, color: evt.color });
-      } else if (evt.type === 'kb_citation') {
-        // Attach citation to the most recent in-flight tool item.
-        const toolItem = [...next].reverse().find((i) => i.kind === 'tool' && (!evt.toolCallId || i.id === evt.toolCallId));
-        if (toolItem) {
-          toolItem.citations = toolItem.citations || [];
-          if (!toolItem.citations.find((c) => c.kbId === evt.kbId)) {
-            toolItem.citations.push({ kbId: evt.kbId, name: evt.name, source: evt.source });
-          }
-        }
       } else if (evt.type === 'connector_error') {
         next.push({ kind: 'connector_error', connector: evt.connector, message: evt.message });
       } else if (evt.type === 'needs_connection') {
@@ -931,7 +929,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
               // line up visually with the assistant's bubble instead of
               // stretching the full chat width.
               const COLUMN_ALIGN_KINDS = new Set([
-                'trace', 'tool', 'flow', 'form', 'card', 'agent_handoff',
+                'trace', 'tool', 'flow', 'form', 'card',
                 'connector_error', 'connect_prompt',
               ]);
               const out = [];
@@ -1924,20 +1922,6 @@ function Item({
         onSubmit={() => { /* one-off; resume path handled separately */ }}
         theme="teal"
       />
-    );
-  }
-  if (item.kind === 'agent_handoff') {
-    return (
-      <div style={{
-        margin: '6px 0', padding: '6px 10px',
-        background: 'linear-gradient(90deg, rgba(0,199,178,0.08), rgba(124,58,237,0.06))',
-        border: '1px solid rgba(0,199,178,0.2)', borderRadius: 8,
-        fontSize: 11.5, color: '#0F766E', fontWeight: 600,
-        display: 'inline-flex', alignItems: 'center', gap: 6,
-      }}>
-        <Sparkles size={11} />
-        Handed off to <b>{item.agentName || item.agentId}</b>
-      </div>
     );
   }
   if (item.kind === 'tool') {

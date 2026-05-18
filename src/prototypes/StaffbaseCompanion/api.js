@@ -130,8 +130,12 @@ export async function streamPost(url, body, onEvent) {
     buf = lines.pop() || '';
     for (const line of lines) {
       if (!line.trim()) continue;
-      try { onEvent(JSON.parse(line)); } catch { /* skip */ }
+      try { onEvent(JSON.parse(line)); }
+      catch (err) { console.warn('[companion stream] bad NDJSON line:', err, line); }
     }
   }
-  if (buf.trim()) { try { onEvent(JSON.parse(buf)); } catch { /* */ } }
+  if (buf.trim()) {
+    try { onEvent(JSON.parse(buf)); }
+    catch (err) { console.warn('[companion stream] bad NDJSON trailing buffer:', err, buf); }
+  }
 }
