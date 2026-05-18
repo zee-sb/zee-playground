@@ -7,35 +7,39 @@ import { FLOW_TEMPLATES, instantiateTemplate } from '../../../../lib/flows/templ
 import { useActiveTenant } from '../../AIAssistant/useActiveTenant'
 
 /**
- * Flow detail editor (v7 unified).
+ * Workflow detail editor.
  *
- * Tool picker walks the unified connectors list. For MCPs we show every
- * tool; for agents we show one `invoke` row; for KBs we show one `search`
- * row. Selected tools always shape as `{connectorId, toolId}`.
+ * Tool picker walks the unified connections list. For toolkits we show every
+ * tool; for handoffs we show one `invoke` row; for search sources we show one
+ * `search` row. Selected tools always shape as `{connectionId, toolId}`.
  */
 export default function FlowDetail({
-  flow,
+  workflow,
   isNew = false,
-  connectors = [],
+  connections = [],
   onBack,
   onSave,
   onDelete,
 }) {
   const { branchId } = useActiveTenant()
-  const [name, setName] = useState(flow.name || '')
-  const [status, setStatus] = useState(flow.status || 'active')
-  const [mode, setMode] = useState(flow.mode || 'suggested')
-  const [trigger, setTrigger] = useState(flow.trigger || '')
-  const [goal, setGoal] = useState(flow.goal || '')
-  const [instructions, setInstructions] = useState(flow.instructions || '')
-  const [onComplete, setOnComplete] = useState(flow.onComplete || '')
-  // Normalize legacy bare agent ids to {connectorId, toolId: 'invoke'} on load.
+  const [name, setName] = useState(workflow.name || '')
+  const [status, setStatus] = useState(workflow.status || 'active')
+  const [mode, setMode] = useState(workflow.mode || 'suggested')
+  const [trigger, setTrigger] = useState(workflow.trigger || '')
+  const [goal, setGoal] = useState(workflow.goal || '')
+  const [instructions, setInstructions] = useState(workflow.instructions || '')
+  const [onComplete, setOnComplete] = useState(workflow.onComplete || '')
+  // Normalize legacy bare ids / connectorId payloads to {connectionId, toolId: 'invoke'}.
   const [tools, setTools] = useState(() =>
-    (flow.tools || []).map((t) =>
-      typeof t === 'string' ? { connectorId: t, toolId: 'invoke' } : { ...t }
-    )
+    (workflow.tools || []).map((t) => {
+      if (typeof t === 'string') return { connectionId: t, toolId: 'invoke' }
+      return {
+        connectionId: t.connectionId || t.connectorId || '',
+        toolId: t.toolId || '',
+      }
+    })
   )
-  const [steps, setSteps] = useState(() => Array.isArray(flow.steps) ? flow.steps : [])
+  const [steps, setSteps] = useState(() => Array.isArray(workflow.steps) ? workflow.steps : [])
   const [showTemplates, setShowTemplates] = useState(false)
   const [scaffoldOpen, setScaffoldOpen] = useState(false)
   const [scaffoldDesc, setScaffoldDesc] = useState('')
@@ -43,23 +47,23 @@ export default function FlowDetail({
   const [scaffoldError, setScaffoldError] = useState(null)
   const [scaffoldWarnings, setScaffoldWarnings] = useState([])
 
-  const connected = useMemo(() => connectors.filter((c) => c.status === 'connected'), [connectors])
+  const connected = useMemo(() => connections.filter((c) => c.status === 'connected'), [connections])
 
-  function isToolSelected(connectorId, toolId) {
-    return tools.some((t) => t.connectorId === connectorId && t.toolId === toolId)
+  function isToolSelected(connectionId, toolId) {
+    return tools.some((t) => t.connectionId === connectionId && t.toolId === toolId)
   }
-  function toggleTool(connectorId, toolId) {
+  function toggleTool(connectionId, toolId) {
     setTools((prev) => {
-      const hit = prev.findIndex((t) => t.connectorId === connectorId && t.toolId === toolId)
+      const hit = prev.findIndex((t) => t.connectionId === connectionId && t.toolId === toolId)
       if (hit !== -1) return prev.filter((_, i) => i !== hit)
-      return [...prev, { connectorId, toolId }]
+      return [...prev, { connectionId, toolId }]
     })
   }
 
   function handleSave() {
     onSave({
-      ...flow,
-      name: name.trim() || 'Untitled flow',
+      ...workflow,
+      name: name.trim() || 'Untitled workflow',
       status,
       mode,
       trigger: trigger.trim(),
@@ -94,16 +98,17 @@ export default function FlowDetail({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           description: scaffoldDesc,
-          connectors: connectors.map((c) => ({
+          connections: connections.map((c) => ({
             id: c.id, name: c.name, kind: c.kind, status: c.status,
             tools: (c.tools || []).map((t) => ({ id: t.id, name: t.name, description: t.description })),
           })),
         }),
       })
       const body = await res.json()
-      if (!res.ok || !body?.flow) throw new Error(body?.error || `scaffold failed (${res.status})`)
-      const draft = body.flow
-      setName(draft.name || name || 'Drafted flow')
+      // The endpoint returns `workflow` after the rename; fall back to legacy `flow`.
+      const draft = body?.workflow || body?.flow
+      if (!res.ok || !draft) throw new Error(body?.error || `scaffold failed (${res.status})`)
+      setName(draft.name || name || 'Drafted workflow')
       setTrigger(draft.trigger || '')
       setGoal(draft.goal || '')
       setMode(draft.mode || 'suggested')
@@ -118,7 +123,7 @@ export default function FlowDetail({
     }
   }
 
-  const toolSummary = useMemo(() => formatToolSummary(tools, connectors), [tools, connectors])
+  const toolSummary = useMemo(() => formatToolSummary(tools, connections), [tools, connections])
 
   return (
     <div>
@@ -129,15 +134,15 @@ export default function FlowDetail({
         </button>
         <div className="flex-1 min-w-0">
           <div className="text-[12px] font-semibold uppercase tracking-widest text-[#94A3B8]">
-            {isNew ? 'New Flow' : 'Flow'}
+            {isNew ? 'New Workflow' : 'Workflow'}
           </div>
-          <h1 className="text-[20px] font-bold text-[#111827] truncate">{name || 'Untitled flow'}</h1>
+          <h1 className="text-[20px] font-bold text-[#111827] truncate">{name || 'Untitled workflow'}</h1>
         </div>
         <div className="flex items-center gap-2">
           {!isNew && (
             <button
               onClick={() => {
-                if (window.confirm(`Delete ${name || 'this flow'}?`)) onDelete(flow)
+                if (window.confirm(`Delete ${name || 'this workflow'}?`)) onDelete(workflow)
               }}
               className="flex items-center gap-2 px-3 py-1.5 text-[12px] font-semibold text-[#DC2626] hover:bg-[#FEE2E2] rounded-lg transition-colors"
             >
@@ -219,7 +224,7 @@ export default function FlowDetail({
 
           {/* Trigger + Goal */}
           <Section title="Trigger & goal" icon={<Workflow size={14} className="text-[#7C3AED]" />}>
-            <Field label="When should Navigator start this flow?">
+            <Field label="When should Navigator start this workflow?">
               <textarea
                 value={trigger}
                 onChange={(e) => setTrigger(e.target.value)}
@@ -243,7 +248,7 @@ export default function FlowDetail({
           <Section
             title="Steps"
             icon={<ListChecks size={14} className="text-[#0EA5E9]" />}
-            description="Compose what Navigator does when this flow fires — collect inputs, call tools, ask the user to confirm."
+            description="Compose what Navigator does when this workflow fires — collect inputs, call tools, ask the user to confirm."
           >
             {steps.length === 0 && (
               <div className="flex flex-wrap gap-2 mb-3">
@@ -263,13 +268,13 @@ export default function FlowDetail({
                 </button>
               </div>
             )}
-            <FlowStepBuilder steps={steps} onChange={setSteps} connectors={connectors} />
+            <FlowStepBuilder steps={steps} onChange={setSteps} connections={connections} />
             {scaffoldWarnings.length > 0 && (
               <div className="mt-3 px-3 py-2 bg-[#FEF3C7] border border-[#FCD34D] rounded-lg text-[11px] text-[#92400E]">
                 Some scaffolded tools aren't in this workspace:&nbsp;
                 {scaffoldWarnings.map((w, i) => (
                   <span key={i} className="font-mono">
-                    {i > 0 && ', '}{w.connectorId}.{w.toolId}
+                    {i > 0 && ', '}{w.connectionId || w.connectorId}.{w.toolId}
                   </span>
                 ))}
                 . Pick connected ones in those steps before activating.
@@ -279,24 +284,25 @@ export default function FlowDetail({
 
           {/* Tools picker */}
           <Section
-            title="Tools available in this flow"
+            title="Tools available in this workflow"
             icon={<Wrench size={14} className="text-[#7C3AED]" />}
-            description="Pre-authorize connectors for AI fallback. Tools used in step configs are auto-allowed."
+            description="Pre-authorize connections for AI fallback. Tools used in step configs are auto-allowed."
           >
             {connected.length === 0 ? (
               <div className="text-[12px] text-[#94A3B8] italic px-3 py-3 bg-[#F9FAFB] rounded-lg">
-                No connectors connected yet — go to Connectors to add some.
+                No connections connected yet — go to Connections to add some.
               </div>
             ) : (
               <div className="space-y-3">
                 {connected.map((c) => {
-                  // Tool rows depend on kind. For agents, one synthetic invoke;
-                  // for KBs, one synthetic search; for MCPs, the declared list.
-                  const rows = c.kind === 'mcp'
+                  // Tool rows depend on kind. For handoffs, one synthetic invoke;
+                  // for search sources, one synthetic search; for toolkits, the
+                  // declared list.
+                  const rows = c.kind === 'toolkit'
                     ? (c.tools || [])
-                    : [{ id: c.kind === 'agent' ? 'invoke' : 'search', name: c.kind === 'agent' ? 'invoke' : 'search', description: c.kind === 'agent' ? 'Hand off the conversation to this agent.' : 'Search the corpus.' }]
-                  const headerColor = c.kind === 'agent' ? '#F59E0B' : c.kind === 'kb' ? '#2563EB' : '#7C3AED'
-                  const HeaderIcon = c.kind === 'agent' ? Bot : c.kind === 'kb' ? BookOpen : Wrench
+                    : [{ id: c.kind === 'handoff' ? 'invoke' : 'search', name: c.kind === 'handoff' ? 'invoke' : 'search', description: c.kind === 'handoff' ? 'Hand off the conversation to this agent.' : 'Search the corpus.' }]
+                  const headerColor = c.kind === 'handoff' ? '#F59E0B' : c.kind === 'search' ? '#2563EB' : '#7C3AED'
+                  const HeaderIcon = c.kind === 'handoff' ? Bot : c.kind === 'search' ? BookOpen : Wrench
                   return (
                     <div key={c.id} className="border border-[#E5E7EB] rounded-lg overflow-hidden">
                       <div className="flex items-center gap-2 px-3 py-2 bg-[#F9FAFB] border-b border-[#E5E7EB]">
@@ -304,7 +310,7 @@ export default function FlowDetail({
                         <LogoChip name={c.name} color={headerColor} size={22} />
                         <span className="text-[12px] font-semibold text-[#111827]">{c.name}</span>
                         <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ml-auto" style={{ color: headerColor, background: `${headerColor}1a` }}>
-                          {c.kind === 'agent' ? 'Agent' : c.kind === 'kb' ? 'Knowledge' : 'MCP'}
+                          {c.kind === 'handoff' ? 'Handoff' : c.kind === 'search' ? 'Search' : 'Toolkit'}
                         </span>
                       </div>
                       <div className="divide-y divide-[#F1F5F9]">
@@ -359,14 +365,14 @@ export default function FlowDetail({
 
         {/* Right column — live preview */}
         <div className="space-y-6">
-          <FlowPreviewPane flow={{
-            id: flow.id || 'preview',
+          <FlowPreviewPane workflow={{
+            id: workflow.id || 'preview',
             name, mode, goal, steps,
           }} />
           <div className="bg-white border border-[#E5E7EB] rounded-xl p-5">
             <h3 className="flex items-center gap-1.5 text-[13px] font-bold text-[#111827] mb-3">
               <Workflow size={14} className="text-[#7C3AED]" />
-              Flow definition
+              Workflow definition
             </h3>
             <pre className="p-4 bg-[#111827] text-[#86EFAC] rounded-lg text-[11px] leading-relaxed overflow-x-auto font-mono whitespace-pre-wrap break-words">
 {formatDefinition({ trigger, goal, tools: toolSummary, mode, instructions, onComplete, stepCount: steps.length })}
@@ -435,11 +441,11 @@ function ScaffoldModal({ value, onChange, onRun, onClose, busy, error }) {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-[15px] font-bold text-[#111827] flex items-center gap-2">
             <Wand2 size={16} className="text-[#00C7B2]" />
-            Draft a flow with AI
+            Draft a workflow with AI
           </h3>
           <button onClick={onClose} className="text-[#94A3B8] hover:text-[#475569] text-[20px] leading-none">×</button>
         </div>
-        <p className="text-[12px] text-[#6B7280] mb-2">Describe what you want this flow to do. Navigator will draft steps using the connectors in this workspace.</p>
+        <p className="text-[12px] text-[#6B7280] mb-2">Describe what you want this workflow to do. Navigator will draft steps using the connections in this workspace.</p>
         <textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -457,7 +463,7 @@ function ScaffoldModal({ value, onChange, onRun, onClose, busy, error }) {
             className="px-4 py-1.5 text-[12px] font-semibold bg-[#00C7B2] hover:bg-[#00736A] text-white rounded-lg flex items-center gap-1.5 disabled:opacity-50"
           >
             {busy ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
-            {busy ? 'Drafting…' : 'Draft flow'}
+            {busy ? 'Drafting…' : 'Draft workflow'}
           </button>
         </div>
       </div>
@@ -481,12 +487,12 @@ function formatDefinition({ trigger, goal, tools, mode, instructions, onComplete
     .join('\n')
 }
 
-function formatToolSummary(tools, connectors) {
+function formatToolSummary(tools, connections) {
   if (!tools || tools.length === 0) return ''
   return tools
     .map((t) => {
-      const c = connectors.find((x) => x.id === t.connectorId)
-      const label = c?.name || t.connectorId
+      const c = connections.find((x) => x.id === t.connectionId)
+      const label = c?.name || t.connectionId
       return `${label}.${t.toolId}`
     })
     .join(', ')

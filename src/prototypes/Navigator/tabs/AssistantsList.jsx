@@ -2,27 +2,27 @@ import React, { useState, useRef, useEffect } from 'react'
 import { Plus, ChevronRight, ChevronDown, Wrench, Bot, BookOpen, Users, Sparkles, LayoutGrid, FileText } from 'lucide-react'
 import { LogoChip, StatusPill } from '../components/Catalog'
 
-const KIND_COLOR = { mcp: '#7C3AED', agent: '#F59E0B', kb: '#2563EB' }
+const KIND_COLOR = { toolkit: '#7C3AED', handoff: '#F59E0B', search: '#2563EB' }
 
 /**
- * Assistants page — internal personas with sub-agent linking.
+ * Experts page — internal personas with connection linking.
  *
  * Each row shows:
  *   - Identity (icon, name, description)
- *   - Sub-agents linked: MCP connector chips + External agent chips + KB count
+ *   - Connections linked: toolkit chips + handoff chips + search chips
  *   - Targeting groups
  *   - Status pill
  * Click a row to open the detail editor.
  */
 export default function AssistantsList({
-  assistants = [],
-  connectors = [],
+  experts = [],
+  connections = [],
   onSelect,
   onCreate,
   onOpenTemplates,
   onOpenAiCreator,
 }) {
-  const connectorById = new Map(connectors.map((c) => [c.id, c]))
+  const connectionById = new Map(connections.map((c) => [c.id, c]))
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
 
@@ -40,9 +40,9 @@ export default function AssistantsList({
     <div>
       <div className="flex items-end justify-between mb-6">
         <div>
-          <h1 className="text-[22px] font-bold text-[#111827]">Assistants</h1>
+          <h1 className="text-[22px] font-bold text-[#111827]">Experts</h1>
           <p className="text-[13px] text-[#6B7280] mt-1">
-            User-facing personas. Each can call MCP tools, hand off to external agents, and ground in knowledge bases.
+            User-facing personas. Each can call toolkits, hand off to agents, and ground in search sources.
           </p>
         </div>
         <div className="relative" ref={menuRef}>
@@ -51,7 +51,7 @@ export default function AssistantsList({
             className="flex items-center gap-2 px-4 py-2 bg-[#111827] text-white text-[13px] font-semibold rounded-lg hover:bg-[#1F2937] transition-colors"
           >
             <Plus size={15} />
-            New assistant
+            New expert
             <ChevronDown size={13} className={`transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
           </button>
           {menuOpen && (
@@ -71,7 +71,7 @@ export default function AssistantsList({
               <MenuItem
                 icon={<Sparkles size={14} className="text-[#7C3AED]" />}
                 title="AI-generated"
-                hint="Describe what you want; we draft the prompt."
+                hint="Describe an expert; we draft the prompt."
                 onClick={() => { setMenuOpen(false); onOpenAiCreator?.() }}
                 accent
               />
@@ -80,19 +80,19 @@ export default function AssistantsList({
         </div>
       </div>
 
-      {assistants.length === 0 ? (
+      {experts.length === 0 ? (
         <div className="bg-white border border-dashed border-[#E5E7EB] rounded-xl py-12 px-6 text-center">
-          <div className="text-[14px] font-semibold text-[#111827]">No assistants yet</div>
-          <div className="text-[12px] text-[#6B7280] mt-1">Create one to start configuring sub-agents.</div>
+          <div className="text-[14px] font-semibold text-[#111827]">No experts yet</div>
+          <div className="text-[12px] text-[#6B7280] mt-1">Create one to start linking connections.</div>
         </div>
       ) : (
         <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
-          {assistants.map((a, i) => {
-            const linked = (a.connectorIds || []).map((id) => connectorById.get(id)).filter(Boolean)
-            const linkedMcps = linked.filter((c) => c.kind === 'mcp')
-            const linkedAgents = linked.filter((c) => c.kind === 'agent')
-            const linkedKbs = linked.filter((c) => c.kind === 'kb')
-            const kbCount = linkedKbs.length
+          {experts.map((a, i) => {
+            const linked = (a.connectionIds || []).map((id) => connectionById.get(id)).filter(Boolean)
+            const linkedToolkits = linked.filter((c) => c.kind === 'toolkit')
+            const linkedHandoffs = linked.filter((c) => c.kind === 'handoff')
+            const linkedSearches = linked.filter((c) => c.kind === 'search')
+            const searchCount = linkedSearches.length
             return (
               <button
                 key={a.id}
@@ -108,25 +108,25 @@ export default function AssistantsList({
                     </div>
                     <p className="text-[12px] text-[#6B7280] mt-0.5 line-clamp-1">{a.description}</p>
 
-                    {/* Sub-agent chips — the core of the "sub-agent thing" */}
+                    {/* Connection chips */}
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
-                      {linkedAgents.length > 0 && (
-                        <ChipGroup icon={<Bot size={11} />} label={`${linkedAgents.length} agent${linkedAgents.length === 1 ? '' : 's'}`}>
-                          {linkedAgents.map(c => <Chip key={c.id} name={c.name} color={KIND_COLOR.agent} />)}
+                      {linkedHandoffs.length > 0 && (
+                        <ChipGroup icon={<Bot size={11} />} label={`${linkedHandoffs.length} handoff${linkedHandoffs.length === 1 ? '' : 's'}`}>
+                          {linkedHandoffs.map(c => <Chip key={c.id} name={c.name} color={KIND_COLOR.handoff} />)}
                         </ChipGroup>
                       )}
-                      {linkedMcps.length > 0 && (
-                        <ChipGroup icon={<Wrench size={11} />} label={`${linkedMcps.length} MCP${linkedMcps.length === 1 ? '' : 's'}`}>
-                          {linkedMcps.map(c => <Chip key={c.id} name={c.name} color={KIND_COLOR.mcp} />)}
+                      {linkedToolkits.length > 0 && (
+                        <ChipGroup icon={<Wrench size={11} />} label={`${linkedToolkits.length} toolkit${linkedToolkits.length === 1 ? '' : 's'}`}>
+                          {linkedToolkits.map(c => <Chip key={c.id} name={c.name} color={KIND_COLOR.toolkit} />)}
                         </ChipGroup>
                       )}
-                      {linkedKbs.length > 0 && (
-                        <ChipGroup icon={<BookOpen size={11} />} label={`${linkedKbs.length} KB${linkedKbs.length === 1 ? '' : 's'}`}>
-                          {linkedKbs.map(c => <Chip key={c.id} name={c.name} color={KIND_COLOR.kb} />)}
+                      {linkedSearches.length > 0 && (
+                        <ChipGroup icon={<BookOpen size={11} />} label={`${linkedSearches.length} search${linkedSearches.length === 1 ? '' : 'es'}`}>
+                          {linkedSearches.map(c => <Chip key={c.id} name={c.name} color={KIND_COLOR.search} />)}
                         </ChipGroup>
                       )}
-                      {linkedAgents.length === 0 && linkedMcps.length === 0 && kbCount === 0 && (
-                        <span className="text-[11px] text-[#94A3B8] italic">No sub-agents linked yet</span>
+                      {linkedHandoffs.length === 0 && linkedToolkits.length === 0 && searchCount === 0 && (
+                        <span className="text-[11px] text-[#94A3B8] italic">No connections linked yet</span>
                       )}
                     </div>
                   </div>

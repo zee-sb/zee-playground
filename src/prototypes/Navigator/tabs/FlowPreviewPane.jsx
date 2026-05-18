@@ -1,6 +1,7 @@
-// Live preview of an admin-designed flow as it would appear to an employee.
-// Walks the steps[] sequentially via a "Next step" button. Non-interactive
-// inside the form (admins tab through field-by-field but don't submit).
+// Live preview of an admin-designed workflow as it would appear to an
+// employee. Walks the steps[] sequentially via a "Next step" button.
+// Non-interactive inside the form (admins tab through field-by-field but
+// don't submit).
 
 import React, { useMemo, useState } from 'react';
 import { Play, RotateCcw, Sparkles, ChevronRight } from 'lucide-react';
@@ -9,8 +10,8 @@ import ConfirmCard from '../../../components/ConfirmCard.jsx';
 import FlowTimeline from '../../StaffbaseCompanion/FlowTimeline.jsx';
 import { resolveTokens } from '../../../../lib/flows/runtime.mjs';
 
-export default function FlowPreviewPane({ flow }) {
-  const steps = flow.steps || [];
+export default function FlowPreviewPane({ workflow }) {
+  const steps = workflow.steps || [];
   const [stepIdx, setStepIdx] = useState(0);
   const [outputs, setOutputs] = useState({});
 
@@ -29,7 +30,7 @@ export default function FlowPreviewPane({ flow }) {
     setStepIdx((i) => i + 1);
   }
 
-  // Build a "live" view of the flow item for the FlowTimeline component,
+  // Build a "live" view of the workflow item for the FlowTimeline component,
   // mirroring the chat runtime so admins see the real UX.
   const flowItem = useMemo(() => {
     const stepsForView = steps.map((s, idx) => {
@@ -47,12 +48,16 @@ export default function FlowPreviewPane({ flow }) {
         value: typeof r.value === 'string' ? resolveTokens(r.value, outputs) : r.value,
       }));
       interaction = { kind: 'confirm', stepId: current.id, summary: { ...current.summary, rows } };
+    } else if (current && current.type === 'photo') {
+      // Studio preview is non-interactive — just surface the capture spec so
+      // admins see what the employee will read on this step.
+      interaction = { kind: 'photo', stepId: current.id, spec: current.spec, phase: 'capture' };
     }
     return {
-      id: flow.id || 'preview',
-      name: flow.name || 'Flow preview',
-      mode: flow.mode || 'suggested',
-      goal: flow.goal || '',
+      id: workflow.id || 'preview',
+      name: workflow.name || 'Workflow preview',
+      mode: workflow.mode || 'suggested',
+      goal: workflow.goal || '',
       totalSteps: steps.length,
       completedSteps: cappedIdx,
       steps: stepsForView,
@@ -62,7 +67,7 @@ export default function FlowPreviewPane({ flow }) {
       status: cappedIdx >= steps.length ? 'completed' : 'running',
       summary: cappedIdx >= steps.length ? 'Done — preview complete.' : '',
     };
-  }, [flow.id, flow.name, flow.mode, flow.goal, steps, cappedIdx, outputs, current]);
+  }, [workflow.id, workflow.name, workflow.mode, workflow.goal, steps, cappedIdx, outputs, current]);
 
   // Synthesize sample output for the current step so subsequent steps can
   // demonstrate token-resolution (the live preview is non-interactive).
@@ -84,6 +89,25 @@ export default function FlowPreviewPane({ flow }) {
     }
     if (current.type === 'confirm') return { confirmed: true };
     if (current.type === 'tool') return { ok: true };
+    if (current.type === 'photo') {
+      // Synthetic canned validation so downstream confirm/tool steps can
+      // show their resolved tokens in the preview.
+      return {
+        imageDataUrl: null,
+        imageWidth: 1280,
+        imageHeight: 960,
+        mimeType: 'image/jpeg',
+        acceptedDespiteFail: false,
+        validation: {
+          passed: true,
+          summary: 'Preview: all criteria appear satisfied.',
+          criteria: (current.spec?.aiValidation?.criteria || []).map((c) => ({
+            id: c.id, label: c.label, passed: true, reason: 'Preview pass',
+          })),
+          annotations: [],
+        },
+      };
+    }
     return null;
   }
 
@@ -108,7 +132,7 @@ export default function FlowPreviewPane({ flow }) {
             <button
               onClick={() => advance(syntheticForCurrent())}
               className="px-2.5 py-1 text-[11px] font-semibold bg-[#00C7B2] hover:bg-[#00736A] text-white rounded-lg flex items-center gap-1"
-              title="Walk through the flow with sample values"
+              title="Walk through the workflow with sample values"
             >
               Next step <ChevronRight size={11} />
             </button>
@@ -116,7 +140,7 @@ export default function FlowPreviewPane({ flow }) {
         </div>
       </div>
       <p className="text-[11px] text-[#6B7280] mb-3">
-        What an employee will see as Navigator drives this flow. Use <em>Next step</em> to walk through with sample data.
+        What an employee will see as Navigator drives this workflow. Use <em>Next step</em> to walk through with sample data.
       </p>
 
       {steps.length === 0 ? (

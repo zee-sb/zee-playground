@@ -7,14 +7,14 @@ import ConflictWarnings, { hasHardConflict } from '../components/ConflictWarning
 import { useActiveTenant } from '../../AIAssistant/useActiveTenant'
 
 /**
- * AssistantAiCreator — natural-language Assistant creation.
+ * AssistantAiCreator — natural-language Expert creation.
  *
  * Three-step flow:
  *   1. Customer types a description + picks an audience.
  *   2. Streamed NDJSON progress (name → pages → prompt → conflicts).
  *   3. Customer reviews the draft, can edit, then saves.
  */
-export default function AssistantAiCreator({ tenant, existingAssistants = [], onBack, onSave }) {
+export default function AssistantAiCreator({ tenant, existingExperts = [], onBack, onSave }) {
   const { branchId } = useActiveTenant()
   const branchQ = branchId ? `&branch=${encodeURIComponent(branchId)}` : ''
   const [step, setStep] = useState(1) // 1 describe, 2 drafting/result
@@ -136,11 +136,11 @@ export default function AssistantAiCreator({ tenant, existingAssistants = [], on
       const r = await fetch(`/api/navigator-assistant?action=save${branchQ}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assistant: final, source: 'custom_ai' }),
+        body: JSON.stringify({ expert: final, source: 'custom_ai' }),
       })
       const body = await r.json()
       if (!r.ok) throw new Error(body.error || 'Save failed')
-      onSave?.(body.assistant || final)
+      onSave?.(body.expert || body.assistant || final)
     } catch (e) {
       setStreamErr(e.message)
       setSaving(false)

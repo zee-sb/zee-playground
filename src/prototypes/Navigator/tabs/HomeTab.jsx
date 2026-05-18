@@ -15,17 +15,17 @@ import SystemPromptEditor from './SystemPromptEditor'
 // Replaces the old `SetupTab` and folds the dedicated `Health` tab into a
 // single coherent admin home.
 export default function HomeTab({ tenant = {}, config = {}, blueprint, basePath, onEditSystemPrompt }) {
-  const conns = config.connectors || []
-  const mcps = conns.filter((c) => c.kind === 'mcp')
-  const agents = conns.filter((c) => c.kind === 'agent')
-  const kbs = conns.filter((c) => c.kind === 'kb')
+  const conns = config.connections || []
+  const toolkits = conns.filter((c) => c.kind === 'toolkit')
+  const handoffs = conns.filter((c) => c.kind === 'handoff')
+  const searches = conns.filter((c) => c.kind === 'search')
   const stats = [
-    { id: 'assistants', label: 'Assistants', value: (config.assistants || []).filter((a) => a.status === 'active').length, total: (config.assistants || []).length, icon: Sparkles },
-    { id: 'mcp',        label: 'MCPs',       value: mcps.filter((c) => c.status === 'connected').length,   total: mcps.length,   icon: Wrench },
-    { id: 'agent',      label: 'Agents',     value: agents.filter((c) => c.status === 'connected').length, total: agents.length, icon: Bot },
-    { id: 'kb',         label: 'Knowledge',  value: kbs.filter((c) => c.status === 'connected').length,    total: kbs.length,    icon: BookOpen },
-    { id: 'flows',      label: 'Flows',      value: (config.flows || []).filter((f) => f.status === 'active').length, total: (config.flows || []).length, icon: Workflow },
-    { id: 'workspace',  label: 'Groups',     value: (tenant.groups || []).length, total: (tenant.groups || []).length, icon: Users },
+    { id: 'experts',   label: 'Experts',   value: (config.experts || []).filter((a) => a.status === 'active').length, total: (config.experts || []).length, icon: Sparkles },
+    { id: 'toolkit',   label: 'Toolkits',  value: toolkits.filter((c) => c.status === 'connected').length, total: toolkits.length, icon: Wrench },
+    { id: 'handoff',   label: 'Handoffs',  value: handoffs.filter((c) => c.status === 'connected').length, total: handoffs.length, icon: Bot },
+    { id: 'search',    label: 'Search',    value: searches.filter((c) => c.status === 'connected').length, total: searches.length, icon: BookOpen },
+    { id: 'workflows', label: 'Workflows', value: (config.workflows || []).filter((f) => f.status === 'active').length, total: (config.workflows || []).length, icon: Workflow },
+    { id: 'workspace', label: 'Groups',    value: (tenant.groups || []).length, total: (tenant.groups || []).length, icon: Users },
   ]
 
   const ws = blueprint?.blueprint?.workspace || null
@@ -94,7 +94,7 @@ export default function HomeTab({ tenant = {}, config = {}, blueprint, basePath,
             <div>
               <div className="text-[13px] font-bold text-[#111827]">Orchestrator system prompt</div>
               <div className="text-[11.5px] text-[#6B7280] mt-0.5">
-                The workspace-level prompt every Assistant inherits. Generated from discovery; edit any time.
+                The workspace-level prompt every Expert inherits. Generated from discovery; edit any time.
               </div>
             </div>
           </div>
@@ -163,7 +163,7 @@ export default function HomeTab({ tenant = {}, config = {}, blueprint, basePath,
             <div className="text-[13px] font-bold text-[#111827]">Run discovery</div>
           </div>
           <p className="text-[12px] text-[#6B7280] mb-3 leading-relaxed">
-            The wizard pulls real Staffbase channels, pages, and groups, then proposes Assistants grounded in that content. Run it on first install or whenever the workspace changes shape.
+            The wizard pulls real Staffbase channels, pages, and groups, then proposes Experts grounded in that content. Run it on first install or whenever the workspace changes shape.
           </p>
           <Link
             to="/prototypes/navigator-discovery"
@@ -179,9 +179,9 @@ export default function HomeTab({ tenant = {}, config = {}, blueprint, basePath,
           <ul className="space-y-2 text-[12px] text-[#374151]">
             <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">1.</span> Pulls channels, recent posts, pages, groups, and user directory from the Staffbase API.</li>
             <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">2.</span> Runs a multi-pass LLM analysis to extract company name, mission, tone, glossary, and a workspace-level system prompt.</li>
-            <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">3.</span> Clusters content into topic areas and proposes 5–9 grounded Assistants (HR, IT, Onboarding, Travel, Campsite + workspace-specific clusters).</li>
+            <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">3.</span> Clusters content into topic areas and proposes 5–9 grounded Experts (HR, IT, Onboarding, Travel, Campsite + workspace-specific clusters).</li>
             <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">4.</span> Persists the workspace blueprint to Postgres so subsequent loads are instant.</li>
-            <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">5.</span> You pick which proposed Assistants to apply, then they're created in <strong>navigator_assistants</strong> and visible in the Assistants tab.</li>
+            <li className="flex gap-2"><span className="text-[#00C7B2] font-bold">5.</span> You pick which proposed Experts to apply, then they're created in <strong>navigator_experts</strong> and visible in the Experts tab.</li>
           </ul>
         </div>
       </div>

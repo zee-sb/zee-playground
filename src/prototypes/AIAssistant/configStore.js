@@ -1,11 +1,11 @@
 /**
- * configStore v7 — single source of truth for the Navigator Studio + Companion
+ * configStore v8 — single source of truth for the Navigator Studio + Companion
  * prototypes, simulating one canonical Staffbase Intranet workspace.
  *
- * v7 unification: connectors (MCPs / agents / KBs) collapse into one list
- * with a `kind` discriminator. Source-of-truth is server-side
- * (`navigator_config` + `navigator_assistants`); localStorage is an
- * offline-friendly cache. The seed itself lives in `lib/seed.mjs` and is
+ * v8 simplification: 5 concepts → 3 (Expert / Workflow / Connection).
+ * `connections` carry `kind: 'toolkit' | 'handoff' | 'search'`. Source-of-truth
+ * is server-side (`navigator_config` + `navigator_experts`); localStorage is
+ * an offline-friendly cache. Seed itself lives in `lib/seed.mjs` and is
  * imported by both client and server.
  *
  * What lives here:
@@ -15,9 +15,9 @@
  *   - `loadConfig()` / `saveConfig()` / `clearConfig()` — localStorage
  *     adapters. No migrations — older snapshots are discarded (hard
  *     cutover, prototype-only).
- *   - Derived selectors (`deriveLiveOrchestrator`, `assistantVisibleTo`)
+ *   - Derived selectors (`deriveLiveOrchestrator`, `expertVisibleTo`)
  *     used by the Studio "View as" preview and the runtime.
- *   - `flowMatchesText` / `notableWordsFromTrigger` — heuristics the
+ *   - `workflowMatchesText` / `notableWordsFromTrigger` — heuristics the
  *     orchestrator's Tier-1 pre-pass also imports server-side
  *     (lib/studio-config.mjs has a server copy to avoid pulling browser
  *     code into Vercel functions).
@@ -25,11 +25,13 @@
 
 import { buildSeedClientConfig } from '../../../lib/seed.mjs'
 
-// Default key — kept for one-cycle backward compat with single-tenant snapshots.
-// New code should always go through keyForBranch() so storage is scoped per
-// Staffbase workspace (multi-tenant gallery picker).
-export const STORAGE_KEY = 'staffbase.navigator.config'
-export const CONFIG_VERSION = 7
+// Bumped to v2 (".v2") to invalidate any v7 caches on the simplification rollout.
+export const STORAGE_KEY = 'staffbase.navigator.config.v2'
+// v11: tighten Snap-an-IT-issue onFail policy from 'allow' → 'warn' so a
+// bad photo prompts retake instead of silently flowing through. The seed
+// also tags itself with SEED_VERSION so the client can detect a stale
+// server config and call reseed() automatically.
+export const CONFIG_VERSION = 11
 
 export function keyForBranch(branchId) {
   return branchId ? `${STORAGE_KEY}:${branchId}` : STORAGE_KEY
@@ -63,11 +65,11 @@ export function buildSeedConfig() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Flow trigger heuristic — also re-implemented in lib/studio-config.mjs for
-// the server side. Keep the stop-word list in sync.
+// Workflow trigger heuristic — also re-implemented in lib/studio-config.mjs
+// for the server side. Keep the stop-word list in sync.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const FLOW_STOPWORDS = new Set([
+const WORKFLOW_STOPWORDS = new Set([
   'employee','employees','asks','wants','says','their','they','the','and','for',
   'that','this','about','have','with','what','when','to','on','of','in','a','an',
   'or','is','are','be','do','need','needs','help','want','wants','start','starts',
@@ -77,14 +79,14 @@ const FLOW_STOPWORDS = new Set([
 export function notableWordsFromTrigger(trigger = '') {
   return Array.from(new Set(
     String(trigger).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/)
-      .filter((w) => w.length > 4 && !FLOW_STOPWORDS.has(w))
+      .filter((w) => w.length > 4 && !WORKFLOW_STOPWORDS.has(w))
   ))
 }
 
-export function flowMatchesText(text, flow) {
-  if (!text || !flow) return false
+export function workflowMatchesText(text, workflow) {
+  if (!text || !workflow) return false
   const t = String(text).toLowerCase()
-  const words = notableWordsFromTrigger(flow.trigger || '')
+  const words = notableWordsFromTrigger(workflow.trigger || '')
   return words.some((w) => t.includes(w))
 }
 
@@ -133,33 +135,33 @@ export function clearConfig(branchId = null) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Live orchestrator scope (workspace-wide) — connectors that are connected
- * AND referenced by at least one active assistant. Unified shape: returns
- * `{ connectors, assistants }`. Kind-specific filtering happens at the
+ * Live orchestrator scope (workspace-wide) — connections that are connected
+ * AND referenced by at least one active expert. Unified shape: returns
+ * `{ connections, experts }`. Kind-specific filtering happens at the
  * consumer.
  */
 export function deriveLiveOrchestrator(config) {
-  if (!config) return { connectors: [], assistants: [] }
-  const activeAssistants = (config.assistants || []).filter((a) => a.status === 'active')
-  const referenced = new Set(activeAssistants.flatMap((a) => a.connectorIds || []))
+  if (!config) return { connections: [], experts: [] }
+  const activeExperts = (config.experts || []).filter((a) => a.status === 'active')
+  const referenced = new Set(activeExperts.flatMap((a) => a.connectionIds || []))
   return {
-    connectors: (config.connectors || []).filter((c) =>
+    connections: (config.connections || []).filter((c) =>
       c.status === 'connected' && referenced.has(c.id)
     ),
-    assistants: activeAssistants,
+    experts: activeExperts,
   }
 }
 
 /**
- * Audience check — does this assistant reach this user?
+ * Audience check — does this expert reach this user?
  *   - everyone: true → always reach
  *   - otherwise, user must match at least one group/role/location
- *   - empty audience falls back to true so a half-configured assistant
+ *   - empty audience falls back to true so a half-configured expert
  *     doesn't accidentally hide from everyone.
  */
-export function assistantVisibleTo(assistant, user) {
-  if (!assistant) return false
-  const aud = assistant.audience || { everyone: true }
+export function expertVisibleTo(expert, user) {
+  if (!expert) return false
+  const aud = expert.audience || { everyone: true }
   if (aud.everyone) return true
   if (!user) return false
   const groups = aud.groups || []
@@ -174,21 +176,28 @@ export function assistantVisibleTo(assistant, user) {
 }
 
 /**
- * Same as `deriveLiveOrchestrator`, but first filters to assistants whose
+ * Same as `deriveLiveOrchestrator`, but first filters to experts whose
  * audience includes `user`. Used by Studio's "View as" right rail and by
  * the Companion to scope per-user.
  */
 export function deriveLiveOrchestratorFor(config, user) {
-  if (!config) return { connectors: [], assistants: [] }
+  if (!config) return { connections: [], experts: [] }
   if (!user) return deriveLiveOrchestrator(config)
-  const visibleAssistants = (config.assistants || []).filter(
-    (a) => a.status === 'active' && assistantVisibleTo(a, user)
+  const visibleExperts = (config.experts || []).filter(
+    (a) => a.status === 'active' && expertVisibleTo(a, user)
   )
-  const referenced = new Set(visibleAssistants.flatMap((a) => a.connectorIds || []))
+  const referenced = new Set(visibleExperts.flatMap((a) => a.connectionIds || []))
   return {
-    connectors: (config.connectors || []).filter((c) =>
+    connections: (config.connections || []).filter((c) =>
       c.status === 'connected' && referenced.has(c.id)
     ),
-    assistants: visibleAssistants,
+    experts: visibleExperts,
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEMPORARY: Backwards-compat aliases for the in-flight Studio UI rename.
+// Remove these once every Studio file uses the new names directly.
+// ─────────────────────────────────────────────────────────────────────────────
+export const assistantVisibleTo = expertVisibleTo
+export const flowMatchesText = workflowMatchesText

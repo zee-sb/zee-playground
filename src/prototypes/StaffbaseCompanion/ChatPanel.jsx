@@ -10,7 +10,9 @@ import ConfirmWriteModal from './ConfirmWriteModal.jsx';
 import AnalyticsChartCard from './AnalyticsChartCard.jsx';
 import CardRouter from './cards/CardRouter.jsx';
 import VoiceComposer from './VoiceComposer.jsx';
+import DesktopHero from './DesktopHero.jsx';
 import { useTts } from './useTts.js';
+import { useInspector } from './lib/InspectorContext.jsx';
 import { TypingIndicator } from '../../chat-widget/TypingIndicator.jsx';
 import { streamPost, listMessages } from './api.js';
 import { markdownComponents, sanitizeStreamingMarkdown } from './lib/markdown.jsx';
@@ -189,6 +191,7 @@ function reduceMessages(rows) {
 
 export default function ChatPanel({ conversationId, user, connections = [], onNavigateConnections, onSignOut, onNewConversation, onOpenHistory, onConversationRenamed, isMobile = false }) {
   const { branchId } = useActiveTenant();
+  const inspector = useInspector();
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState(null);
@@ -241,6 +244,35 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
     })();
     return () => { cancelled = true; };
   }, [conversationId, branchId]);
+
+  // Mirror conversation state into the Inspector dock so the right rail
+  // always reflects the latest trace, active flow, and tool results. On
+  // mobile this is a no-op (the inspector context returns stubs).
+  useEffect(() => {
+    if (!inspector.enabled) return;
+    // Sources: every tool call in this conversation, newest last. The
+    // dock is a running log of what Navigator did; users can scroll back
+    // through every call without reopening the inline cards.
+    const tools = items.filter((it) => it.kind === 'tool');
+    inspector.setSources({ sources: tools, anchorMessageIndex: null });
+    // Active flow: the most recent flow item; treated as "active" until
+    // its currentStepInteraction goes null AND every step is completed.
+    const lastFlow = [...items].reverse().find((it) => it.kind === 'flow' && it.stepMachine);
+    if (lastFlow) {
+      const stillRunning = !!lastFlow.currentStepInteraction
+        || (lastFlow.steps || []).some((s) => s.status && s.status !== 'completed');
+      inspector.setFlow({ active: stillRunning, flowItem: lastFlow });
+    } else {
+      inspector.setFlow({ active: false, flowItem: null });
+    }
+    // Trace: just the most recent route decision, if any.
+    const lastTrace = [...items].reverse().find((it) => it.kind === 'trace');
+    inspector.setTrace({ traceItem: lastTrace || null });
+    // We deliberately exclude `inspector` from deps — its setter identities
+    // are memoised, and including the whole object would loop on every
+    // panel state change (open/close, tab switch).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, inspector.enabled]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -306,7 +338,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (cancelled || !data) return;
-        if (!data.studioEmpty && (data.assistants?.length || data.flows?.length)) {
+        if (!data.studioEmpty && (data.experts?.length || data.assistants?.length || data.workflows?.length || data.flows?.length)) {
           setHeroData(data);
         }
       })
@@ -442,6 +474,55 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           flowItem.steps = flowItem.steps || [];
           const target = flowItem.steps.find((s) => s.id === evt.stepId);
           if (target) target.status = 'awaiting_user';
+        }
+      } else if (evt.type === 'photo_request') {
+        const flowItem = [...next].reverse().find((i) => i.kind === 'flow' && i.id === evt.flowId);
+        if (flowItem) {
+          flowItem.currentStepInteraction = {
+            kind: 'photo', stepId: evt.stepId, spec: evt.spec, phase: 'capture',
+          };
+          flowItem.steps = flowItem.steps || [];
+          const target = flowItem.steps.find((s) => s.id === evt.stepId);
+          if (target) target.status = 'awaiting_user';
+        }
+      } else if (evt.type === 'photo_result') {
+        const flowItem = [...next].reverse().find((i) => i.kind === 'flow' && i.id === evt.flowId);
+        if (flowItem) {
+          // Always stash the photo + validation in stepOutputs so the
+          // timeline can render the thumbnail and AI summary on the
+          // completed step regardless of whether we pause or advance.
+          flowItem.stepOutputs = {
+            ...(flowItem.stepOutputs || {}),
+            [evt.stepId]: {
+              imageDataUrl: evt.imageDataUrl,
+              imageWidth: evt.imageWidth,
+              imageHeight: evt.imageHeight,
+              mimeType: evt.mimeType,
+              validation: evt.validation,
+              acceptedDespiteFail: !evt.validation?.passed,
+            },
+          };
+          flowItem.steps = flowItem.steps || [];
+          const target = flowItem.steps.find((s) => s.id === evt.stepId);
+          if (evt.autoAdvanced) {
+            // The AI's verdict satisfied the policy — flow moves on.
+            // Mark this step done; the next flow_step / form_request /
+            // photo_request will bring the next step's UI online.
+            if (target) target.status = 'done';
+            flowItem.currentStepInteraction = null;
+          } else {
+            // Failed validation under warn/block — pause on review so the
+            // employee can retake (or continue, if warn).
+            flowItem.currentStepInteraction = {
+              kind: 'photo', stepId: evt.stepId, spec: evt.spec, phase: 'review',
+              imageDataUrl: evt.imageDataUrl,
+              imageWidth: evt.imageWidth,
+              imageHeight: evt.imageHeight,
+              mimeType: evt.mimeType,
+              validation: evt.validation,
+            };
+            if (target) target.status = 'awaiting_user';
+          }
         }
       } else if (evt.type === 'flow_completed') {
         const flowItem = [...next].reverse().find((i) => i.kind === 'flow' && i.id === evt.flowId);
@@ -601,6 +682,97 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
     }
   }
 
+  async function submitFlowPhotoValidate(flowId, stepId, payload) {
+    if (busy || !conversationId) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await streamPost(withBranchQuery('/api/companion/chat', branchId), {
+        conversationId,
+        photoSubmission: {
+          kind: 'photo_validate',
+          flowId, stepId,
+          imageDataUrl: payload.imageDataUrl,
+          imageWidth: payload.imageWidth,
+          imageHeight: payload.imageHeight,
+          mimeType: payload.mimeType,
+        },
+      }, handleEvent);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitFlowPhotoAccept(flowId, stepId, { acceptedDespiteFail = false } = {}) {
+    if (busy || !conversationId) return;
+    setError(null);
+    setItems((prev) => {
+      const next = [...prev];
+      const flowItem = [...next].reverse().find((i) => i.kind === 'flow' && i.id === flowId);
+      if (flowItem) {
+        const stagedInter = flowItem.currentStepInteraction;
+        flowItem.stepOutputs = {
+          ...(flowItem.stepOutputs || {}),
+          [stepId]: stagedInter?.kind === 'photo' && stagedInter.phase === 'review'
+            ? {
+                imageDataUrl: stagedInter.imageDataUrl,
+                imageWidth: stagedInter.imageWidth,
+                imageHeight: stagedInter.imageHeight,
+                mimeType: stagedInter.mimeType,
+                validation: stagedInter.validation,
+                acceptedDespiteFail,
+              }
+            : { acceptedDespiteFail },
+        };
+        const target = flowItem.steps?.find((s) => s.id === stepId);
+        if (target) target.status = 'done';
+        flowItem.currentStepInteraction = null;
+      }
+      return next;
+    });
+    setBusy(true);
+    try {
+      await streamPost(withBranchQuery('/api/companion/chat', branchId), {
+        conversationId,
+        photoSubmission: { kind: 'photo_accept', flowId, stepId, acceptedDespiteFail },
+      }, handleEvent);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitFlowPhotoRetake(flowId, stepId) {
+    if (busy || !conversationId) return;
+    setError(null);
+    setItems((prev) => {
+      const next = [...prev];
+      const flowItem = [...next].reverse().find((i) => i.kind === 'flow' && i.id === flowId);
+      if (flowItem && flowItem.currentStepInteraction?.kind === 'photo') {
+        flowItem.currentStepInteraction = {
+          kind: 'photo', stepId,
+          spec: flowItem.currentStepInteraction.spec,
+          phase: 'capture',
+        };
+      }
+      return next;
+    });
+    setBusy(true);
+    try {
+      await streamPost(withBranchQuery('/api/companion/chat', branchId), {
+        conversationId,
+        photoSubmission: { kind: 'photo_retake', flowId, stepId },
+      }, handleEvent);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submitFlowConfirm(flowId, stepId, accepted, cancelTo) {
     if (busy || !conversationId) return;
     setError(null);
@@ -660,19 +832,26 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
 
   return (
     <>
-      <AppHeader
-        user={user}
-        connections={connections}
-        onSignOut={onSignOut}
-        onNewConversation={onNewConversation}
-        onOpenHistory={onOpenHistory}
-        isMobile={isMobile}
-      />
+      {/* Desktop drops the purple AppHeader — the left sidebar already shows
+          the Companion brand, tenant, and sign-out affordances. Mobile keeps
+          AppHeader so the burger menu, "new conversation" button, and brand
+          remain reachable inside the phone-shaped surface. */}
+      {isMobile && (
+        <AppHeader
+          user={user}
+          connections={connections}
+          onSignOut={onSignOut}
+          onNewConversation={onNewConversation}
+          onOpenHistory={onOpenHistory}
+          isMobile={isMobile}
+        />
+      )}
 
       <div style={{
         flex: 1, overflowY: 'auto', position: 'relative', zIndex: 1,
         WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain',
-        display: 'flex', flexDirection: 'column', padding: '12px 12px 0',
+        display: 'flex', flexDirection: 'column',
+        padding: isMobile ? '12px 12px 0' : '0',
       }}>
         {activeContext && !empty && (
           <ActiveContextPill
@@ -681,15 +860,29 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           />
         )}
         {empty ? (
-          <Hero
-            user={user}
-            atlassianLinked={atlassianLinked}
-            heroData={heroData}
-            onPick={send}
-            onConnect={onNavigateConnections}
-          />
+          isMobile ? (
+            <Hero
+              user={user}
+              atlassianLinked={atlassianLinked}
+              heroData={heroData}
+              onPick={send}
+              onConnect={onNavigateConnections}
+            />
+          ) : (
+            <DesktopHero user={user} heroData={heroData} onPick={send} />
+          )
         ) : (
-          <div className="cw-root" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, '--cw-primary': '#7C3AED', '--cw-primary-dark': '#6D28D9', '--cw-primary-light': '#EDE9FE' }}>
+          <div className="cw-root" style={{
+            flex: 1, display: 'flex', flexDirection: 'column', gap: 4,
+            // Desktop centres the reading column at ~760px so messages stay
+            // legible regardless of how wide the chat surface gets. Mobile
+            // takes the full inner width (current behaviour preserved).
+            width: '100%',
+            maxWidth: isMobile ? undefined : 760,
+            margin: isMobile ? undefined : '0 auto',
+            padding: isMobile ? undefined : '20px 24px 0',
+            '--cw-primary': '#7C3AED', '--cw-primary-dark': '#6D28D9', '--cw-primary-light': '#EDE9FE',
+          }}>
             {(() => {
               // Only the most recent assistant message's suggestion chips are
               // interactive; once the turn has passed they grey out so the
@@ -728,6 +921,9 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
                     onSuggestion={send}
                     onFlowFormSubmit={submitFlowForm}
                     onFlowConfirm={submitFlowConfirm}
+                    onFlowPhotoValidate={submitFlowPhotoValidate}
+                    onFlowPhotoAccept={submitFlowPhotoAccept}
+                    onFlowPhotoRetake={submitFlowPhotoRetake}
                     busy={busy}
                     suggestionsDisabled={busy || i !== lastSuggestionIdx}
                     tts={tts}
@@ -763,22 +959,32 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
         </div>
       )}
 
-      <VoiceComposer
-        onSubmit={send}
-        disabled={busy || !conversationId || triviaActive}
-        placeholder={triviaActive ? 'Pick a card above to continue' : undefined}
-        isMobile={isMobile}
-        sessionLang={sessionLang}
-        onLanguageChange={handleLanguageChange}
-        continuousMode={continuousMode}
-        onToggleContinuousMode={(next) => {
-          setContinuousMode(!!next);
-          // Stop any in-flight TTS when leaving continuous mode so the mic
-          // doesn't re-open after the toggle was just turned off.
-          if (!next) tts.stop();
-        }}
-        registerAutoStart={registerAutoStart}
-      />
+      {/* Desktop centres the composer pill at the same ~760px column the
+          messages use; mobile keeps full-bleed. */}
+      <div style={{
+        width: '100%',
+        maxWidth: isMobile ? undefined : 800,
+        margin: isMobile ? undefined : '0 auto',
+        padding: isMobile ? undefined : '4px 12px 12px',
+        flexShrink: 0,
+      }}>
+        <VoiceComposer
+          onSubmit={send}
+          disabled={busy || !conversationId || triviaActive}
+          placeholder={triviaActive ? 'Pick a card above to continue' : undefined}
+          isMobile={isMobile}
+          sessionLang={sessionLang}
+          onLanguageChange={handleLanguageChange}
+          continuousMode={continuousMode}
+          onToggleContinuousMode={(next) => {
+            setContinuousMode(!!next);
+            // Stop any in-flight TTS when leaving continuous mode so the mic
+            // doesn't re-open after the toggle was just turned off.
+            if (!next) tts.stop();
+          }}
+          registerAutoStart={registerAutoStart}
+        />
+      </div>
 
       {pendingConfirm && (
         <ConfirmWriteModal
@@ -897,7 +1103,7 @@ function Hero({ user, atlassianLinked, heroData, onPick, onConnect }) {
   // Atlassian is in scope only when the admin has it `connected` AND the
   // user has OAuth-linked. Studio admin disable hides the hackathon chip
   // from every user, even those with OAuth — admin wins.
-  const atlassianInScope = !!(heroData?.connectors || []).find((c) => c.id === 'atlassian');
+  const atlassianInScope = !!(heroData?.connections || heroData?.connectors || []).find((c) => c.id === 'atlassian');
   const atlassianAvailable = atlassianInScope && atlassianLinked;
   const atlassianNeedsAuth = !!(heroData?.needsAuth || []).find((c) => c.provider === 'atlassian');
 
@@ -907,20 +1113,22 @@ function Hero({ user, atlassianLinked, heroData, onPick, onConnect }) {
       ? 'I can pull live Staffbase intranet posts and check HR/IT info. Link Atlassian to add Confluence + Jira.'
       : 'I can pull live Staffbase intranet posts and check HR/IT info.';
 
-  // Studio-driven chips when available — surface admin-authored assistants
-  // and active flows as one-tap launchpad chips. Fall back to legacy
+  // Studio-driven chips when available — surface admin-authored experts
+  // and active workflows as one-tap launchpad chips. Fall back to legacy
   // hardcoded chips when Studio is empty / unreachable.
   let chips;
-  if (heroData && (heroData.assistants?.length || heroData.flows?.length)) {
-    const asstChips = (heroData.assistants || []).slice(0, 4).map((a) => ({
+  const heroExperts = heroData?.experts || heroData?.assistants || [];
+  const heroWorkflows = heroData?.workflows || heroData?.flows || [];
+  if (heroData && (heroExperts.length || heroWorkflows.length)) {
+    const asstChips = heroExperts.slice(0, 4).map((a) => ({
       label: `${a.icon || '✨'} Ask the ${a.name}`,
       prompt: a.description
         ? `Help me with ${a.name.toLowerCase()} — ${a.description.toLowerCase()}`
         : `Help me with something for the ${a.name}.`,
     }));
-    const flowChips = (heroData.flows || []).slice(0, 3).map((f) => ({
+    const flowChips = heroWorkflows.slice(0, 3).map((f) => ({
       label: `▶ ${f.name}`,
-      prompt: f.goal ? `I want to start the ${f.name} flow — ${f.goal}` : `Start: ${f.name}`,
+      prompt: f.goal ? `I want to start the ${f.name} workflow — ${f.goal}` : `Start: ${f.name}`,
     }));
     chips = [...asstChips, ...flowChips];
   } else {
@@ -1655,7 +1863,9 @@ function ActiveContextPill({ context, onClear }) {
 
 function Item({
   item, itemIndex, userInitials, onSuggestion,
-  onFlowFormSubmit, onFlowConfirm, busy = false,
+  onFlowFormSubmit, onFlowConfirm,
+  onFlowPhotoValidate, onFlowPhotoAccept, onFlowPhotoRetake,
+  busy = false,
   suggestionsDisabled = false, sources = [], onOpenSources,
   tts, sessionLang,
 }) {
@@ -1671,6 +1881,9 @@ function Item({
           onFormSubmit={(stepId, values) => onFlowFormSubmit?.(item.id, stepId, values)}
           onConfirm={(stepId) => onFlowConfirm?.(item.id, stepId, true)}
           onCancel={(stepId, cancelTo) => onFlowConfirm?.(item.id, stepId, false, cancelTo)}
+          onPhotoValidate={(stepId, payload) => onFlowPhotoValidate?.(item.id, stepId, payload)}
+          onPhotoAccept={(stepId, p) => onFlowPhotoAccept?.(item.id, stepId, p)}
+          onPhotoRetake={(stepId) => onFlowPhotoRetake?.(item.id, stepId)}
         />
       );
     }

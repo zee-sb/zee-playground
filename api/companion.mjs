@@ -207,13 +207,14 @@ async function chat(req, res) {
     return;
   }
 
-  const { conversationId, message, formSubmission, confirmResponse, inputModality, lang } = req.body || {};
+  const { conversationId, message, formSubmission, confirmResponse, photoSubmission, inputModality, lang } = req.body || {};
   if (!conversationId) {
     res.status(400).json({ error: 'conversationId is required' });
     return;
   }
   const hasFlowInput = (formSubmission && typeof formSubmission === 'object')
-    || (confirmResponse && typeof confirmResponse === 'object');
+    || (confirmResponse && typeof confirmResponse === 'object')
+    || (photoSubmission && typeof photoSubmission === 'object');
   if (!hasFlowInput && (!message || typeof message !== 'string')) {
     res.status(400).json({ error: 'message or flow submission required' });
     return;
@@ -229,7 +230,21 @@ async function chat(req, res) {
     ? { kind: 'form', flowId: formSubmission.flowId, stepId: formSubmission.stepId, values: formSubmission.values || {} }
     : confirmResponse
       ? { kind: 'confirm', flowId: confirmResponse.flowId, stepId: confirmResponse.stepId, accepted: !!confirmResponse.accepted, cancelTo: confirmResponse.cancelTo }
-      : null;
+      : photoSubmission
+        ? {
+            kind: photoSubmission.kind === 'photo_accept' || photoSubmission.kind === 'photo_retake'
+              ? photoSubmission.kind
+              : 'photo_validate',
+            flowId: photoSubmission.flowId,
+            stepId: photoSubmission.stepId,
+            // Validate phase carries the image; accept/retake do not.
+            imageDataUrl: typeof photoSubmission.imageDataUrl === 'string' ? photoSubmission.imageDataUrl : undefined,
+            imageWidth: Number.isFinite(photoSubmission.imageWidth) ? photoSubmission.imageWidth : undefined,
+            imageHeight: Number.isFinite(photoSubmission.imageHeight) ? photoSubmission.imageHeight : undefined,
+            mimeType: typeof photoSubmission.mimeType === 'string' ? photoSubmission.mimeType : undefined,
+            acceptedDespiteFail: !!photoSubmission.acceptedDespiteFail,
+          }
+        : null;
 
   const own = await sql`
     select c.id, c.staffbase_branch_id, u.staffbase_user_id, u.email, u.display_name, u.department, u.title from conversations c
@@ -317,9 +332,15 @@ async function chat(req, res) {
       // Persist a synthetic user-facing record of the submission so the chat
       // history (and reload) shows what the user did, without bloating the
       // visible bubble stream. Stored as a system message.
+      // For photo_validate we strip the image bytes — the image survives in
+      // the flowExec snapshot via `awaiting.imageDataUrl`, so storing it again
+      // here would double the row size and inflate later history fetches.
+      const auditPayload = flowSubmission.kind === 'photo_validate'
+        ? { ...flowSubmission, imageDataUrl: '<stripped>' }
+        : flowSubmission;
       await sql`
         insert into messages (conversation_id, role, content)
-        values (${conversationId}, 'system', ${JSON.stringify({ flowInput: flowSubmission })}::jsonb)
+        values (${conversationId}, 'system', ${JSON.stringify({ flowInput: auditPayload })}::jsonb)
       `;
     }
 
@@ -589,23 +610,23 @@ async function hero(req, res) {
   catch (err) { console.warn('[companion/hero] loadStudio failed:', err.message); }
 
   if (!studio) {
-    res.status(200).json({ assistants: [], flows: [], connectors: [], needsAuth: [], studioEmpty: true });
+    res.status(200).json({ experts: [], workflows: [], connections: [], needsAuth: [], studioEmpty: true });
     return;
   }
   const scope = materializeActiveScope({
     config: studio.config,
-    assistants: studio.assistants,
+    experts: studio.experts,
     user: userToAudience(userProfile),
     userConnections,
   });
   res.status(200).json({
-    assistants: scope.assistants.map((a) => ({
+    experts: scope.experts.map((a) => ({
       id: a.id, name: a.name, icon: a.icon || '✨', description: a.description || '',
     })),
-    flows: scope.flows.map((f) => ({
+    workflows: scope.workflows.map((f) => ({
       id: f.id, name: f.name, mode: f.mode || 'suggested', goal: f.goal || '',
     })),
-    connectors: scope.connectors.map((c) => ({
+    connections: scope.connections.map((c) => ({
       id: c.id, kind: c.kind, name: c.name, provider: c.provider || null, source: c.source || null,
     })),
     needsAuth: (scope.needsAuth || []).map((c) => ({

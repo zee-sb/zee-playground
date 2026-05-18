@@ -1,32 +1,31 @@
 import React, { useMemo, useState } from 'react'
 import { ArrowLeft, Save, Trash2, Wrench, Bot, BookOpen, Users, Check, MapPin, ShieldCheck, Globe } from 'lucide-react'
-import { assistantVisibleTo } from '../../AIAssistant/configStore'
+import { expertVisibleTo } from '../../AIAssistant/configStore'
 import { LogoChip } from '../components/Catalog'
 
 /**
- * Assistant detail editor (v7).
+ * Expert detail editor.
  *
- * One unified Connectors picker — replaces the previous trio of MCP /
- * External Agent / Knowledge Base sections. Each connector is rendered with
- * a kind chip (MCP / Agent / Knowledge) so the admin can still scan by type.
+ * One unified Connections picker. Each connection is rendered with a kind chip
+ * (Toolkit / Handoff / Search) so the admin can scan by type.
  */
 export default function AssistantDetail({
-  assistant,
+  expert,
   isNew = false,
-  connectors = [],
+  connections = [],
   tenant = { groups: [], roles: [], locations: [] },
   demoUsers = [],
   onBack,
   onSave,
   onDelete,
 }) {
-  const [name, setName] = useState(assistant.name || '')
-  const [icon, setIcon] = useState(assistant.icon || '✨')
-  const [description, setDescription] = useState(assistant.description || '')
-  const [instructions, setInstructions] = useState(assistant.instructions || '')
-  const [connectorIds, setConnectorIds] = useState(assistant.connectorIds || [])
-  const [audience, setAudience] = useState(assistant.audience || { everyone: true, groups: [], roles: [], locations: [] })
-  const [status, setStatus] = useState(assistant.status || 'active')
+  const [name, setName] = useState(expert.name || '')
+  const [icon, setIcon] = useState(expert.icon || '✨')
+  const [description, setDescription] = useState(expert.description || '')
+  const [instructions, setInstructions] = useState(expert.instructions || '')
+  const [connectionIds, setConnectionIds] = useState(expert.connectionIds || [])
+  const [audience, setAudience] = useState(expert.audience || { everyone: true, groups: [], roles: [], locations: [] })
+  const [status, setStatus] = useState(expert.status || 'active')
 
   function toggle(arr, id) { return arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id] }
   function setEveryone(everyone) { setAudience(prev => ({ ...prev, everyone })) }
@@ -39,23 +38,23 @@ export default function AssistantDetail({
     ...((demoUsers || []).map(u => u.group).filter(Boolean)),
   ])).sort()
 
-  const visibleUsers = demoUsers.filter(u => assistantVisibleTo({ audience }, u))
+  const visibleUsers = demoUsers.filter(u => expertVisibleTo({ audience }, u))
 
-  // Bucket connectors by kind for visual organization, but stored as one list.
+  // Bucket connections by kind for visual organization, but stored as one list.
   const grouped = useMemo(() => ({
-    mcp:   connectors.filter((c) => c.kind === 'mcp'),
-    agent: connectors.filter((c) => c.kind === 'agent'),
-    kb:    connectors.filter((c) => c.kind === 'kb'),
-  }), [connectors])
+    toolkit: connections.filter((c) => c.kind === 'toolkit'),
+    handoff: connections.filter((c) => c.kind === 'handoff'),
+    search:  connections.filter((c) => c.kind === 'search'),
+  }), [connections])
 
   function handleSave() {
     onSave({
-      ...assistant,
-      name: name.trim() || 'Untitled assistant',
+      ...expert,
+      name: name.trim() || 'Untitled expert',
       icon,
       description,
       instructions,
-      connectorIds,
+      connectionIds,
       audience: {
         everyone: !!audience.everyone,
         groups: audience.groups || [],
@@ -75,14 +74,14 @@ export default function AssistantDetail({
         </button>
         <div className="flex-1 min-w-0">
           <div className="text-[12px] font-semibold uppercase tracking-widest text-[#94A3B8]">
-            {isNew ? 'New Assistant' : 'Assistant'}
+            {isNew ? 'New Expert' : 'Expert'}
           </div>
-          <h1 className="text-[20px] font-bold text-[#111827] truncate">{name || 'Untitled assistant'}</h1>
+          <h1 className="text-[20px] font-bold text-[#111827] truncate">{name || 'Untitled expert'}</h1>
         </div>
         <div className="flex items-center gap-2">
           {!isNew && (
             <button
-              onClick={() => { if (window.confirm(`Delete ${name}?`)) onDelete(assistant) }}
+              onClick={() => { if (window.confirm(`Delete ${name}?`)) onDelete(expert) }}
               className="flex items-center gap-2 px-3 py-1.5 text-[12px] font-semibold text-[#DC2626] hover:bg-[#FEE2E2] rounded-lg transition-colors"
             >
               <Trash2 size={13} /> Delete
@@ -120,37 +119,37 @@ export default function AssistantDetail({
             </div>
             <Field label="System instructions">
               <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={4}
-                placeholder="How should this assistant behave? When should it call tools or hand off to an external agent?"
+                placeholder="How should this expert behave? When should it call tools or hand off to an external agent?"
                 className="w-full px-3 py-2 text-[13px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#3B82F6] outline-none resize-y leading-relaxed" />
             </Field>
           </Section>
 
-          {/* Unified connectors */}
+          {/* Unified connections */}
           <Section
-            title="Connectors"
-            description="Everything this assistant can call — MCP tool servers, A2A agents, and knowledge bases. Same underlying protocol; the kind decides how the orchestrator dispatches."
+            title="Connections"
+            description="Everything this expert can call — toolkits, handoff agents, and search sources. Same underlying protocol; the kind decides how the orchestrator dispatches."
           >
-            {connectors.length === 0 ? (
-              <EmptyHint text="No connectors configured. Open the Connectors tab to add one." />
+            {connections.length === 0 ? (
+              <EmptyHint text="No connections configured. Open the Connections tab to add one." />
             ) : (
               <div className="space-y-4">
-                {grouped.mcp.length > 0 && (
-                  <KindGroup label="MCP servers" icon={<Wrench size={11} />} color="#7C3AED" items={grouped.mcp}
-                    selectedIds={connectorIds}
-                    onToggle={(id) => setConnectorIds((p) => toggle(p, id))}
+                {grouped.toolkit.length > 0 && (
+                  <KindGroup label="Toolkits" icon={<Wrench size={11} />} color="#7C3AED" items={grouped.toolkit}
+                    selectedIds={connectionIds}
+                    onToggle={(id) => setConnectionIds((p) => toggle(p, id))}
                     meta={(c) => `${c.tools?.length || 0} tools`} />
                 )}
-                {grouped.agent.length > 0 && (
-                  <KindGroup label="A2A agents" icon={<Bot size={11} />} color="#F59E0B" items={grouped.agent}
-                    selectedIds={connectorIds}
-                    onToggle={(id) => setConnectorIds((p) => toggle(p, id))}
+                {grouped.handoff.length > 0 && (
+                  <KindGroup label="Handoffs" icon={<Bot size={11} />} color="#F59E0B" items={grouped.handoff}
+                    selectedIds={connectionIds}
+                    onToggle={(id) => setConnectionIds((p) => toggle(p, id))}
                     meta={(c) => `${c.protocol || 'native'} · ${(c.capabilities || []).length} skills`} />
                 )}
-                {grouped.kb.length > 0 && (
-                  <KindGroup label="Knowledge bases" icon={<BookOpen size={11} />} color="#2563EB" items={grouped.kb}
-                    selectedIds={connectorIds}
-                    onToggle={(id) => setConnectorIds((p) => toggle(p, id))}
-                    meta={(c) => `${c.source || 'Knowledge'} · ${c.articleCount || 0} docs`} />
+                {grouped.search.length > 0 && (
+                  <KindGroup label="Search sources" icon={<BookOpen size={11} />} color="#2563EB" items={grouped.search}
+                    selectedIds={connectionIds}
+                    onToggle={(id) => setConnectionIds((p) => toggle(p, id))}
+                    meta={(c) => `${c.source || 'Search'} · ${c.articleCount || 0} docs`} />
                 )}
               </div>
             )}
@@ -175,7 +174,7 @@ export default function AssistantDetail({
           <Section
             title="Audience"
             icon={<Users size={14} className="text-[#3B82F6]" />}
-            description="Who can use this assistant. Excluded users won't see it in their chat."
+            description="Who can use this expert. Excluded users won't see it in their chat."
           >
             <div className="flex gap-2 mb-3">
               <button onClick={() => setEveryone(true)}
@@ -225,7 +224,7 @@ export default function AssistantDetail({
               </div>
               <div className="text-[#6B7280] mt-0.5 truncate">
                 {visibleUsers.length === 0
-                  ? 'No one will see this assistant.'
+                  ? 'No one will see this expert.'
                   : visibleUsers.map(u => u.name.split(' ')[0]).join(', ')}
               </div>
             </div>

@@ -1,6 +1,6 @@
 // Navigator workspace config API.
 //
-// Mirrors api/navigator-setup.mjs and api/navigator-assistant.mjs:
+// Mirrors api/navigator-setup.mjs and api/navigator-expert.mjs:
 // single dispatcher, action picked from ?action= query param.
 //
 //   GET  /api/navigator-config?action=load&branch=<id>   → load + revision
@@ -8,9 +8,9 @@
 //
 // Branch comes from ?branch=<branchId> (the gallery's active tenant). For
 // backward compat during the single→multi-tenant transition, omitting the
-// param falls back to the only registered tenant. Assistants are NOT in
-// this blob; they live in navigator_assistants and are managed by
-// /api/navigator-assistant.
+// param falls back to the only registered tenant. Experts are NOT in
+// this blob; they live in navigator_experts and are managed by
+// /api/navigator-expert.
 
 import { withStaffbaseContext } from '../lib/staffbase.mjs';
 import { resolveBranchId, getTenantContext } from '../lib/tenants.mjs';
@@ -20,9 +20,9 @@ import {
   ensureConfigRow,
   RevisionConflictError,
 } from '../lib/workspace-config.mjs';
-import { getBlueprint, listAssistants, createAssistant, deleteAssistant } from '../lib/blueprints.mjs';
+import { getBlueprint, listExperts, createExpert, deleteExpert } from '../lib/blueprints.mjs';
 import { checkConfigHealth } from '../lib/navigator-health.mjs';
-import { buildSeedConfigPayload, buildSeedAssistants } from '../lib/seed.mjs';
+import { buildSeedConfigPayload, buildSeedExperts } from '../lib/seed.mjs';
 import { dbConfigured } from '../lib/db.mjs';
 
 // Memoize the deep-check result per (branchId, revision) so the LLM call
@@ -50,6 +50,7 @@ export default async function handler(req, res) {
     if (err.code === 'tenant_not_found') {
       return res.status(404).json({ error: 'tenant_not_found' });
     }
+    console.error('[navigator-config]', req.url, err);
     res.status(500).json({ error: err.message || 'internal error' });
   }
 }
@@ -108,8 +109,8 @@ async function handleLoad(req, res) {
       branchId: tenant.branchId,
       branchName: tenant.branchName,
       config: {
-        connectors: [],
-        flows: [],
+        connections: [],
+        workflows: [],
         tenantOverrides: {},
       },
       blueprintGroups,
@@ -121,8 +122,8 @@ async function handleLoad(req, res) {
     branchId: tenant.branchId,
     branchName: tenant.branchName,
     config: {
-      connectors: config.connectors,
-      flows: config.flows,
+      connections: config.connections,
+      workflows: config.workflows,
       tenantOverrides: config.tenantOverrides,
     },
     blueprintGroups,
@@ -164,8 +165,8 @@ async function handleSave(req, res) {
     branchId: tenant.branchId,
     branchName: tenant.branchName,
     config: {
-      connectors: saved.connectors,
-      flows: saved.flows,
+      connections: saved.connections,
+      workflows: saved.workflows,
       tenantOverrides: saved.tenantOverrides,
     },
     revision: saved.revision,
@@ -176,7 +177,7 @@ async function handleSave(req, res) {
 // ── health ─────────────────────────────────────────────────────────────────
 // Runs the cross-entity health check over the live workspace state. The
 // cheap checks (broken refs, orphans, audience overlaps, blueprint coverage)
-// are synchronous; pass ?deep=true to also run the LLM-judged assistant
+// are synchronous; pass ?deep=true to also run the LLM-judged expert
 // overlap check. Deep results are memoized by (branchId, revision) so
 // re-checking the same state doesn't burn tokens.
 async function handleHealth(req, res, url) {
@@ -185,10 +186,10 @@ async function handleHealth(req, res, url) {
   if (!tenant) return res.status(503).json({ error: 'branch_unavailable' });
   const deep = url.searchParams.get('deep') === 'true';
 
-  const [config, blueprintRow, assistants] = await Promise.all([
+  const [config, blueprintRow, experts] = await Promise.all([
     getConfig(tenant.branchId).catch(() => null),
     getBlueprint(tenant.branchId).catch(() => null),
-    listAssistants(tenant.branchId).catch(() => []),
+    listExperts(tenant.branchId).catch(() => []),
   ]);
   const blueprint = blueprintRow?.blueprint || null;
   const revision = config?.revision || 0;
@@ -211,7 +212,7 @@ async function handleHealth(req, res, url) {
   const result = await withStaffbaseContext(tenant.ctx, () => checkConfigHealth({
     config: config || {},
     blueprint,
-    assistants,
+    experts,
     deep,
   }));
 
@@ -238,29 +239,29 @@ async function handleHealth(req, res, url) {
 }
 
 // ── reseed ────────────────────────────────────────────────────────────────
-// "Back to known good" — wipes navigator_config + navigator_assistants for
+// "Back to known good" — wipes navigator_config + navigator_experts for
 // the active branch and re-inserts the canonical seed from lib/seed.mjs.
 // Deliberately preserves `workspace_blueprints` so the admin doesn't have
 // to re-run the (expensive) discovery wizard. Also preserves
 // `users.connections` rows so a user with an OAuth token doesn't have to
-// re-auth after the admin disables and re-enables a connector.
+// re-auth after the admin disables and re-enables a connection.
 async function handleReseed(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
   if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
   const tenant = await getActiveTenant(req);
   if (!tenant) return res.status(503).json({ error: 'branch_unavailable' });
 
-  // 1) Wipe assistants for this branch and re-insert the seed list.
-  const existing = await listAssistants(tenant.branchId);
+  // 1) Wipe experts for this branch and re-insert the seed list.
+  const existing = await listExperts(tenant.branchId);
   for (const a of existing) {
-    await deleteAssistant({ branchId: tenant.branchId, id: a.id });
+    await deleteExpert({ branchId: tenant.branchId, id: a.id });
   }
-  const seedAssistants = buildSeedAssistants();
+  const seedExperts = buildSeedExperts();
   const created = [];
-  for (const a of seedAssistants) {
-    const row = await createAssistant({
+  for (const a of seedExperts) {
+    const row = await createExpert({
       branchId: tenant.branchId,
-      assistant: a,
+      expert: a,
       source: a.source || 'seed',
       templateId: null,
       userId: null,
@@ -285,12 +286,12 @@ async function handleReseed(req, res) {
     branchId: tenant.branchId,
     branchName: tenant.branchName,
     config: {
-      connectors: saved.connectors,
-      flows: saved.flows,
+      connections: saved.connections,
+      workflows: saved.workflows,
       tenantOverrides: saved.tenantOverrides,
     },
     revision: saved.revision,
-    assistants: created,
+    experts: created,
     preserved: ['workspace_blueprints', 'connections', 'conversations'],
   });
 }

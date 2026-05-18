@@ -5,7 +5,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   ClipboardList, ShieldCheck, Wrench, Plus, Trash2, Copy, ChevronDown, ChevronUp,
-  GripVertical, AlertTriangle, Braces,
+  GripVertical, AlertTriangle, Braces, Camera,
 } from 'lucide-react';
 
 const STEP_META = {
@@ -15,12 +15,17 @@ const STEP_META = {
              hint: 'Invoke an MCP tool, agent, or KB search.' },
   confirm: { label: 'Confirm', color: '#F59E0B', icon: ShieldCheck,
              hint: 'Review the data and confirm before commit.' },
+  photo:   { label: 'Photo',   color: '#0EA5A8', icon: Camera,
+             hint: 'Employee takes/uploads a photo; AI validates against criteria.' },
 };
 
 const FIELD_TYPES = ['text', 'textarea', 'number', 'email', 'url', 'date', 'select', 'checkbox', 'radio'];
 
 function blankStep(type, index) {
-  const idBase = type === 'form' ? 'collect' : type === 'confirm' ? 'confirm' : 'action';
+  const idBase = type === 'form' ? 'collect'
+    : type === 'confirm' ? 'confirm'
+    : type === 'photo'   ? 'photo'
+    : 'action';
   const id = `${idBase}-${index + 1}`;
   if (type === 'form') {
     return {
@@ -31,7 +36,29 @@ function blankStep(type, index) {
   if (type === 'tool') {
     return {
       id, type, label: 'Run tool',
-      tool: { connectorId: '', toolId: '' }, args: {},
+      tool: { connectionId: '', toolId: '' }, args: {},
+    };
+  }
+  if (type === 'photo') {
+    return {
+      id, type, label: 'Take photo',
+      spec: {
+        title: 'Take a photo',
+        description: '',
+        captureMode: 'both',
+        submitLabel: 'Use this photo',
+        retakeLabel: 'Retake',
+        onFail: 'warn',
+        aiValidation: {
+          enabled: true,
+          model: 'gpt-4o-mini',
+          systemPrompt: '',
+          criteria: [
+            { id: 'criterion_1', label: 'Describe what should be visible…', required: true },
+          ],
+          annotations: true,
+        },
+      },
     };
   }
   return {
@@ -40,7 +67,7 @@ function blankStep(type, index) {
   };
 }
 
-export default function FlowStepBuilder({ steps, onChange, connectors = [] }) {
+export default function FlowStepBuilder({ steps, onChange, connections = [] }) {
   function addStep(type, atIndex) {
     const next = [...steps];
     const insertAt = atIndex == null ? next.length : atIndex;
@@ -84,7 +111,7 @@ export default function FlowStepBuilder({ steps, onChange, connectors = [] }) {
               <StepCard
                 step={step}
                 index={idx}
-                connectors={connectors}
+                connections={connections}
                 allSteps={steps}
                 onUpdate={(patch) => updateStep(idx, patch)}
                 onRemove={() => removeStep(idx)}
@@ -148,7 +175,7 @@ function AddStepRow({ onAdd, compact = false }) {
 }
 
 function StepCard({
-  step, index, connectors, allSteps,
+  step, index, connections, allSteps,
   onUpdate, onRemove, onDuplicate, onMoveUp, onMoveDown, canMoveUp, canMoveDown,
 }) {
   const meta = STEP_META[step.type];
@@ -216,10 +243,13 @@ function StepCard({
             <FormStepConfig step={step} onUpdate={onUpdate} priorSteps={allSteps.slice(0, index)} />
           )}
           {step.type === 'tool' && (
-            <ToolStepConfig step={step} onUpdate={onUpdate} connectors={connectors} priorSteps={allSteps.slice(0, index)} />
+            <ToolStepConfig step={step} onUpdate={onUpdate} connections={connections} priorSteps={allSteps.slice(0, index)} />
           )}
           {step.type === 'confirm' && (
             <ConfirmStepConfig step={step} onUpdate={onUpdate} priorSteps={allSteps.slice(0, index)} />
+          )}
+          {step.type === 'photo' && (
+            <PhotoStepConfig step={step} onUpdate={onUpdate} />
           )}
         </div>
       )}
@@ -434,16 +464,18 @@ function ValidationEditor({ type, value, onChange }) {
   );
 }
 
-function ToolStepConfig({ step, onUpdate, connectors, priorSteps }) {
+function ToolStepConfig({ step, onUpdate, connections, priorSteps }) {
   const tool = step.tool || {};
-  const connected = connectors.filter((c) => c.status === 'connected' || c.status === 'degraded');
-  const connector = connected.find((c) => c.id === tool.connectorId);
-  const toolList = connector
-    ? (connector.kind === 'mcp'
-        ? (connector.tools || [])
-        : [{ id: connector.kind === 'agent' ? 'invoke' : 'search', name: connector.kind === 'agent' ? 'invoke' : 'search' }])
+  const connected = connections.filter((c) => c.status === 'connected' || c.status === 'degraded');
+  // Accept either new `connectionId` or legacy `connectorId` on the step payload.
+  const refId = tool.connectionId || tool.connectorId || '';
+  const connection = connected.find((c) => c.id === refId);
+  const toolList = connection
+    ? (connection.kind === 'toolkit'
+        ? (connection.tools || [])
+        : [{ id: connection.kind === 'handoff' ? 'invoke' : 'search', name: connection.kind === 'handoff' ? 'invoke' : 'search' }])
     : [];
-  const unknown = tool.connectorId && !connector;
+  const unknown = refId && !connection;
 
   function patchTool(p) { onUpdate({ tool: { ...tool, ...p } }); }
   function updateArg(key, value) {
@@ -464,17 +496,17 @@ function ToolStepConfig({ step, onUpdate, connectors, priorSteps }) {
       {unknown && (
         <div className="flex items-start gap-2 px-3 py-2 bg-[#FEF3C7] border border-[#FCD34D] rounded-lg text-[11px] text-[#92400E]">
           <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-          <div>This step references <span className="font-mono">{tool.connectorId}</span>, which isn't in this workspace. Pick a connected one or wire it up first.</div>
+          <div>This step references <span className="font-mono">{refId}</span>, which isn't in this workspace. Pick a connected one or wire it up first.</div>
         </div>
       )}
       <div className="grid grid-cols-2 gap-3">
-        <FieldRow label="Connector">
+        <FieldRow label="Connection">
           <select
-            value={tool.connectorId || ''}
-            onChange={(e) => patchTool({ connectorId: e.target.value, toolId: '' })}
+            value={refId}
+            onChange={(e) => patchTool({ connectionId: e.target.value, connectorId: undefined, toolId: '' })}
             className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#7C3AED] outline-none"
           >
-            <option value="">Pick a connector…</option>
+            <option value="">Pick a connection…</option>
             {connected.map((c) => (
               <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>
             ))}
@@ -484,10 +516,10 @@ function ToolStepConfig({ step, onUpdate, connectors, priorSteps }) {
           <select
             value={tool.toolId || ''}
             onChange={(e) => patchTool({ toolId: e.target.value })}
-            disabled={!connector}
+            disabled={!connection}
             className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#7C3AED] outline-none disabled:bg-[#F9FAFB] disabled:text-[#94A3B8]"
           >
-            <option value="">{connector ? 'Pick a tool…' : 'Choose a connector first'}</option>
+            <option value="">{connection ? 'Pick a tool…' : 'Choose a connection first'}</option>
             {toolList.map((t) => (
               <option key={t.id} value={t.id}>{t.name}</option>
             ))}
@@ -591,6 +623,22 @@ function TokenPicker({ priorSteps, onPick, onClose }) {
                     </button>
                   ))
                 )
+              ) : s.type === 'photo' ? (
+                [
+                  { id: 'validation.passed',   hint: 'pass/fail' },
+                  { id: 'validation.summary',  hint: 'AI summary' },
+                  { id: 'imageDataUrl',        hint: 'image (data URL)' },
+                  { id: 'acceptedDespiteFail', hint: 'accepted on fail?' },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => onPick(`{{${s.id}.${f.id}}}`)}
+                    title={f.hint}
+                    className="w-full text-left px-2 py-1 hover:bg-[#F5F3FF] rounded font-mono text-[11px] text-[#374151]"
+                  >
+                    <span className="text-[#94A3B8]">{`{{${s.id}.`}</span>{f.id}<span className="text-[#94A3B8]">{`}}`}</span>
+                  </button>
+                ))
               ) : (
                 <button
                   onClick={() => onPick(`{{${s.id}}}`)}
@@ -715,6 +763,179 @@ function ConfirmRowTokenButton({ priorSteps, onPick }) {
           onClose={() => setOpen(false)}
         />
       )}
+    </div>
+  );
+}
+
+function PhotoStepConfig({ step, onUpdate }) {
+  const spec = step.spec || {};
+  const ai = spec.aiValidation || {};
+  function patchSpec(p) { onUpdate({ spec: { ...spec, ...p } }); }
+  function patchAi(p)   { onUpdate({ spec: { ...spec, aiValidation: { ...ai, ...p } } }); }
+
+  function addCriterion() {
+    const cs = Array.isArray(ai.criteria) ? ai.criteria : [];
+    patchAi({ criteria: [...cs, { id: `criterion_${cs.length + 1}`, label: '', required: false }] });
+  }
+  function updateCriterion(i, p) {
+    const cs = (ai.criteria || []).map((c, idx) => idx === i ? { ...c, ...p } : c);
+    patchAi({ criteria: cs });
+  }
+  function removeCriterion(i) {
+    patchAi({ criteria: (ai.criteria || []).filter((_, idx) => idx !== i) });
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <FieldRow label="Title (employee sees this)">
+          <input
+            value={spec.title || ''}
+            onChange={(e) => patchSpec({ title: e.target.value })}
+            placeholder="Take a photo of your storefront"
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0EA5A8] outline-none"
+          />
+        </FieldRow>
+        <FieldRow label="Capture mode">
+          <select
+            value={spec.captureMode || 'both'}
+            onChange={(e) => patchSpec({ captureMode: e.target.value })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0EA5A8] outline-none"
+          >
+            <option value="both">Camera or upload</option>
+            <option value="camera">Camera only</option>
+            <option value="upload">Upload only</option>
+          </select>
+        </FieldRow>
+      </div>
+      <FieldRow label="Helper text (instructions to the employee)">
+        <textarea
+          value={spec.description || ''}
+          onChange={(e) => patchSpec({ description: e.target.value })}
+          rows={2}
+          placeholder="Stand 2–3 metres back. Capture the whole shopfront…"
+          className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0EA5A8] outline-none resize-none"
+        />
+      </FieldRow>
+
+      <div className="grid grid-cols-3 gap-3">
+        <FieldRow label="Submit label">
+          <input
+            value={spec.submitLabel || ''}
+            onChange={(e) => patchSpec({ submitLabel: e.target.value })}
+            placeholder="Use this photo"
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0EA5A8] outline-none"
+          />
+        </FieldRow>
+        <FieldRow label="Retake label">
+          <input
+            value={spec.retakeLabel || ''}
+            onChange={(e) => patchSpec({ retakeLabel: e.target.value })}
+            placeholder="Retake"
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0EA5A8] outline-none"
+          />
+        </FieldRow>
+        <FieldRow label="On validation fail">
+          <select
+            value={spec.onFail || 'warn'}
+            onChange={(e) => patchSpec({ onFail: e.target.value })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0EA5A8] outline-none"
+          >
+            <option value="warn">Warn — allow submit anyway</option>
+            <option value="block">Block — must pass to continue</option>
+            <option value="allow">Allow — advisory only</option>
+          </select>
+        </FieldRow>
+      </div>
+
+      <div className="pt-2 mt-1 border-t border-[#F1F5F9]">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[11px] font-semibold text-[#6B7280] uppercase tracking-wide">AI validation</span>
+          <label className="flex items-center gap-1 text-[11px] text-[#475569] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={ai.annotations !== false}
+              onChange={(e) => patchAi({ annotations: e.target.checked })}
+            />
+            Annotations (bounding boxes)
+          </label>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <FieldRow label="Vision model">
+            <select
+              value={ai.model || 'gpt-4o-mini'}
+              onChange={(e) => patchAi({ model: e.target.value })}
+              className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0EA5A8] outline-none"
+            >
+              <option value="gpt-4o-mini">gpt-4o-mini (fast, cheap)</option>
+              <option value="gpt-4o">gpt-4o (best quality)</option>
+            </select>
+          </FieldRow>
+          <FieldRow label="Enabled">
+            <select
+              value={ai.enabled !== false ? 'on' : 'off'}
+              onChange={(e) => patchAi({ enabled: e.target.value === 'on' })}
+              className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0EA5A8] outline-none"
+            >
+              <option value="on">Run AI validation on submit</option>
+              <option value="off">Off — just capture the photo</option>
+            </select>
+          </FieldRow>
+        </div>
+
+        <FieldRow label="System prompt (optional — sets the AI's persona)">
+          <textarea
+            value={ai.systemPrompt || ''}
+            onChange={(e) => patchAi({ systemPrompt: e.target.value })}
+            rows={3}
+            placeholder="You are a retail brand-compliance reviewer…"
+            className="w-full mt-1 px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0EA5A8] outline-none resize-none"
+          />
+        </FieldRow>
+
+        <div className="mt-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold text-[#6B7280] uppercase tracking-wide">Criteria</span>
+            <button onClick={addCriterion} className="text-[11px] font-semibold text-[#0EA5A8] hover:underline flex items-center gap-1">
+              <Plus size={11} /> Add criterion
+            </button>
+          </div>
+          {(ai.criteria || []).length === 0 ? (
+            <div className="px-3 py-2 text-[11px] text-[#94A3B8] italic">
+              Add at least one criterion for the model to check.
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {(ai.criteria || []).map((c, i) => (
+                <div key={i} className="flex items-center gap-1">
+                  <code className="text-[11px] text-[#374151] bg-[#F3F4F6] px-2 py-1 rounded font-mono shrink-0">{c.id}</code>
+                  <input
+                    value={c.label}
+                    onChange={(e) => updateCriterion(i, { label: e.target.value })}
+                    placeholder="What should the AI look for?"
+                    className="flex-1 px-2 py-1 text-[11px] bg-white border border-[#E5E7EB] rounded outline-none"
+                  />
+                  <label className="flex items-center gap-1 text-[11px] text-[#475569] cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={!!c.required}
+                      onChange={(e) => updateCriterion(i, { required: e.target.checked })}
+                    />
+                    required
+                  </label>
+                  <button onClick={() => removeCriterion(i)} className="p-1 text-[#94A3B8] hover:text-[#DC2626]">
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-[10px] text-[#94A3B8] mt-2">
+            Tokens available downstream: <span className="font-mono">{`{{${step.id}.imageDataUrl}}`}</span>, <span className="font-mono">{`{{${step.id}.validation.passed}}`}</span>, <span className="font-mono">{`{{${step.id}.validation.summary}}`}</span>.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

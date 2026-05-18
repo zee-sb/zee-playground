@@ -3,9 +3,10 @@
 // collapsed to a one-line summary.
 
 import React, { useState, useEffect } from 'react';
-import { CheckCircle2, Circle, Loader2, ClipboardList, ShieldCheck, Wrench, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
+import { CheckCircle2, Circle, Loader2, ClipboardList, ShieldCheck, Wrench, Camera, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 import FormCard from '../../components/FormCard.jsx';
 import ConfirmCard from '../../components/ConfirmCard.jsx';
+import PhotoCard from '../../components/PhotoCard.jsx';
 import {
   STAFFBASE_TEAL, STAFFBASE_TEAL_DEEP, NEUTRAL_BORDER, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
 } from './cards/cardStyles.js';
@@ -14,10 +15,11 @@ function stepIcon(type, size = 14) {
   if (type === 'form') return <ClipboardList size={size} />;
   if (type === 'confirm') return <ShieldCheck size={size} />;
   if (type === 'tool') return <Wrench size={size} />;
+  if (type === 'photo') return <Camera size={size} />;
   return <Circle size={size} />;
 }
 
-export default function FlowTimeline({ flow, onFormSubmit, onConfirm, onCancel, busy = false }) {
+export default function FlowTimeline({ flow, onFormSubmit, onConfirm, onCancel, onPhotoValidate, onPhotoAccept, onPhotoRetake, busy = false }) {
   const totalSteps = flow.steps?.length || flow.totalSteps || 0;
   const completedSteps = flow.completedSteps || 0;
   const status = flow.status || 'running';
@@ -51,6 +53,9 @@ export default function FlowTimeline({ flow, onFormSubmit, onConfirm, onCancel, 
             onFormSubmit={onFormSubmit}
             onConfirm={onConfirm}
             onCancel={onCancel}
+            onPhotoValidate={onPhotoValidate}
+            onPhotoAccept={onPhotoAccept}
+            onPhotoRetake={onPhotoRetake}
             stepOutputs={flow.stepOutputs || {}}
             busy={busy}
           />
@@ -121,7 +126,9 @@ function FlowHeader({ name, goal, mode, completed, total, status }) {
 
 function StepRow({
   step, index, isLast, currentStepInteraction,
-  onFormSubmit, onConfirm, onCancel, stepOutputs, busy,
+  onFormSubmit, onConfirm, onCancel,
+  onPhotoValidate, onPhotoAccept, onPhotoRetake,
+  stepOutputs, busy,
 }) {
   const status = step.status || 'pending'; // 'pending' | 'awaiting_user' | 'done' | 'error'
   const isCurrent = currentStepInteraction?.stepId === step.id;
@@ -211,6 +218,23 @@ function StepRow({
                 theme="teal"
               />
             )}
+            {isCurrent && currentStepInteraction?.kind === 'photo' && (
+              <PhotoCard
+                spec={currentStepInteraction.spec || step.spec}
+                phase={currentStepInteraction.phase || 'capture'}
+                staged={currentStepInteraction.phase === 'review' ? {
+                  imageDataUrl: currentStepInteraction.imageDataUrl,
+                  imageWidth: currentStepInteraction.imageWidth,
+                  imageHeight: currentStepInteraction.imageHeight,
+                  mimeType: currentStepInteraction.mimeType,
+                  validation: currentStepInteraction.validation,
+                } : null}
+                busy={busy}
+                onValidate={(payload) => onPhotoValidate?.(step.id, payload)}
+                onAccept={(p) => onPhotoAccept?.(step.id, p)}
+                onRetake={() => onPhotoRetake?.(step.id)}
+              />
+            )}
             {!isCurrent && isDone && (
               <DoneSummary step={step} output={stepOutputs[step.id]} />
             )}
@@ -251,6 +275,30 @@ function DoneSummary({ step, output }) {
   }
   if (step.type === 'confirm') {
     return <div style={{ fontSize: 11.5, color: TEXT_SECONDARY }}>Confirmed.</div>;
+  }
+  if (step.type === 'photo') {
+    const v = output.validation;
+    const passed = !!v?.passed;
+    const heading = passed
+      ? 'Looks good'
+      : (output.acceptedDespiteFail ? 'Continued with issues' : 'Issues found');
+    return (
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+        {output.imageDataUrl && (
+          <img
+            src={output.imageDataUrl}
+            alt="Submitted photo"
+            style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 6, border: `1px solid ${NEUTRAL_BORDER}`, flexShrink: 0 }}
+          />
+        )}
+        <div style={{ fontSize: 11.5, color: TEXT_SECONDARY, lineHeight: 1.4 }}>
+          <span style={{ fontWeight: 700, color: passed ? STAFFBASE_TEAL_DEEP : '#92400E' }}>
+            {heading}
+          </span>
+          {v?.summary && <span> — {v.summary}</span>}
+        </div>
+      </div>
+    );
   }
   if (step.type === 'tool') {
     if (output?.error) {

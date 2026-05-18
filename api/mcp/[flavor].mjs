@@ -8,6 +8,7 @@
 //   /api/mcp-intranet   → /api/mcp/intranet
 //   /api/mcp-it         → /api/mcp/it
 //   /api/mcp-staffbase  → /api/mcp/staffbase
+//   /api/mcp-voices     → /api/mcp/voices     (Staffbase Voices — recognition, pulse)
 
 import hrHandler from '../../lib/mcp-servers/hr.mjs';
 import atlassianHandler from '../../lib/mcp-servers/atlassian.mjs';
@@ -16,6 +17,7 @@ import intranetHandler from '../../lib/mcp-servers/intranet.mjs';
 import itHandler from '../../lib/mcp-servers/it.mjs';
 import staffbaseHandler from '../../lib/mcp-servers/staffbase.mjs';
 import kbHandler from '../../lib/mcp-servers/kb.mjs';
+import voicesHandler from '../../lib/mcp-servers/voices.mjs';
 
 const HANDLERS = {
   hr: hrHandler,
@@ -25,6 +27,7 @@ const HANDLERS = {
   it: itHandler,
   staffbase: staffbaseHandler,
   kb: kbHandler,
+  voices: voicesHandler,
 };
 
 function resolveFlavor(req) {

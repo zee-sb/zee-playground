@@ -7,6 +7,7 @@ import {
   clearConfig,
   buildSeedConfig,
 } from './configStore'
+import { SEED_VERSION } from '../../../lib/seed.mjs'
 
 /**
  * Hook that wraps the Navigator workspace config.
@@ -110,29 +111,29 @@ async function pushServerConfig(payload, branchId) {
 
 // ── Assistant transport (DB authoritative) ──────────────────────────────────
 
-async function fetchServerAssistants(branchId) {
+async function fetchServerExperts(branchId) {
   let resp;
   try {
     resp = await fetch(withBranch(`${ASSISTANT_ENDPOINT}?action=list`, branchId), { credentials: 'include' });
   } catch { return null }
   if (!resp.ok) return null;
   const data = await safeJson(resp);
-  return Array.isArray(data?.assistants) ? data.assistants : null;
+  return Array.isArray(data?.experts) ? data.experts : null;
 }
 
-async function pushServerAssistants(assistants, branchId) {
+async function pushServerExperts(experts, branchId) {
   let resp;
   try {
     resp = await fetch(withBranch(`${ASSISTANT_ENDPOINT}?action=bulk-save`, branchId), {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assistants }),
+      body: JSON.stringify({ experts }),
     });
   } catch { return null }
   if (!resp.ok) return null;
   const data = await safeJson(resp);
-  return Array.isArray(data?.assistants) ? data.assistants : null;
+  return Array.isArray(data?.experts) ? data.experts : null;
 }
 
 // ── Blueprint (workspace_blueprints) transport ──────────────────────────────
@@ -205,26 +206,26 @@ async function callReseed(branchId) {
   return safeJson(resp);
 }
 
-// Cheap signature of an assistants array — used to detect when the array
+// Cheap signature of an experts array — used to detect when the array
 // has actually changed shape (so we don't bulk-save on every re-render).
-function signatureOf(assistants) {
-  if (!Array.isArray(assistants)) return ''
-  return assistants.map((a) =>
-    `${a.id || '?'}|${a.name}|${a.status}|${(a.connectorIds || []).join(',')}|${a.audience?.everyone ? 'e' : (a.audience?.groups || []).join(',')}|${(a.instructions || '').length}`
+function signatureOf(experts) {
+  if (!Array.isArray(experts)) return ''
+  return experts.map((a) =>
+    `${a.id || '?'}|${a.name}|${a.status}|${(a.connectionIds || []).join(',')}|${a.audience?.everyone ? 'e' : (a.audience?.groups || []).join(',')}|${(a.instructions || '').length}`
   ).join('||')
 }
 
-// Reconcile server-returned assistants back into local state. The server may
+// Reconcile server-returned experts back into local state. The server may
 // have generated UUIDs for newly-created rows; we match by name to preserve
 // any ordering / extra metadata the client added.
-function mergeServerAssistants(localConfig, serverAssistants) {
-  if (!Array.isArray(serverAssistants)) return localConfig
-  return { ...localConfig, assistants: serverAssistants.map((a) => ({ ...a })) }
+function mergeServerExperts(localConfig, serverExperts) {
+  if (!Array.isArray(serverExperts)) return localConfig
+  return { ...localConfig, experts: serverExperts.map((a) => ({ ...a })) }
 }
 
 // Merge server-provided config (the navigator_config blob) onto the local
 // hydrated state. Assistants stay where they are — they belong to the
-// navigator_assistants table and have their own hook hooked up elsewhere.
+// navigator_experts table and have their own hook hooked up elsewhere.
 function mergeServerConfig(localConfig, serverPayload) {
   if (!serverPayload || !serverPayload.config) return localConfig;
   const s = serverPayload.config;
@@ -235,8 +236,8 @@ function mergeServerConfig(localConfig, serverPayload) {
     : existingGroups;
   return {
     ...localConfig,
-    connectors:       Array.isArray(s.connectors)       ? s.connectors       : localConfig.connectors,
-    flows:            Array.isArray(s.flows)            ? s.flows            : localConfig.flows,
+    connections:      Array.isArray(s.connections) ? s.connections : localConfig.connections,
+    workflows:        Array.isArray(s.workflows)   ? s.workflows   : localConfig.workflows,
     tenant: {
       ...localConfig.tenant,
       ...(s.tenantOverrides && typeof s.tenantOverrides === 'object' ? s.tenantOverrides : {}),
@@ -247,11 +248,11 @@ function mergeServerConfig(localConfig, serverPayload) {
 
 function buildServerPayload(config) {
   // Extract just the slice the navigator_config table cares about. Assistants
-  // are excluded — they live in navigator_assistants and sync separately.
+  // are excluded — they live in navigator_experts and sync separately.
   const tenant = config.tenant || {};
   return {
-    connectors:     config.connectors || [],
-    flows:          config.flows      || [],
+    connections:    config.connections || [],
+    workflows:      config.workflows   || [],
     tenantOverrides: {
       name: tenant.name,
       brandColor: tenant.brandColor,
@@ -313,8 +314,8 @@ export function useConfigStore({ onConflict, branchId = null } = {}) {
     lastBranchRef.current = branchId;
     revisionRef.current = 0;
     initialPushDoneRef.current = false;
-    assistantsInitialPushDoneRef.current = false;
-    assistantsSignatureRef.current = null;
+    expertsInitialPushDoneRef.current = false;
+    expertsSignatureRef.current = null;
     setBlueprintState(null);
     const loaded = loadConfig(branchId);
     if (loaded) setConfigState(loaded);
@@ -362,6 +363,33 @@ export function useConfigStore({ onConflict, branchId = null } = {}) {
         return;
       }
 
+      // If the server is on an older seed version than this build ships,
+      // call reseed() so the prod DB picks up new flows / connectors /
+      // policy changes from lib/seed.mjs automatically. Otherwise admins
+      // would have to remember to click "Reset to defaults" after every
+      // deploy that changes the seed.
+      const serverSeedVersion = Number(payload.config?.tenantOverrides?.seedVersion || 0);
+      if (serverSeedVersion < SEED_VERSION) {
+        const reseeded = await callReseed(branchId).catch(() => null);
+        if (!cancelled && reseeded) {
+          revisionRef.current = reseeded.revision || 1;
+          setConfigState((prev) => mergeServerConfig(prev, {
+            config: {
+              connections: reseeded.config?.connections || [],
+              workflows: reseeded.config?.workflows || [],
+              tenantOverrides: reseeded.config?.tenantOverrides || {},
+            },
+          }));
+          if (Array.isArray(reseeded.experts)) {
+            expertsSignatureRef.current = signatureOf(reseeded.experts);
+            setConfigState((prev) => ({ ...prev, experts: reseeded.experts }));
+          }
+          return;
+        }
+        // Reseed failed (offline / 5xx) — fall through to the normal merge
+        // so the UI still shows whatever the server has.
+      }
+
       // Server has a config. Merge over local + record revision.
       revisionRef.current = payload.revision || 0;
       setConfigState((prev) => mergeServerConfig(prev, payload));
@@ -370,29 +398,29 @@ export function useConfigStore({ onConflict, branchId = null } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branchId]);
 
-  // First-mount assistants fetch — DB is canonical, localStorage is just an
-  // offline cache. When the server returns assistants, replace local state.
+  // First-mount experts fetch — DB is canonical, localStorage is just an
+  // offline cache. When the server returns experts, replace local state.
   // When the server returns an empty list AND localStorage has seed-shape
-  // assistants, push the seed up so the DB starts in sync.
-  const assistantsInitialPushDoneRef = useRef(false);
+  // experts, push the seed up so the DB starts in sync.
+  const expertsInitialPushDoneRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const server = await fetchServerAssistants(branchId).catch(() => null);
+      const server = await fetchServerExperts(branchId).catch(() => null);
       if (cancelled) return;
       if (Array.isArray(server) && server.length > 0) {
-        // Server has assistants → trust them, replace local.
-        assistantsSignatureRef.current = signatureOf(server);
-        setConfigState((prev) => ({ ...prev, assistants: server }));
+        // Server has experts → trust them, replace local.
+        expertsSignatureRef.current = signatureOf(server);
+        setConfigState((prev) => ({ ...prev, experts: server }));
         return;
       }
       // Server empty. Push the local seed once so DB matches.
-      if (!assistantsInitialPushDoneRef.current && (latestConfigRef.current.assistants || []).length > 0) {
-        assistantsInitialPushDoneRef.current = true;
-        const pushed = await pushServerAssistants(latestConfigRef.current.assistants, branchId).catch(() => null);
+      if (!expertsInitialPushDoneRef.current && (latestConfigRef.current.experts || []).length > 0) {
+        expertsInitialPushDoneRef.current = true;
+        const pushed = await pushServerExperts(latestConfigRef.current.experts, branchId).catch(() => null);
         if (!cancelled && Array.isArray(pushed)) {
-          assistantsSignatureRef.current = signatureOf(pushed);
-          setConfigState((prev) => ({ ...prev, assistants: pushed }));
+          expertsSignatureRef.current = signatureOf(pushed);
+          setConfigState((prev) => ({ ...prev, experts: pushed }));
         }
       }
     })();
@@ -441,32 +469,32 @@ export function useConfigStore({ onConflict, branchId = null } = {}) {
   // Assistant push — a separate debounced bulk-save. We track a signature so
   // we don't fire a save on every re-render, only when the assistant array
   // actually changes shape.
-  const assistantsPushTimerRef = useRef(null);
-  const assistantsSignatureRef = useRef(null);
+  const expertsPushTimerRef = useRef(null);
+  const expertsSignatureRef = useRef(null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const sig = signatureOf(config.assistants || []);
-    if (assistantsSignatureRef.current === null) {
+    const sig = signatureOf(config.experts || []);
+    if (expertsSignatureRef.current === null) {
       // First render — don't push yet, the mount fetch effect handles seeding.
-      assistantsSignatureRef.current = sig;
+      expertsSignatureRef.current = sig;
       return;
     }
-    if (sig === assistantsSignatureRef.current) return;
-    assistantsSignatureRef.current = sig;
-    if (assistantsPushTimerRef.current) clearTimeout(assistantsPushTimerRef.current);
-    assistantsPushTimerRef.current = setTimeout(async () => {
-      assistantsPushTimerRef.current = null;
-      const pushed = await pushServerAssistants(latestConfigRef.current.assistants || [], branchIdRef.current).catch(() => null);
+    if (sig === expertsSignatureRef.current) return;
+    expertsSignatureRef.current = sig;
+    if (expertsPushTimerRef.current) clearTimeout(expertsPushTimerRef.current);
+    expertsPushTimerRef.current = setTimeout(async () => {
+      expertsPushTimerRef.current = null;
+      const pushed = await pushServerExperts(latestConfigRef.current.experts || [], branchIdRef.current).catch(() => null);
       if (Array.isArray(pushed)) {
         const newSig = signatureOf(pushed);
-        assistantsSignatureRef.current = newSig;
+        expertsSignatureRef.current = newSig;
         // If server returned generated ids, fold them back into local state.
         // Match by name as a best-effort key since the client may have used
         // a temp id (asst-XXXX) that the server replaced with a UUID.
-        setConfigState((prev) => mergeServerAssistants(prev, pushed));
+        setConfigState((prev) => mergeServerExperts(prev, pushed));
       }
     }, 300);
-  }, [config.assistants]);
+  }, [config.experts]);
 
   const schedulePush = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -526,9 +554,9 @@ export function useConfigStore({ onConflict, branchId = null } = {}) {
       })
     }, [schedulePush])
 
-  const setConnectors = makeArraySetter('connectors')
-  const setAssistants = makeArraySetter('assistants')
-  const setFlows = makeArraySetter('flows')
+  const setConnections = makeArraySetter('connections')
+  const setExperts = makeArraySetter('experts')
+  const setWorkflows = makeArraySetter('workflows')
 
   // Local-only reset (legacy) — clears localStorage and re-seeds in memory.
   // Doesn't touch the server. Use `reseed()` for the canonical reset.
@@ -541,7 +569,7 @@ export function useConfigStore({ onConflict, branchId = null } = {}) {
   }, [schedulePush])
 
   // Canonical Reset — server is authoritative. Hits `?action=reseed` to
-  // wipe both navigator_config + navigator_assistants and re-insert the
+  // wipe both navigator_config + navigator_experts and re-insert the
   // shared seed from lib/seed.mjs. Preserves workspace_blueprints and
   // connections so re-discovery / re-OAuth isn't needed. Returns true on
   // success so callers can show a toast.
@@ -557,15 +585,15 @@ export function useConfigStore({ onConflict, branchId = null } = {}) {
     revisionRef.current = result.revision || 1
     const merged = mergeServerConfig(latestConfigRef.current, {
       config: {
-        connectors: result.config?.connectors || [],
-        flows: result.config?.flows || [],
+        connections: result.config?.connections || [],
+        workflows: result.config?.workflows || [],
         tenantOverrides: result.config?.tenantOverrides || {},
       },
     })
-    const withAssistants = { ...merged, assistants: result.assistants || [] }
-    assistantsSignatureRef.current = signatureOf(withAssistants.assistants)
-    saveConfig(withAssistants, branchIdRef.current)
-    setConfigState(withAssistants)
+    const withExperts = { ...merged, experts: result.experts || [] }
+    expertsSignatureRef.current = signatureOf(withExperts.experts)
+    saveConfig(withExperts, branchIdRef.current)
+    setConfigState(withExperts)
     return true
   }, [resetConfig])
 
@@ -590,14 +618,48 @@ export function useConfigStore({ onConflict, branchId = null } = {}) {
     return await optimizeMainInstructionsRequest(text, branchIdRef.current, audience);
   }, []);
 
+  // TEMPORARY: project a backwards-compat view of `config` for Studio UI files
+  // that still read `.assistants` / `.connectors` / `.flows` / `.connectorIds`.
+  // Remove this projection once every Studio file uses the new field names.
+  const configView = {
+    ...config,
+    assistants: (config.experts || []).map((e) => ({
+      ...e,
+      connectorIds: e.connectionIds || e.connectorIds || [],
+    })),
+    connectors: config.connections || [],
+    flows: config.workflows || [],
+    experts: config.experts || [],
+    connections: config.connections || [],
+    workflows: config.workflows || [],
+  };
+
+  // Setter aliases that accept the legacy field shape (with connectorIds) and
+  // forward to the new setters (which expect connectionIds).
+  const setAssistants = useCallback((next) => {
+    setExperts((prev) => {
+      const resolved = typeof next === 'function' ? next(prev || []) : next;
+      // Coerce legacy `connectorIds` → `connectionIds` on the way through.
+      return (resolved || []).map((a) => ({
+        ...a,
+        connectionIds: a.connectionIds || a.connectorIds || [],
+      }));
+    });
+  }, [setExperts]);
+
   return {
-    config,
+    config: configView,
     blueprint,
     setConfig,
     patchConfig,
-    setConnectors,
+    // New names (Phase 1 vocabulary).
+    setConnections,
+    setExperts,
+    setWorkflows,
+    // TEMPORARY legacy aliases — remove once Studio UI rename is complete.
+    setConnectors: setConnections,
+    setFlows: setWorkflows,
     setAssistants,
-    setFlows,
     resetConfig,
     reseed,
     saveMainInstructions,

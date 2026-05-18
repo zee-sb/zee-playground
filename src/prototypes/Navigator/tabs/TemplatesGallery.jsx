@@ -20,7 +20,7 @@ const resolveTemplateIcon = (name) => TEMPLATE_ICONS[name] || Sparkles
  * Pages from the cached workspace blueprint and run conflict detection
  * against existing Assistants.
  */
-export default function TemplatesGallery({ tenant, existingAssistants = [], onBack, onAdd }) {
+export default function TemplatesGallery({ tenant, existingExperts = [], onBack, onAdd }) {
   const { branchId } = useActiveTenant()
   const branchQ = branchId ? `&branch=${encodeURIComponent(branchId)}` : ''
   const [templates, setTemplates] = useState([])
@@ -118,6 +118,8 @@ export default function TemplatesGallery({ tenant, existingAssistants = [], onBa
 // ── Preview Drawer ────────────────────────────────────────────────────────
 
 function TemplatePreviewDrawer({ template, tenant, onClose, onAdd }) {
+  const { branchId } = useActiveTenant()
+  const branchQ = branchId ? `&branch=${encodeURIComponent(branchId)}` : ''
   const [loading, setLoading] = useState(true)
   const [draft, setDraft] = useState(null)
   const [conflicts, setConflicts] = useState([])
@@ -160,11 +162,11 @@ function TemplatePreviewDrawer({ template, tenant, onClose, onAdd }) {
       const r = await fetch(`/api/navigator-assistant?action=save${branchQ}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assistant: finalDraft, source: `template:${template.id}`, templateId: template.id }),
+        body: JSON.stringify({ expert: finalDraft, source: `template:${template.id}`, templateId: template.id }),
       })
       const body = await r.json()
       if (!r.ok) throw new Error(body.error || 'Failed to save')
-      onAdd?.(body.assistant || finalDraft)
+      onAdd?.(body.expert || body.assistant || finalDraft)
     } catch (e) {
       setErr(e.message)
       setAdding(false)

@@ -20,9 +20,9 @@ function saveSessionCache(value) {
 // Cheap signature of the live config so we know when to refetch.
 function signatureOf(config) {
   if (!config) return '0'
-  const a = (config.assistants || []).map((x) => `${x.id}:${x.status}:${(x.connectorIds||[]).join(',')}:${x.audience?.everyone ? 'e' : (x.audience?.groups||[]).join(',')}`).join('|')
-  const c = (config.connectors || []).map((x) => `${x.id}:${x.kind}:${x.status}`).join('|')
-  const f = (config.flows || []).map((x) => `${x.id}:${x.status}:${(x.trigger||'').slice(0,40)}`).join('|')
+  const a = (config.experts || []).map((x) => `${x.id}:${x.status}:${(x.connectionIds||[]).join(',')}:${x.audience?.everyone ? 'e' : (x.audience?.groups||[]).join(',')}`).join('|')
+  const c = (config.connections || []).map((x) => `${x.id}:${x.kind}:${x.status}`).join('|')
+  const f = (config.workflows || []).map((x) => `${x.id}:${x.status}:${(x.trigger||'').slice(0,40)}`).join('|')
   return `${a}#${c}#${f}`
 }
 
@@ -36,7 +36,7 @@ function signatureOf(config) {
 //     existing useConfigStore setters; the next signature change refetches.
 export function useNavigatorHealth({ initialDeep = false } = {}) {
   const { branchId } = useActiveTenant()
-  const { config, setAssistants, setConnectors, setFlows } = useConfigStore({ branchId })
+  const { config, setExperts, setConnections, setWorkflows } = useConfigStore({ branchId })
   const [issues, setIssues] = useState(() => loadSessionCache()?.issues || [])
   const [summary, setSummary] = useState(() => loadSessionCache()?.summary || null)
   const [loading, setLoading] = useState(false)
@@ -87,32 +87,36 @@ export function useNavigatorHealth({ initialDeep = false } = {}) {
   // automatically.
   const applyAutoFix = useCallback((action, payload) => {
     if (!action || !payload) return
-    if (action === 'patchAssistant') {
-      setAssistants((prev) => prev.map((a) => a.id === payload.id ? { ...a, ...payload.patch } : a))
+    // Auto-fix action names are kept as-is for back-compat with health-check
+    // action strings on the server. They map to the renamed setters.
+    if (action === 'patchAssistant' || action === 'patchExpert') {
+      setExperts((prev) => prev.map((a) => a.id === payload.id ? { ...a, ...payload.patch } : a))
       return
     }
-    if (action === 'patchFlow') {
-      setFlows((prev) => prev.map((f) => f.id === payload.id ? { ...f, ...payload.patch } : f))
+    if (action === 'patchFlow' || action === 'patchWorkflow') {
+      setWorkflows((prev) => prev.map((f) => f.id === payload.id ? { ...f, ...payload.patch } : f))
       return
     }
-    if (action === 'setConnectorStatus') {
-      setConnectors((prev) => prev.map((c) => c.id === payload.id ? { ...c, status: payload.status } : c))
+    if (action === 'setConnectorStatus' || action === 'setConnectionStatus') {
+      setConnections((prev) => prev.map((c) => c.id === payload.id ? { ...c, status: payload.status } : c))
       return
     }
-    if (action === 'setFlowStatus') {
-      setFlows((prev) => prev.map((f) => f.id === payload.id ? { ...f, status: payload.status } : f))
+    if (action === 'setFlowStatus' || action === 'setWorkflowStatus') {
+      setWorkflows((prev) => prev.map((f) => f.id === payload.id ? { ...f, status: payload.status } : f))
       return
     }
-    if (action === 'removeFromAssistant') {
-      setAssistants((prev) => prev.map((a) => {
+    if (action === 'removeFromAssistant' || action === 'removeFromExpert') {
+      setExperts((prev) => prev.map((a) => {
         if (a.id !== payload.id) return a
-        const arr = (a[payload.field] || []).filter((x) => x !== payload.value)
-        return { ...a, [payload.field]: arr }
+        // Coerce legacy `connectorIds` field name on the payload too.
+        const field = payload.field === 'connectorIds' ? 'connectionIds' : payload.field
+        const arr = (a[field] || []).filter((x) => x !== payload.value)
+        return { ...a, [field]: arr }
       }))
       return
     }
     console.warn('[useNavigatorHealth] unknown autoFix action:', action)
-  }, [setAssistants, setFlows, setConnectors])
+  }, [setExperts, setWorkflows, setConnections])
 
   return {
     issues,

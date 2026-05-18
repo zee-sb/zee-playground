@@ -4,7 +4,7 @@ import { Eye, RotateCcw, Bot, Wrench, BookOpen, Sparkles, Users, AlertCircle, Ch
 import { StudioShell } from '../../components/StudioShell'
 import { useConfigStore } from '../AIAssistant/useConfigStore'
 import { useActiveTenant } from '../AIAssistant/useActiveTenant'
-import { deriveLiveOrchestrator, deriveLiveOrchestratorFor, assistantVisibleTo } from '../AIAssistant/configStore'
+import { deriveLiveOrchestrator, deriveLiveOrchestratorFor, expertVisibleTo } from '../AIAssistant/configStore'
 import { pickRoleChips } from './chipRules'
 import { LogoChip } from './components/Catalog'
 import HealthBadge from './components/HealthBadge'
@@ -22,18 +22,18 @@ import HomeTab from './tabs/HomeTab'
 import SystemPromptEditor from './tabs/SystemPromptEditor'
 
 // Tabs:
-//   home       — overview, system prompt, health summary, discovery link
-//   assistants — list + detail CRUD
-//   connectors — MCPs, agents, KBs
-//   flows      — admin-defined flows
-//   workspace  — employee directory + tenant settings
+//   home        — overview, system prompt, health summary, discovery link
+//   experts     — list + detail CRUD
+//   connections — toolkits, handoffs, search sources
+//   workflows   — admin-defined workflows
+//   workspace   — employee directory + tenant settings
 // (The previous standalone Health tab is folded into Home.)
 const TABS = [
-  { id: 'home',       label: 'Home',        icon: Home     },
-  { id: 'assistants', label: 'Assistants',  icon: Sparkles },
-  { id: 'connectors', label: 'Connectors',  icon: Wrench   },
-  { id: 'flows',      label: 'Flows',       icon: Workflow },
-  { id: 'workspace',  label: 'Workspace',   icon: Building2 },
+  { id: 'home',        label: 'Home',        icon: Home     },
+  { id: 'experts',     label: 'Experts',     icon: Sparkles },
+  { id: 'connections', label: 'Connections', icon: Wrench   },
+  { id: 'workflows',   label: 'Workflows',   icon: Workflow },
+  { id: 'workspace',   label: 'Workspace',   icon: Building2 },
 ]
 
 /**
@@ -41,7 +41,7 @@ const TABS = [
  *
  * Top half: tab nav + tab content
  * Right rail: "View as" preview — pick a demo user, see exactly which
- *             assistants, MCPs, agents, and launchpad chips that user gets.
+ *             experts, toolkits, handoffs, and launchpad chips that user gets.
  * Bottom-left: cross-link to Employee prototype + Reset demo
  */
 export default function NavigatorStudio() {
@@ -52,9 +52,9 @@ export default function NavigatorStudio() {
   const {
     config,
     blueprint,
-    setConnectors,
-    setAssistants,
-    setFlows,
+    setConnections,
+    setExperts,
+    setWorkflows,
     resetConfig,
     reseed,
     saveMainInstructions,
@@ -75,7 +75,16 @@ export default function NavigatorStudio() {
   // a sibling). Legacy URLs hitting /setup or /health redirect transparently
   // to /home so existing bookmarks keep working.
   const rawTabId = pathParts[protoIdx + 1] || 'home'
-  const activeTabId = (rawTabId === 'setup' || rawTabId === 'health') ? 'home' : rawTabId
+  // Legacy URLs: /setup, /health → /home; /assistants → /experts;
+  // /connectors → /connections; /flows → /workflows.
+  const aliasedTab = (
+    rawTabId === 'setup' || rawTabId === 'health' ? 'home'
+    : rawTabId === 'assistants' ? 'experts'
+    : rawTabId === 'connectors' ? 'connections'
+    : rawTabId === 'flows' ? 'workflows'
+    : rawTabId
+  )
+  const activeTabId = aliasedTab
   const detailId = pathParts[protoIdx + 2] || null
 
   // Audience preview state — drives the right-rail "View as" selector.
@@ -87,60 +96,60 @@ export default function NavigatorStudio() {
     [config, viewAsUser]
   )
 
-  // Assistant CRUD
-  function handleCreateAssistant() {
-    navigate(`${basePath}/assistants/new`)
+  // Expert CRUD
+  function handleCreateExpert() {
+    navigate(`${basePath}/experts/new`)
   }
   function handleOpenTemplates() {
-    navigate(`${basePath}/assistants/templates`)
+    navigate(`${basePath}/experts/templates`)
   }
   function handleOpenAiCreator() {
-    navigate(`${basePath}/assistants/ai-create`)
+    navigate(`${basePath}/experts/ai-create`)
   }
-  function handleSelectAssistant(a) {
-    navigate(`${basePath}/assistants/${a.id}`)
+  function handleSelectExpert(a) {
+    navigate(`${basePath}/experts/${a.id}`)
   }
-  function handleSaveAssistant(updated) {
-    setAssistants((prev) => {
+  function handleSaveExpert(updated) {
+    setExperts((prev) => {
       if (updated.id && prev.find(a => a.id === updated.id)) {
         return prev.map(a => a.id === updated.id ? updated : a)
       }
-      const newId = `asst-${Date.now().toString(36)}`
+      const newId = `exp-${Date.now().toString(36)}`
       return [{ ...updated, id: newId }, ...prev]
     })
-    navigate(`${basePath}/assistants`)
+    navigate(`${basePath}/experts`)
   }
-  function handleDeleteAssistant(a) {
-    setAssistants((prev) => prev.filter(x => x.id !== a.id))
-    navigate(`${basePath}/assistants`)
+  function handleDeleteExpert(a) {
+    setExperts((prev) => prev.filter(x => x.id !== a.id))
+    navigate(`${basePath}/experts`)
   }
 
-  // Flow CRUD — same shape as assistant CRUD
-  function handleCreateFlow() {
-    navigate(`${basePath}/flows/new`)
+  // Workflow CRUD — same shape as expert CRUD
+  function handleCreateWorkflow() {
+    navigate(`${basePath}/workflows/new`)
   }
-  function handleSelectFlow(f) {
-    navigate(`${basePath}/flows/${f.id}`)
+  function handleSelectWorkflow(f) {
+    navigate(`${basePath}/workflows/${f.id}`)
   }
-  function handleSaveFlow(updated) {
-    setFlows((prev) => {
+  function handleSaveWorkflow(updated) {
+    setWorkflows((prev) => {
       if (updated.id && prev.find(f => f.id === updated.id)) {
         return prev.map(f => f.id === updated.id ? updated : f)
       }
-      const newId = `flow-${Date.now().toString(36)}`
+      const newId = `wf-${Date.now().toString(36)}`
       return [{ ...updated, id: newId }, ...prev]
     })
-    navigate(`${basePath}/flows`)
+    navigate(`${basePath}/workflows`)
   }
-  function handleDeleteFlow(f) {
-    setFlows((prev) => prev.filter(x => x.id !== f.id))
-    navigate(`${basePath}/flows`)
+  function handleDeleteWorkflow(f) {
+    setWorkflows((prev) => prev.filter(x => x.id !== f.id))
+    navigate(`${basePath}/workflows`)
   }
 
   async function handleResetDemo() {
     if (resetting) return
     const ok = window.confirm(
-      'Reset Navigator to the default workspace? This wipes MCPs, Agents, KBs, Flows, and Assistants on the server and re-seeds them. Discovery, OAuth connections, and conversation history are preserved.'
+      'Reset Navigator to the default workspace? This wipes Connections, Workflows, and Experts on the server and re-seeds them. Discovery, OAuth connections, and conversation history are preserved.'
     )
     if (!ok) return
     setResetting(true)
@@ -150,44 +159,44 @@ export default function NavigatorStudio() {
         // Server unreachable — fell back to local reset. Surface that.
         console.warn('[NavigatorStudio] reseed: server unreachable, used local reset')
       }
-      navigate(`${basePath}/assistants`)
+      navigate(`${basePath}/experts`)
     } finally {
       setResetting(false)
     }
   }
 
-  // Resolve which assistant detail to render. Two special routes:
-  //   /assistants/templates   → Templates Gallery (Milestone B)
-  //   /assistants/ai-create   → AI Creator       (Milestone C)
-  let detailAssistant = null
+  // Resolve which expert detail to render. Two special routes:
+  //   /experts/templates   → Templates Gallery
+  //   /experts/ai-create   → AI Creator
+  let detailExpert = null
   let detailIsNew = false
-  const isTemplatesView = activeTabId === 'assistants' && detailId === 'templates'
-  const isAiCreatorView = activeTabId === 'assistants' && detailId === 'ai-create'
-  if (activeTabId === 'assistants' && detailId && !isTemplatesView && !isAiCreatorView) {
+  const isTemplatesView = activeTabId === 'experts' && detailId === 'templates'
+  const isAiCreatorView = activeTabId === 'experts' && detailId === 'ai-create'
+  if (activeTabId === 'experts' && detailId && !isTemplatesView && !isAiCreatorView) {
     if (detailId === 'new') {
       detailIsNew = true
-      detailAssistant = {
+      detailExpert = {
         id: null,
         name: '',
         icon: '✨',
         description: '',
         instructions: '',
-        connectorIds: [],
+        connectionIds: [],
         audience: { everyone: true, groups: [], roles: [], locations: [] },
         status: 'active',
       }
     } else {
-      detailAssistant = config.assistants.find(a => a.id === detailId) || null
+      detailExpert = (config.experts || []).find(a => a.id === detailId) || null
     }
   }
 
-  // Resolve which flow detail to render
-  let detailFlow = null
-  let detailFlowIsNew = false
-  if (activeTabId === 'flows' && detailId) {
+  // Resolve which workflow detail to render
+  let detailWorkflow = null
+  let detailWorkflowIsNew = false
+  if (activeTabId === 'workflows' && detailId) {
     if (detailId === 'new') {
-      detailFlowIsNew = true
-      detailFlow = {
+      detailWorkflowIsNew = true
+      detailWorkflow = {
         id: null,
         name: '',
         trigger: '',
@@ -199,7 +208,7 @@ export default function NavigatorStudio() {
         status: 'active',
       }
     } else {
-      detailFlow = (config.flows || []).find(f => f.id === detailId) || null
+      detailWorkflow = (config.workflows || []).find(f => f.id === detailId) || null
     }
   }
 
@@ -240,7 +249,7 @@ export default function NavigatorStudio() {
               <button
                 onClick={handleResetDemo}
                 disabled={resetting}
-                title="Reset MCPs, agents, KBs, flows, and assistants to the canonical seed. Discovery and OAuth connections are preserved."
+                title="Reset Connections, Workflows, and Experts to the canonical seed. Discovery and OAuth connections are preserved."
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#E5E7EB] bg-white hover:border-[#7C3AED] hover:text-[#7C3AED] text-[12px] font-semibold text-[#374151] disabled:opacity-50 transition-colors"
               >
                 <RotateCcw size={13} className={resetting ? 'animate-spin' : ''} />
@@ -292,12 +301,12 @@ export default function NavigatorStudio() {
 
           {/* Tab content */}
           <div className="flex-1 overflow-y-auto px-8 py-6">
-            {activeTabId === 'assistants' && !detailAssistant && !isTemplatesView && !isAiCreatorView && (
+            {activeTabId === 'experts' && !detailExpert && !isTemplatesView && !isAiCreatorView && (
               <AssistantsList
-                assistants={config.assistants}
-                connectors={config.connectors}
-                onSelect={handleSelectAssistant}
-                onCreate={handleCreateAssistant}
+                experts={config.experts || []}
+                connections={config.connections || []}
+                onSelect={handleSelectExpert}
+                onCreate={handleCreateExpert}
                 onOpenTemplates={handleOpenTemplates}
                 onOpenAiCreator={handleOpenAiCreator}
               />
@@ -305,65 +314,65 @@ export default function NavigatorStudio() {
             {isTemplatesView && (
               <TemplatesGallery
                 tenant={tenant}
-                existingAssistants={config.assistants}
-                onBack={() => navigate(`${basePath}/assistants`)}
-                onAdd={(asst) => {
-                  setAssistants((prev) => {
-                    const newId = `asst-tpl-${Date.now().toString(36)}`
-                    return [{ ...asst, id: newId }, ...prev]
+                existingExperts={config.experts || []}
+                onBack={() => navigate(`${basePath}/experts`)}
+                onAdd={(exp) => {
+                  setExperts((prev) => {
+                    const newId = `exp-tpl-${Date.now().toString(36)}`
+                    return [{ ...exp, id: newId }, ...prev]
                   })
-                  navigate(`${basePath}/assistants`)
+                  navigate(`${basePath}/experts`)
                 }}
               />
             )}
             {isAiCreatorView && (
               <AssistantAiCreator
                 tenant={tenant}
-                existingAssistants={config.assistants}
-                onBack={() => navigate(`${basePath}/assistants`)}
-                onSave={(asst) => {
-                  setAssistants((prev) => {
-                    const newId = `asst-ai-${Date.now().toString(36)}`
-                    return [{ ...asst, id: newId }, ...prev]
+                existingExperts={config.experts || []}
+                onBack={() => navigate(`${basePath}/experts`)}
+                onSave={(exp) => {
+                  setExperts((prev) => {
+                    const newId = `exp-ai-${Date.now().toString(36)}`
+                    return [{ ...exp, id: newId }, ...prev]
                   })
-                  navigate(`${basePath}/assistants`)
+                  navigate(`${basePath}/experts`)
                 }}
               />
             )}
-            {activeTabId === 'assistants' && detailAssistant && (
+            {activeTabId === 'experts' && detailExpert && (
               <AssistantDetail
-                assistant={detailAssistant}
+                expert={detailExpert}
                 isNew={detailIsNew}
-                connectors={config.connectors}
+                connections={config.connections || []}
                 tenant={tenant}
                 demoUsers={demoUsers}
-                onBack={() => navigate(`${basePath}/assistants`)}
-                onSave={handleSaveAssistant}
-                onDelete={handleDeleteAssistant}
+                onBack={() => navigate(`${basePath}/experts`)}
+                onSave={handleSaveExpert}
+                onDelete={handleDeleteExpert}
               />
             )}
-            {activeTabId === 'connectors' && (
+            {activeTabId === 'connections' && (
               <ConnectorsList
-                connectors={config.connectors}
-                assistants={config.assistants}
-                onConnectorsChange={setConnectors}
+                connections={config.connections || []}
+                experts={config.experts || []}
+                onConnectionsChange={setConnections}
               />
             )}
-            {activeTabId === 'flows' && !detailFlow && (
+            {activeTabId === 'workflows' && !detailWorkflow && (
               <FlowsList
-                flows={config.flows || []}
-                onSelect={handleSelectFlow}
-                onCreate={handleCreateFlow}
+                workflows={config.workflows || []}
+                onSelect={handleSelectWorkflow}
+                onCreate={handleCreateWorkflow}
               />
             )}
-            {activeTabId === 'flows' && detailFlow && (
+            {activeTabId === 'workflows' && detailWorkflow && (
               <FlowDetail
-                flow={detailFlow}
-                isNew={detailFlowIsNew}
-                connectors={config.connectors || []}
-                onBack={() => navigate(`${basePath}/flows`)}
-                onSave={handleSaveFlow}
-                onDelete={handleDeleteFlow}
+                workflow={detailWorkflow}
+                isNew={detailWorkflowIsNew}
+                connections={config.connections || []}
+                onBack={() => navigate(`${basePath}/workflows`)}
+                onSave={handleSaveWorkflow}
+                onDelete={handleDeleteWorkflow}
               />
             )}
             {activeTabId === 'workspace' && (
@@ -460,14 +469,14 @@ function ViewAsPicker({ value, onChange, demoUsers }) {
  * Mirrors the Employee launchpad logic 1:1 via the shared `chipRules.js`.
  */
 function AudiencePreviewPanel({ user, live, config }) {
-  const capabilityIds = new Set((live.connectors || []).map((c) => c.id))
-  const activeFlows = (config.flows || []).filter(f => f.status === 'active')
+  const capabilityIds = new Set((live.connections || []).map((c) => c.id))
+  const activeWorkflows = (config.workflows || []).filter(f => f.status === 'active')
   const chips = pickRoleChips({
     role: user.role,
     group: user.group,
     daysSinceHire: user.daysSinceHire,
     capabilities: capabilityIds,
-    flows: activeFlows,
+    flows: activeWorkflows,
     now: new Date(),
   })
 
@@ -488,10 +497,10 @@ function AudiencePreviewPanel({ user, live, config }) {
         </div>
       </div>
 
-      <ImpactSection icon={<Sparkles size={11} />} title="Assistants visible" count={live.assistants.length}>
-        {live.assistants.length === 0
-          ? <Empty>No assistants reach this user</Empty>
-          : live.assistants.map(a => (
+      <ImpactSection icon={<Sparkles size={11} />} title="Experts visible" count={live.experts.length}>
+        {live.experts.length === 0
+          ? <Empty>No experts reach this user</Empty>
+          : live.experts.map(a => (
               <ImpactRow key={a.id}>
                 <span className="text-[14px]">{a.icon || '✨'}</span>
                 <div className="flex-1 min-w-0">
@@ -528,10 +537,10 @@ function AudiencePreviewPanel({ user, live, config }) {
             })}
       </ImpactSection>
 
-      <ImpactSection icon={<Workflow size={11} />} title="Flows available" count={activeFlows.length}>
-        {activeFlows.length === 0
-          ? <Empty>No flows configured</Empty>
-          : activeFlows.map(f => (
+      <ImpactSection icon={<Workflow size={11} />} title="Workflows available" count={activeWorkflows.length}>
+        {activeWorkflows.length === 0
+          ? <Empty>No workflows configured</Empty>
+          : activeWorkflows.map(f => (
               <ImpactRow key={f.id}>
                 <Workflow size={12} className="text-[#7C3AED]" />
                 <div className="flex-1 min-w-0">
@@ -544,16 +553,16 @@ function AudiencePreviewPanel({ user, live, config }) {
             ))}
       </ImpactSection>
 
-      <ImpactSection icon={<Wrench size={11} />} title="Connectors reachable" count={(live.connectors || []).length}>
-        {(live.connectors || []).length === 0
-          ? <Empty>No connectors reachable</Empty>
-          : (live.connectors || []).map(c => {
-              const color = c.kind === 'agent' ? '#F59E0B' : c.kind === 'kb' ? '#2563EB' : '#7C3AED'
-              const sub = c.kind === 'mcp'
-                ? `MCP · ${c.tools?.length || 0} tools`
-                : c.kind === 'agent'
-                  ? `Agent · ${c.protocol || 'native'}`
-                  : `Knowledge · ${c.source || 'corpus'}`
+      <ImpactSection icon={<Wrench size={11} />} title="Connections reachable" count={(live.connections || []).length}>
+        {(live.connections || []).length === 0
+          ? <Empty>No connections reachable</Empty>
+          : (live.connections || []).map(c => {
+              const color = c.kind === 'handoff' ? '#F59E0B' : c.kind === 'search' ? '#2563EB' : '#7C3AED'
+              const sub = c.kind === 'toolkit'
+                ? `Toolkit · ${c.tools?.length || 0} tools`
+                : c.kind === 'handoff'
+                  ? `Handoff · ${c.protocol || 'native'}`
+                  : `Search · ${c.source || 'corpus'}`
               return (
                 <ImpactRow key={c.id}>
                   <LogoChip name={c.name} color={color} size={20} />
@@ -571,27 +580,27 @@ function AudiencePreviewPanel({ user, live, config }) {
 
 /**
  * Unscoped panel — what the workspace can do, regardless of user. Used when no
- * "View as" is selected. Same shape as before, plus a "Visible assistants" count
+ * "View as" is selected. Same shape as before, plus a "Visible experts" count
  * so admins can see exclusions exist at all.
  */
 function OrchestratorImpactPanel({ live, config }) {
-  const activeAssistants = (config.assistants || []).filter(a => a.status === 'active')
-  const activeFlows = (config.flows || []).filter(f => f.status === 'active')
-  const liveConnectors = live.connectors || []
-  const mcps = liveConnectors.filter((c) => c.kind === 'mcp')
-  const agents = liveConnectors.filter((c) => c.kind === 'agent')
-  const kbs = liveConnectors.filter((c) => c.kind === 'kb')
-  const orphan = (config.connectors || []).filter((c) =>
-    c.status === 'connected' && !liveConnectors.find((x) => x.id === c.id)
+  const activeExperts = (config.experts || []).filter(a => a.status === 'active')
+  const activeWorkflows = (config.workflows || []).filter(f => f.status === 'active')
+  const liveConnections = live.connections || []
+  const toolkits = liveConnections.filter((c) => c.kind === 'toolkit')
+  const handoffs = liveConnections.filter((c) => c.kind === 'handoff')
+  const searches = liveConnections.filter((c) => c.kind === 'search')
+  const orphan = (config.connections || []).filter((c) =>
+    c.status === 'connected' && !liveConnections.find((x) => x.id === c.id)
   )
 
   return (
     <div className="px-5 py-4 space-y-4">
-      <ImpactSection icon={<Sparkles size={11} />} title="Active assistants" count={activeAssistants.length}>
-        {activeAssistants.length === 0 ? (
-          <Empty>No active assistants</Empty>
+      <ImpactSection icon={<Sparkles size={11} />} title="Active experts" count={activeExperts.length}>
+        {activeExperts.length === 0 ? (
+          <Empty>No active experts</Empty>
         ) : (
-          activeAssistants.map(a => {
+          activeExperts.map(a => {
             const aud = a.audience || { everyone: true }
             const scope = aud.everyone
               ? 'Everyone'
@@ -609,10 +618,10 @@ function OrchestratorImpactPanel({ live, config }) {
         )}
       </ImpactSection>
 
-      <ImpactSection icon={<Workflow size={11} />} title="Flows available" count={activeFlows.length}>
-        {activeFlows.length === 0
-          ? <Empty>No flows configured</Empty>
-          : activeFlows.map(f => (
+      <ImpactSection icon={<Workflow size={11} />} title="Workflows available" count={activeWorkflows.length}>
+        {activeWorkflows.length === 0
+          ? <Empty>No workflows configured</Empty>
+          : activeWorkflows.map(f => (
               <ImpactRow key={f.id}>
                 <Workflow size={12} className="text-[#7C3AED]" />
                 <div className="flex-1 min-w-0">
@@ -625,10 +634,10 @@ function OrchestratorImpactPanel({ live, config }) {
             ))}
       </ImpactSection>
 
-      <ImpactSection icon={<Wrench size={11} />} title="MCPs the chat can call" count={mcps.length}>
-        {mcps.length === 0
-          ? <Empty>No MCPs reachable</Empty>
-          : mcps.map(c => (
+      <ImpactSection icon={<Wrench size={11} />} title="Toolkits the chat can call" count={toolkits.length}>
+        {toolkits.length === 0
+          ? <Empty>No toolkits reachable</Empty>
+          : toolkits.map(c => (
               <ImpactRow key={c.id}>
                 <LogoChip name={c.name} color="#7C3AED" size={20} />
                 <div className="flex-1 min-w-0">
@@ -639,10 +648,10 @@ function OrchestratorImpactPanel({ live, config }) {
             ))}
       </ImpactSection>
 
-      <ImpactSection icon={<Bot size={11} />} title="Agents the chat can hand off to" count={agents.length}>
-        {agents.length === 0
-          ? <Empty>No agents reachable</Empty>
-          : agents.map(c => (
+      <ImpactSection icon={<Bot size={11} />} title="Handoffs the chat can route to" count={handoffs.length}>
+        {handoffs.length === 0
+          ? <Empty>No handoffs reachable</Empty>
+          : handoffs.map(c => (
               <ImpactRow key={c.id}>
                 <LogoChip name={c.name} color="#F59E0B" size={20} />
                 <div className="flex-1 min-w-0">
@@ -653,15 +662,15 @@ function OrchestratorImpactPanel({ live, config }) {
             ))}
       </ImpactSection>
 
-      <ImpactSection icon={<BookOpen size={11} />} title="Knowledge bases the chat can search" count={kbs.length}>
-        {kbs.length === 0
-          ? <Empty>No knowledge bases reachable</Empty>
-          : kbs.map(c => (
+      <ImpactSection icon={<BookOpen size={11} />} title="Search sources the chat can query" count={searches.length}>
+        {searches.length === 0
+          ? <Empty>No search sources reachable</Empty>
+          : searches.map(c => (
               <ImpactRow key={c.id}>
                 <LogoChip name={c.name} color="#2563EB" size={20} />
                 <div className="flex-1 min-w-0">
                   <div className="text-[12px] font-semibold text-[#111827] truncate">{c.name}</div>
-                  <div className="text-[10px] text-[#94A3B8] truncate">{c.source || 'Knowledge'} · {c.articleCount || 0} docs</div>
+                  <div className="text-[10px] text-[#94A3B8] truncate">{c.source || 'Search'} · {c.articleCount || 0} docs</div>
                 </div>
               </ImpactRow>
             ))}
@@ -672,7 +681,7 @@ function OrchestratorImpactPanel({ live, config }) {
           <AlertCircle size={12} className="text-[#D97706] mt-0.5 shrink-0" />
           <div className="text-[11px] text-[#92400E] leading-relaxed">
             <strong>{orphan.length} connected but unused.</strong>{' '}
-            Link them to an assistant or flow to reach the chat.
+            Link them to an expert or workflow to reach the chat.
           </div>
         </div>
       )}
@@ -681,10 +690,10 @@ function OrchestratorImpactPanel({ live, config }) {
 }
 
 /**
- * Trace preview — type a sample question, see which assistant would handle it
- * and which MCP/agent it would route to. Pure client-side heuristic against
- * connected MCP `domains[]` / agent `capabilities[]`. Does NOT hit the
- * backend. Sells the "you can see what your config produces" story.
+ * Trace preview — type a sample question, see which expert would handle it
+ * and which toolkit/handoff it would route to. Pure client-side heuristic
+ * against connected toolkit `domains[]` / handoff `capabilities[]`. Does NOT
+ * hit the backend. Sells the "you can see what your config produces" story.
  */
 function TracePreview({ config, viewAsUser }) {
   const [query, setQuery] = useState('')
@@ -723,8 +732,8 @@ function TracePreview({ config, viewAsUser }) {
           ) : (
             <div className="space-y-1">
               <TraceRow label="intent" value={submitted.intent} color="#7C3AED" />
-              <TraceRow label="assistant" value={submitted.assistant?.name} color="#2563EB" />
-              <TraceRow label="route" value={submitted.target?.name} color={submitted.kind === 'a2a' ? '#F59E0B' : '#0EA5E9'} />
+              <TraceRow label="expert" value={submitted.expert?.name} color="#2563EB" />
+              <TraceRow label="route" value={submitted.target?.name} color={submitted.kind === 'handoff' ? '#F59E0B' : '#0EA5E9'} />
               <TraceRow label="tool" value={submitted.tool} color="#475569" mono />
             </div>
           )}
@@ -745,46 +754,46 @@ function TraceRow({ label, value, color, mono = false }) {
 }
 
 // String-match heuristic that mirrors how the backend orchestrator picks a
-// server: scan connected MCP `domains[]` + agent `capabilities[]` and pick the
-// first one whose any-token shows up in the query. Audience-aware when a user
-// is selected (out-of-scope assistants are skipped).
+// connection: scan connected toolkit `domains[]` + handoff `capabilities[]`
+// and pick the first one whose any-token shows up in the query. Audience-aware
+// when a user is selected (out-of-scope experts are skipped).
 function planRoute(query, config, viewAsUser) {
   const q = query.toLowerCase()
-  const activeAssistants = (config.assistants || []).filter(a =>
-    a.status === 'active' && (!viewAsUser || assistantVisibleTo(a, viewAsUser))
+  const activeExperts = (config.experts || []).filter(a =>
+    a.status === 'active' && (!viewAsUser || expertVisibleTo(a, viewAsUser))
   )
 
-  // Try each active assistant's connected sub-agents/MCPs in order.
-  for (const asst of activeAssistants) {
-    // Walk linked connectors. Agents first (whole-domain dialogs), then
-    // MCPs/KBs by domain match.
-    const linked = (asst.connectorIds || [])
-      .map((id) => (config.connectors || []).find((c) => c.id === id && c.status === 'connected'))
+  // Try each active expert's connected handoffs/toolkits in order.
+  for (const exp of activeExperts) {
+    // Walk linked connections. Handoffs first (whole-domain dialogs),
+    // then toolkits/search-sources by domain match.
+    const linked = (exp.connectionIds || [])
+      .map((id) => (config.connections || []).find((c) => c.id === id && c.status === 'connected'))
       .filter(Boolean)
-    for (const c of linked.filter((x) => x.kind === 'agent')) {
+    for (const c of linked.filter((x) => x.kind === 'handoff')) {
       const caps = [...(c.capabilities || []), ...(c.domains || [])]
       if (caps.some((cap) => q.includes(String(cap).toLowerCase()))) {
         return {
           intent: caps.find((cap) => q.includes(String(cap).toLowerCase())) || 'task',
-          assistant: asst,
+          expert: exp,
           target: c,
           tool: `${c.id}__invoke`,
-          kind: 'a2a',
+          kind: 'handoff',
         }
       }
     }
-    for (const c of linked.filter((x) => x.kind !== 'agent')) {
+    for (const c of linked.filter((x) => x.kind !== 'handoff')) {
       const domains = c.domains || []
       const hit = domains.find((d) => q.includes(String(d).toLowerCase()))
       if (hit) {
-        const tool = c.kind === 'kb'
+        const tool = c.kind === 'search'
           ? `${c.id}__search`
           : ((c.tools || []).find((t) => q.includes(t.name.toLowerCase().slice(0, 5))) || (c.tools || [])[0])
               ? `${c.id}__${((c.tools || []).find((t) => q.includes(t.name.toLowerCase().slice(0, 5))) || (c.tools || [])[0]).name}`
               : `${c.id}.(tools/list)`
         return {
           intent: hit,
-          assistant: asst,
+          expert: exp,
           target: c,
           tool,
           kind: c.kind,

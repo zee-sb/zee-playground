@@ -5,60 +5,59 @@ import { LogoChip } from '../components/Catalog'
 import AddConnectorModal from './AddConnectorModal'
 
 /**
- * Unified Connectors tab — replaces the three legacy tabs (MCP Connectors,
- * External Agents, Knowledge Bases). Each row is one connector, filterable
- * by kind. The shape is the same regardless of kind; only the icon, color,
- * and "tools" semantics differ.
+ * Unified Connections tab. Each row is one connection, filterable by kind
+ * (toolkit / handoff / search). The shape is the same regardless of kind;
+ * only the icon, color, and "tools" semantics differ.
  *
  * Props:
- *   connectors[]                 — full unified list
- *   assistants[]                 — for the "Used by" column
- *   onConnectorsChange(updater)  — write-through (status toggle, remove)
+ *   connections[]                  — full unified list
+ *   experts[]                      — for the "Used by" column
+ *   onConnectionsChange(updater)   — write-through (status toggle, remove)
  */
-export default function ConnectorsList({ connectors = [], assistants = [], onConnectorsChange }) {
-  const [filter, setFilter] = useState('all') // all | mcp | agent | kb
+export default function ConnectorsList({ connections = [], experts = [], onConnectionsChange }) {
+  const [filter, setFilter] = useState('all') // all | toolkit | handoff | search
   const [expandedId, setExpandedId] = useState(null)
   const [addOpen, setAddOpen] = useState(false)
 
   const counts = useMemo(() => {
-    const all = connectors.length
-    const mcp = connectors.filter((c) => c.kind === 'mcp').length
-    const agent = connectors.filter((c) => c.kind === 'agent').length
-    const kb = connectors.filter((c) => c.kind === 'kb').length
-    return { all, mcp, agent, kb }
-  }, [connectors])
+    const all = connections.length
+    const toolkit = connections.filter((c) => c.kind === 'toolkit').length
+    const handoff = connections.filter((c) => c.kind === 'handoff').length
+    const search = connections.filter((c) => c.kind === 'search').length
+    return { all, toolkit, handoff, search }
+  }, [connections])
 
   const visible = useMemo(() => {
-    if (filter === 'all') return connectors
-    return connectors.filter((c) => c.kind === filter)
-  }, [connectors, filter])
+    if (filter === 'all') return connections
+    return connections.filter((c) => c.kind === filter)
+  }, [connections, filter])
 
   const usedBy = (cid) =>
-    assistants.filter((a) => (a.connectorIds || []).includes(cid))
+    experts.filter((a) => (a.connectionIds || []).includes(cid))
 
-  function handleToggleStatus(connector) {
-    onConnectorsChange((prev) =>
-      prev.map((c) => c.id === connector.id
+  function handleToggleStatus(connection) {
+    onConnectionsChange((prev) =>
+      prev.map((c) => c.id === connection.id
         ? { ...c, status: c.status === 'connected' ? 'disconnected' : 'connected' }
         : c)
     )
   }
-  function handleRemove(connector) {
-    if (!window.confirm(`Remove ${connector.name}? Assistants and flows using it will lose those tools.`)) return
-    onConnectorsChange((prev) => prev.filter((c) => c.id !== connector.id))
+  function handleRemove(connection) {
+    if (!window.confirm(`Remove ${connection.name}? Experts and workflows using it will lose those tools.`)) return
+    onConnectionsChange((prev) => prev.filter((c) => c.id !== connection.id))
   }
-  function handleAddCustomConnector(connector) {
-    onConnectorsChange((prev) => [...prev, connector])
-    setExpandedId(connector.id)
+  function handleAddCustomConnection(connection) {
+    onConnectionsChange((prev) => [...prev, connection])
+    setExpandedId(connection.id)
   }
 
   return (
     <div>
       <div className="flex items-end justify-between mb-5">
         <div>
-          <h1 className="text-[22px] font-bold text-[#111827]">Connectors</h1>
+          <h1 className="text-[22px] font-bold text-[#111827]">Connections</h1>
           <p className="text-[13px] text-[#6B7280] mt-1 max-w-2xl">
-            Everything the chat can call — multi-tool MCP servers, single-tool A2A agents, and indexed knowledge bases. Same protocol underneath; the <span className="font-mono">kind</span> field decides how the orchestrator dispatches.
+            Everything the chat can call — multi-tool toolkits, single-tool handoff agents, and indexed search sources. Same protocol underneath; the <span className="font-mono">kind</span> field decides how the orchestrator dispatches.
           </p>
         </div>
         <button
@@ -68,16 +67,16 @@ export default function ConnectorsList({ connectors = [], assistants = [], onCon
           className="flex items-center gap-2 px-4 py-2 bg-[#111827] hover:bg-[#1F2937] text-white text-[13px] font-semibold rounded-lg transition-colors"
         >
           <Plus size={15} />
-          Add connector
+          Add connection
         </button>
       </div>
 
       {/* Kind filter strip */}
       <div className="inline-flex items-center gap-1 border border-[#E5E7EB] rounded-lg p-0.5 bg-white mb-4">
-        <KindButton id="all"   label="All"        count={counts.all}   active={filter === 'all'}   onClick={setFilter} />
-        <KindButton id="mcp"   icon={<Wrench size={11} />}   label="MCPs"    count={counts.mcp}   active={filter === 'mcp'}   onClick={setFilter} />
-        <KindButton id="agent" icon={<Bot size={11} />}      label="Agents"  count={counts.agent} active={filter === 'agent'} onClick={setFilter} />
-        <KindButton id="kb"    icon={<BookOpen size={11} />} label="Knowledge" count={counts.kb}  active={filter === 'kb'}    onClick={setFilter} />
+        <KindButton id="all"     label="All"      count={counts.all}     active={filter === 'all'}     onClick={setFilter} />
+        <KindButton id="toolkit" icon={<Wrench size={11} />}   label="Toolkits" count={counts.toolkit} active={filter === 'toolkit'} onClick={setFilter} />
+        <KindButton id="handoff" icon={<Bot size={11} />}      label="Handoffs" count={counts.handoff} active={filter === 'handoff'} onClick={setFilter} />
+        <KindButton id="search"  icon={<BookOpen size={11} />} label="Search"   count={counts.search}  active={filter === 'search'}  onClick={setFilter} />
       </div>
 
       {visible.length === 0 ? (
@@ -118,15 +117,15 @@ export default function ConnectorsList({ connectors = [], assistants = [], onCon
                         <KindBadge kind={c.kind} />
                       </td>
                       <td className="px-4 py-3 text-[#52525B]">
-                        {c.kind === 'mcp'
+                        {c.kind === 'toolkit'
                           ? `${(c.tools || []).length} tools`
-                          : c.kind === 'agent'
+                          : c.kind === 'handoff'
                             ? 'invoke'
                             : `search · ${c.articleCount || 0} docs`}
                       </td>
                       <td className="px-4 py-3">
                         {using.length === 0
-                          ? <span className="text-[11px] text-[#94A3B8] italic">No assistants</span>
+                          ? <span className="text-[11px] text-[#94A3B8] italic">No experts</span>
                           : (
                             <div className="flex flex-wrap gap-1">
                               {using.slice(0, 3).map((a) => (
@@ -164,7 +163,7 @@ export default function ConnectorsList({ connectors = [], assistants = [], onCon
                     {expanded && (
                       <tr className="border-t border-[#F1F5F9] bg-[#FAFAFA]">
                         <td colSpan={6} className="px-5 py-3">
-                          <ExpandedRow connector={c} />
+                          <ExpandedRow connection={c} />
                         </td>
                       </tr>
                     )}
@@ -197,9 +196,9 @@ export default function ConnectorsList({ connectors = [], assistants = [], onCon
 
       {addOpen && (
         <AddConnectorModal
-          existingIds={connectors.map((c) => c.id)}
+          existingIds={connections.map((c) => c.id)}
           onClose={() => setAddOpen(false)}
-          onAdd={handleAddCustomConnector}
+          onAdd={handleAddCustomConnection}
         />
       )}
     </div>
@@ -222,8 +221,8 @@ function KindButton({ id, icon, label, count, active, onClick }) {
 }
 
 function KindBadge({ kind }) {
-  const Icon = kind === 'mcp' ? Wrench : kind === 'agent' ? Bot : BookOpen
-  const label = kind === 'mcp' ? 'MCP' : kind === 'agent' ? 'Agent' : 'Knowledge'
+  const Icon = kind === 'toolkit' ? Wrench : kind === 'handoff' ? Bot : BookOpen
+  const label = kind === 'toolkit' ? 'Toolkit' : kind === 'handoff' ? 'Handoff' : 'Search'
   const color = kindColor(kind)
   return (
     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10.5px] font-semibold" style={{ background: `${color}1a`, color }}>
@@ -234,8 +233,8 @@ function KindBadge({ kind }) {
 }
 
 function kindColor(kind) {
-  if (kind === 'agent') return '#F59E0B'
-  if (kind === 'kb') return '#2563EB'
+  if (kind === 'handoff') return '#F59E0B'
+  if (kind === 'search') return '#2563EB'
   return '#7C3AED'
 }
 
@@ -251,20 +250,20 @@ function StatusPill({ status }) {
   )
 }
 
-function ExpandedRow({ connector }) {
-  const tools = connector.tools || []
+function ExpandedRow({ connection }) {
+  const tools = connection.tools || []
   return (
     <div>
-      {connector.description && (
-        <p className="text-[12.5px] text-[#374151] mb-2">{connector.description}</p>
+      {connection.description && (
+        <p className="text-[12.5px] text-[#374151] mb-2">{connection.description}</p>
       )}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-        <Field label="Endpoint" value={connector.endpoint} mono />
-        <Field label="Auth" value={connector.authMethod || '—'} />
-        {connector.kind === 'kb' && <Field label="Source" value={connector.source || '—'} />}
-        {connector.kind === 'agent' && <Field label="Protocol" value={connector.protocol || 'native'} />}
-        {connector.provider && <Field label="OAuth provider" value={connector.provider} />}
-        {connector.writeTools?.length > 0 && <Field label="Write tools" value={connector.writeTools.join(', ')} />}
+        <Field label="Endpoint" value={connection.endpoint} mono />
+        <Field label="Auth" value={connection.authMethod || '—'} />
+        {connection.kind === 'search' && <Field label="Source" value={connection.source || '—'} />}
+        {connection.kind === 'handoff' && <Field label="Protocol" value={connection.protocol || 'native'} />}
+        {connection.provider && <Field label="OAuth provider" value={connection.provider} />}
+        {connection.writeTools?.length > 0 && <Field label="Write tools" value={connection.writeTools.join(', ')} />}
       </div>
       {tools.length > 0 && (
         <div className="mt-3">
@@ -295,7 +294,7 @@ function Field({ label, value, mono }) {
 }
 
 function EmptyState({ filter }) {
-  const label = filter === 'all' ? 'connectors' : filter === 'mcp' ? 'MCP connectors' : filter === 'agent' ? 'agents' : 'knowledge bases'
+  const label = filter === 'all' ? 'connections' : filter === 'toolkit' ? 'toolkits' : filter === 'handoff' ? 'handoffs' : 'search sources'
   return (
     <div className="bg-white border border-dashed border-[#E5E7EB] rounded-xl px-6 py-12 text-center">
       <p className="text-[14px] font-semibold text-[#374151]">No {label} yet</p>

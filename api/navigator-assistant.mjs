@@ -1,30 +1,36 @@
-// Navigator Assistant management API.
+// Navigator Expert management API.
 //
-// Five actions (single dispatcher, mirrors api/navigator-setup.mjs):
-//   - list                       — fetch all persisted Assistants for branch
+// NOTE: file name preserved as navigator-assistant.mjs (the URL path
+// `/api/navigator-assistant` stays as the wire address) but every Navigator
+// concept inside is now named "Expert".
+//
+// Six actions (single dispatcher, mirrors api/navigator-setup.mjs):
+//   - list                       — fetch all persisted Experts for branch
 //   - templates                  — return the curated template catalog
-//   - create-from-template       — preview a drafted Assistant from a
+//   - create-from-template       — preview a drafted Expert from a
 //                                  template, with auto-matched pages and
 //                                  conflict warnings; does NOT save
-//   - create-from-description    — streaming NL→drafted Assistant
-//                                  (Milestone C)
+//   - create-from-description    — streaming NL→drafted Expert
 //   - check-conflicts            — LLM-judge conflict detection
-//   - save                       — persist a drafted Assistant to the DB
-//   - delete                     — remove a saved Assistant
+//   - save                       — persist a drafted Expert to the DB
+//   - bulk-save                  — reconcile a full Experts array
+//   - delete                     — remove a saved Expert
+//   - scaffold-flow              — kept as `scaffold-flow` action name
+//                                  (workflow scaffolder)
 
 import OpenAI from 'openai';
 import { withStaffbaseContext } from '../lib/staffbase.mjs';
 import {
   getBlueprint,
-  listAssistants,
-  createAssistant,
-  updateAssistant,
-  deleteAssistant,
+  listExperts,
+  createExpert,
+  updateExpert,
+  deleteExpert,
 } from '../lib/blueprints.mjs';
 import { embed, rankByTopic } from '../lib/embeddings.mjs';
 import { listTemplates, getTemplate } from '../lib/assistant-templates.mjs';
 import { dbConfigured } from '../lib/db.mjs';
-import { pairwiseAssistantOverlap } from '../lib/navigator-health.mjs';
+import { pairwiseAssistantOverlap as pairwiseExpertOverlap } from '../lib/navigator-health.mjs';
 import { resolveBranchId, getTenantContext } from '../lib/tenants.mjs';
 
 export default async function handler(req, res) {
@@ -49,7 +55,7 @@ export default async function handler(req, res) {
       if (action === 'save')                    return await handleSave(req, res);
       if (action === 'bulk-save')               return await handleBulkSave(req, res);
       if (action === 'delete')                  return await handleDelete(req, res, url);
-      if (action === 'scaffold-flow')           return await handleScaffoldFlow(req, res);
+      if (action === 'scaffold-flow')           return await handleScaffoldWorkflow(req, res);
       res.status(400).json({ error: 'unknown action' });
     };
     if (tenantCtx) {
@@ -78,8 +84,8 @@ async function handleList(req, res) {
   if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
   const branchId = await getActiveBranchId(req);
   if (!branchId) return res.status(503).json({ error: 'branch_unavailable' });
-  const rows = await listAssistants(branchId);
-  return res.status(200).json({ branchId, assistants: rows });
+  const rows = await listExperts(branchId);
+  return res.status(200).json({ branchId, experts: rows });
 }
 
 // ── templates ──────────────────────────────────────────────────────────────
@@ -155,7 +161,7 @@ async function handleCreateFromTemplate(req, res) {
         .map((r) => ({ ...pageById.get(r.id), score: r.score }))
         .filter((p) => p.id);
     } catch (err) {
-      console.warn('[navigator-assistant] page match failed:', err.message);
+      console.warn('[navigator-expert] page match failed:', err.message);
     }
   }
 
@@ -169,7 +175,7 @@ async function handleCreateFromTemplate(req, res) {
   });
 
   // Run conflict detection inline (best-effort — empty if it fails).
-  const existing = await listAssistants(branchId);
+  const existing = await listExperts(branchId);
   let conflicts = [];
   try {
     conflicts = await detectConflicts(existing, {
@@ -178,7 +184,7 @@ async function handleCreateFromTemplate(req, res) {
       promptBody: tpl.promptBody,
     });
   } catch (err) {
-    console.warn('[navigator-assistant] conflict detection failed:', err.message);
+    console.warn('[navigator-expert] conflict detection failed:', err.message);
   }
 
   const draft = {
@@ -187,7 +193,7 @@ async function handleCreateFromTemplate(req, res) {
     description: tpl.shortDescription,
     instructions,
     audience: audienceOverride || tpl.suggestedAudience,
-    connectorIds: [],
+    connectionIds: [],
     status: 'active',
     // UI-only, not persisted:
     _matchedPages: matchedPages,
@@ -234,8 +240,8 @@ async function handleCreateFromDescription(req, res) {
       messages: [
         {
           role: 'system',
-          content: `Generate an Assistant identity from the user's description. Return strict JSON only:
-{ "name": "3-5 word Assistant name", "icon": "single emoji", "shortDescription": "one-sentence employee-facing description" }
+          content: `Generate an Expert identity from the user's description. Return strict JSON only:
+{ "name": "3-5 word Expert name", "icon": "single emoji", "shortDescription": "one-sentence employee-facing description" }
 Workspace tone: ${(tenant.tone || []).join(', ') || 'professional'}.
 Workspace name: ${tenant.companyName || 'this company'}.`,
         },
@@ -272,7 +278,7 @@ Workspace name: ${tenant.companyName || 'this company'}.`,
       messages: [
         {
           role: 'system',
-          content: `Draft a system prompt body (120-220 words) for a Navigator Assistant. The customer described what they want; you write the "Role / Scope / Tone / Grounding / Escalation" prompt.
+          content: `Draft a system prompt body (120-220 words) for a Navigator Expert. The customer described what they want; you write the "Role / Scope / Tone / Grounding / Escalation" prompt.
 
 Format: plain text (no markdown headings). Start with "You are <name>." Include 3-5 specific topics in scope, the tone to use, instruction to ground answers in the linked knowledge sources, and an escalation rule for what to route to a human.
 
@@ -286,7 +292,7 @@ Return strict JSON: { "promptBody": "..." }`,
         },
         {
           role: 'user',
-          content: `Assistant name: ${naming.name}\nDescription from customer:\n${description}`,
+          content: `Expert name: ${naming.name}\nDescription from customer:\n${description}`,
         },
       ],
     });
@@ -298,9 +304,9 @@ Return strict JSON: { "promptBody": "..." }`,
       matchedPages,
     });
 
-    // Step 4 — conflict detection against existing Assistants.
+    // Step 4 — conflict detection against existing Experts.
     emit({ step: 4, totalSteps: 4, label: 'Checking for conflicts' });
-    const existing = await listAssistants(branchId);
+    const existing = await listExperts(branchId);
     let conflicts = [];
     try {
       conflicts = await detectConflicts(existing, {
@@ -309,7 +315,7 @@ Return strict JSON: { "promptBody": "..." }`,
         promptBody: promptJson.promptBody,
       });
     } catch (err) {
-      console.warn('[navigator-assistant] conflict detection failed:', err.message);
+      console.warn('[navigator-expert] conflict detection failed:', err.message);
     }
 
     const draft = {
@@ -318,7 +324,7 @@ Return strict JSON: { "promptBody": "..." }`,
       description: naming.shortDescription || '',
       instructions,
       audience,
-      connectorIds: [],
+      connectionIds: [],
       status: 'active',
       _matchedPages: matchedPages,
     };
@@ -339,7 +345,7 @@ async function handleCheckConflicts(req, res) {
   if (!candidate?.name) return res.status(400).json({ error: 'candidate.name required' });
   const branchId = await getActiveBranchId(req);
   if (!branchId) return res.status(503).json({ error: 'branch_unavailable' });
-  const existing = await listAssistants(branchId);
+  const existing = await listExperts(branchId);
   const conflicts = await detectConflicts(existing, candidate);
   return res.status(200).json({ conflicts });
 }
@@ -348,7 +354,7 @@ async function handleCheckConflicts(req, res) {
 // actual LLM judge lives in lib/navigator-health.mjs so the Health Tab
 // and the AI creator share one implementation.
 async function detectConflicts(existing, candidate) {
-  return pairwiseAssistantOverlap(existing, candidate);
+  return pairwiseExpertOverlap(existing, candidate);
 }
 
 // ── save ───────────────────────────────────────────────────────────────────
@@ -356,40 +362,46 @@ async function detectConflicts(existing, candidate) {
 async function handleSave(req, res) {
   if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
   const body = await readJsonBody(req);
-  const { assistant, source, templateId } = body;
-  if (!assistant?.name) return res.status(400).json({ error: 'assistant.name required' });
+  // Accept legacy `assistant` payloads alongside the new `expert` shape.
+  const expert = body.expert || body.assistant;
+  const source = body.source;
+  const templateId = body.templateId;
+  if (!expert?.name) return res.status(400).json({ error: 'expert.name required' });
   const branchId = await getActiveBranchId(req);
   if (!branchId) return res.status(503).json({ error: 'branch_unavailable' });
-  const saved = await createAssistant({
+  const saved = await createExpert({
     branchId,
-    assistant,
+    expert,
     source: source || 'manual',
     templateId: templateId || null,
     userId: null,
   });
-  return res.status(200).json({ assistant: saved });
+  return res.status(200).json({ expert: saved });
 }
 
 // ── bulk-save ──────────────────────────────────────────────────────────────
-// Reconcile a full assistants array against the DB: upsert anything in the
+// Reconcile a full experts array against the DB: upsert anything in the
 // payload, delete anything in DB that's not in the payload. Used by the
 // Studio's useConfigStore to push every local change through to the canonical
 // store. Preserves DB-assigned UUIDs by matching on the `id` field.
 //
-// Payload shape: { assistants: [{ id?, name, icon, description, instructions,
-//   connectorIds, audience, status, source?, templateId? }, ...] }
+// Payload shape: { experts: [{ id?, name, icon, description, instructions,
+//   connectionIds, audience, status, source?, templateId? }, ...] }
 async function handleBulkSave(req, res) {
   if (req.method !== 'POST' && req.method !== 'PUT') {
     return res.status(405).json({ error: 'method_not_allowed' });
   }
   if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
   const body = await readJsonBody(req);
-  const incoming = Array.isArray(body.assistants) ? body.assistants : null;
-  if (!incoming) return res.status(400).json({ error: 'assistants array required' });
+  // Accept both new `experts` and legacy `assistants` arrays.
+  const incoming = Array.isArray(body.experts)
+    ? body.experts
+    : (Array.isArray(body.assistants) ? body.assistants : null);
+  if (!incoming) return res.status(400).json({ error: 'experts array required' });
   const branchId = await getActiveBranchId(req);
   if (!branchId) return res.status(503).json({ error: 'branch_unavailable' });
 
-  const existing = await listAssistants(branchId);
+  const existing = await listExperts(branchId);
   const existingById = new Map(existing.map((a) => [a.id, a]));
   const incomingIds = new Set(incoming.map((a) => a.id).filter(Boolean));
 
@@ -397,8 +409,10 @@ async function handleBulkSave(req, res) {
   const saved = [];
   for (const a of incoming) {
     if (!a?.name) continue;
+    // Accept legacy `connectorIds` field on input.
+    const connectionIds = a.connectionIds || a.connectorIds || [];
     if (a.id && existingById.has(a.id)) {
-      const updated = await updateAssistant({
+      const updated = await updateExpert({
         branchId,
         id: a.id,
         patch: {
@@ -407,15 +421,15 @@ async function handleBulkSave(req, res) {
           description: a.description,
           instructions: a.instructions,
           audience: a.audience,
-          connectorIds: a.connectorIds || [],
+          connectionIds,
           status: a.status,
         },
       });
       if (updated) saved.push(updated);
     } else {
-      const created = await createAssistant({
+      const created = await createExpert({
         branchId,
-        assistant: a,
+        expert: { ...a, connectionIds },
         source: a.source || 'manual',
         templateId: a.templateId || null,
         userId: null,
@@ -427,11 +441,11 @@ async function handleBulkSave(req, res) {
   // Delete anything that fell out of the payload.
   for (const a of existing) {
     if (!incomingIds.has(a.id)) {
-      await deleteAssistant({ branchId, id: a.id });
+      await deleteExpert({ branchId, id: a.id });
     }
   }
 
-  return res.status(200).json({ branchId, assistants: saved });
+  return res.status(200).json({ branchId, experts: saved });
 }
 
 // ── delete ─────────────────────────────────────────────────────────────────
@@ -442,7 +456,7 @@ async function handleDelete(req, res, url) {
   if (!id) return res.status(400).json({ error: 'id required' });
   const branchId = await getActiveBranchId(req);
   if (!branchId) return res.status(503).json({ error: 'branch_unavailable' });
-  const ok = await deleteAssistant({ branchId, id });
+  const ok = await deleteExpert({ branchId, id });
   return res.status(ok ? 200 : 404).json({ ok });
 }
 
@@ -467,39 +481,47 @@ function composeInstructions({ mainInstructions, glossary, promptBody, matchedPa
   return parts.join('\n\n---\n\n');
 }
 
-// ── scaffold-flow ──────────────────────────────────────────────────────────
+// ── scaffold-workflow ──────────────────────────────────────────────────────
 //
 // Best-effort: turn a one-sentence description + the workspace's available
-// connectors into a draft flow JSON the admin can refine. Returns:
-//   { ok, flow: { name, trigger, goal, mode, steps[] }, unknownTools: [...] }
+// connections into a draft workflow JSON the admin can refine. Returns:
+//   { ok, workflow: { name, trigger, goal, mode, steps[] }, unknownTools: [...] }
 
-async function handleScaffoldFlow(req, res) {
+async function handleScaffoldWorkflow(req, res) {
   const body = await readJsonBody(req);
   const description = (body?.description || '').trim();
-  const connectors = Array.isArray(body?.connectors) ? body.connectors : [];
+  // Accept legacy `connectors` array alongside new `connections`.
+  const connections = Array.isArray(body?.connections)
+    ? body.connections
+    : (Array.isArray(body?.connectors) ? body.connectors : []);
   if (!description) return res.status(400).json({ error: 'description required' });
   if (!process.env.OPENAI_API_KEY) return res.status(500).json({ error: 'OPENAI_API_KEY not configured' });
 
   const toolCatalog = [];
-  for (const c of connectors) {
-    const kind = c.kind || 'mcp';
+  for (const c of connections) {
+    // Map legacy kind values too.
+    const rawKind = c.kind || 'toolkit';
+    const kind = rawKind === 'mcp' ? 'toolkit'
+      : rawKind === 'agent' ? 'handoff'
+      : rawKind === 'kb' ? 'search'
+      : rawKind;
     const tools = Array.isArray(c.tools) ? c.tools : [];
-    if (kind === 'agent') toolCatalog.push(`${c.id} (agent: ${c.name}) → invoke`);
-    else if (kind === 'kb') toolCatalog.push(`${c.id} (KB: ${c.name}) → search`);
+    if (kind === 'handoff') toolCatalog.push(`${c.id} (handoff: ${c.name}) → invoke`);
+    else if (kind === 'search') toolCatalog.push(`${c.id} (search source: ${c.name}) → search`);
     else {
       for (const t of tools) toolCatalog.push(`${c.id} (${c.name}) → ${t.id || t.name} — ${t.description || ''}`);
     }
   }
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const sys = `You are a flow designer for an enterprise assistant. Output JSON only.
+  const sys = `You are a workflow designer for an enterprise assistant. Output JSON only.
 
 Step types:
 - form: collect user input (fields: id, label, type ['text'|'textarea'|'number'|'email'|'url'|'date'|'select'|'checkbox'|'radio'], required, options? for select/radio)
-- tool: invoke a tool. {tool: {connectorId, toolId}, args: {...}} — args may reference earlier form outputs via {{stepId.fieldId}}
+- tool: invoke a tool. {tool: {connectionId, toolId}, args: {...}} — args may reference earlier form outputs via {{stepId.fieldId}}
 - confirm: review summary before commit. summary: {title, rows:[{label,value}], confirmLabel, cancelLabel, cancelTo?}
 
-ONLY reference connector/tool ids from the catalog below. If something isn't available, prefer adding a form step over inventing a tool.
+ONLY reference connection/tool ids from the catalog below. If something isn't available, prefer adding a form step over inventing a tool.
 
 Catalog:
 ${toolCatalog.join('\n') || '(empty)'}
@@ -530,12 +552,12 @@ Return exactly this JSON shape (no markdown, no preamble):
     return res.status(502).json({ error: 'scaffold failed', detail: err.message });
   }
 
-  const known = new Set(connectors.map((c) => c.id));
+  const known = new Set(connections.map((c) => c.id));
   const unknownTools = [];
   for (const s of parsed?.steps || []) {
-    if (s.type === 'tool' && !known.has(s.tool?.connectorId)) {
-      unknownTools.push({ stepId: s.id, connectorId: s.tool?.connectorId, toolId: s.tool?.toolId });
+    if (s.type === 'tool' && !known.has(s.tool?.connectionId || s.tool?.connectorId)) {
+      unknownTools.push({ stepId: s.id, connectionId: s.tool?.connectionId || s.tool?.connectorId, toolId: s.tool?.toolId });
     }
   }
-  return res.status(200).json({ ok: true, flow: parsed, unknownTools });
+  return res.status(200).json({ ok: true, workflow: parsed, unknownTools });
 }

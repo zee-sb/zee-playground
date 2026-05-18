@@ -3,16 +3,16 @@ import { Plus, ChevronRight, Wrench, Workflow } from 'lucide-react'
 import { StatusPill } from '../components/Catalog'
 
 /**
- * Flows page — admin-defined, goal-driven workflows the Navigator brain can
- * invoke automatically when employee intent matches the trigger. Each row
+ * Workflows page — admin-defined, goal-driven workflows the Navigator brain
+ * can invoke automatically when employee intent matches the trigger. Each row
  * shows the trigger sentence, mode (suggested / required), and tool count.
  */
-export default function FlowsList({ flows = [], onSelect, onCreate }) {
+export default function FlowsList({ workflows = [], onSelect, onCreate }) {
   return (
     <div>
       <div className="flex items-end justify-between mb-6">
         <div>
-          <h1 className="text-[22px] font-bold text-[#111827]">Flows</h1>
+          <h1 className="text-[22px] font-bold text-[#111827]">Workflows</h1>
           <p className="text-[13px] text-[#6B7280] mt-1">
             Goal-driven workflows that Navigator can invoke when an employee's intent matches a trigger.
           </p>
@@ -22,26 +22,26 @@ export default function FlowsList({ flows = [], onSelect, onCreate }) {
           className="flex items-center gap-2 px-4 py-2 bg-[#7C3AED] text-white text-[13px] font-semibold rounded-lg hover:bg-[#6D28D9] transition-colors"
         >
           <Plus size={15} />
-          New flow
+          New workflow
         </button>
       </div>
 
-      {flows.length === 0 ? (
+      {workflows.length === 0 ? (
         <div className="bg-white border border-dashed border-[#E5E7EB] rounded-xl py-12 px-6 text-center">
           <Workflow size={20} className="mx-auto text-[#94A3B8] mb-2" />
-          <div className="text-[14px] font-semibold text-[#111827]">No flows yet</div>
-          <div className="text-[12px] text-[#6B7280] mt-1">Create your first flow to guide employees through tasks.</div>
+          <div className="text-[14px] font-semibold text-[#111827]">No workflows yet</div>
+          <div className="text-[12px] text-[#6B7280] mt-1">Create your first workflow to guide employees through tasks.</div>
           <button
             onClick={onCreate}
             className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-[#7C3AED] text-white text-[12px] font-semibold rounded-lg hover:bg-[#6D28D9] transition-colors"
           >
             <Plus size={13} />
-            New flow
+            New workflow
           </button>
         </div>
       ) : (
         <div className="bg-white border border-[#E5E7EB] rounded-xl overflow-hidden">
-          {flows.map((f, i) => {
+          {workflows.map((f, i) => {
             const toolCount = (f.tools || []).length
             return (
               <button
@@ -55,7 +55,7 @@ export default function FlowsList({ flows = [], onSelect, onCreate }) {
                 <div className="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-[14px] text-[#111827]">{f.name || 'Untitled flow'}</span>
+                      <span className="font-semibold text-[14px] text-[#111827]">{f.name || 'Untitled workflow'}</span>
                       <StatusPill status={f.status === 'active' ? 'active' : 'draft'} />
                       <ModeBadge mode={f.mode} />
                     </div>

@@ -313,12 +313,12 @@ function CustomMcpView({ onClose, onAdd, existingIds }) {
 
   function handleAdd() {
     if (!discovered) return
-    const id = `mcp-${Date.now().toString(36)}`
-    const connector = {
+    const id = `toolkit-${Date.now().toString(36)}`
+    const connection = {
       id,
-      kind: 'mcp',
+      kind: 'toolkit',
       name: name.trim(),
-      description: `Custom MCP connector · ${discovered.tools.length} tools`,
+      description: `Custom toolkit · ${discovered.tools.length} tools`,
       endpoint: url.trim(),
       authMethod: authType === 'none' ? 'None' : authType === 'bearer' ? 'Bearer token' : 'Custom header',
       status: 'connected',
@@ -332,7 +332,7 @@ function CustomMcpView({ onClose, onAdd, existingIds }) {
       })),
       custom: true,
     }
-    onAdd(connector)
+    onAdd(connection)
     onClose?.()
   }
 
