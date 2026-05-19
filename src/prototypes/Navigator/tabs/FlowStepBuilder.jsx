@@ -6,25 +6,72 @@ import React, { useState, useMemo } from 'react';
 import {
   ClipboardList, ShieldCheck, Wrench, Plus, Trash2, Copy, ChevronDown, ChevronUp,
   GripVertical, AlertTriangle, Braces, Camera,
+  UserCheck, GitBranch, FileUp, PenLine, MapPin, ScanLine, Clock, Bell,
 } from 'lucide-react';
 
+// Plain-English labels exposed to admins. The legacy internal type names
+// (form/tool/confirm) stay in the data model — only the UI changes.
 const STEP_META = {
-  form:    { label: 'Form',    color: '#0EA5E9', icon: ClipboardList,
-             hint: 'Collect input from the employee.' },
-  tool:    { label: 'Tool',    color: '#7C3AED', icon: Wrench,
-             hint: 'Invoke an MCP tool, agent, or KB search.' },
-  confirm: { label: 'Confirm', color: '#F59E0B', icon: ShieldCheck,
-             hint: 'Review the data and confirm before commit.' },
-  photo:   { label: 'Photo',   color: '#0EA5A8', icon: Camera,
-             hint: 'Employee takes/uploads a photo; AI validates against criteria.' },
+  form:        { label: 'Ask for info',           short: 'Form',      color: '#0EA5E9', icon: ClipboardList,
+                 hint: 'Collect input from the employee.' },
+  tool:        { label: 'Run an action',          short: 'Action',    color: '#7C3AED', icon: Wrench,
+                 hint: 'File a ticket, post to a system, or call a service.' },
+  confirm:     { label: 'Confirm before submit',  short: 'Confirm',   color: '#F59E0B', icon: ShieldCheck,
+                 hint: 'Review the data and confirm before commit.' },
+  photo:       { label: 'Capture a photo',        short: 'Photo',     color: '#0EA5A8', icon: Camera,
+                 hint: 'Employee takes/uploads a photo; AI validates against criteria.' },
+  approval:    { label: 'Wait for approval',      short: 'Approval',  color: '#DC2626', icon: UserCheck,
+                 hint: "Pause until a manager / HR / named approver decides." },
+  branch:      { label: 'Branch on a condition',  short: 'Branch',    color: '#0891B2', icon: GitBranch,
+                 hint: 'Skip to a different step based on a prior value.' },
+  file_upload: { label: 'Upload a file',          short: 'Upload',    color: '#9333EA', icon: FileUp,
+                 hint: 'Collect a PDF, document, or other file.' },
+  signature:   { label: 'Collect a signature',    short: 'Sign',      color: '#0D9488', icon: PenLine,
+                 hint: 'E-signature on a policy or acknowledgment.' },
+  location:    { label: 'Capture location',       short: 'Location',  color: '#16A34A', icon: MapPin,
+                 hint: 'Grab the employee\'s current location.' },
+  barcode:     { label: 'Scan a barcode',         short: 'Scan',      color: '#EA580C', icon: ScanLine,
+                 hint: 'Scan a QR / barcode with the camera.' },
+  wait:        { label: 'Wait / schedule',        short: 'Wait',      color: '#7C3AED', icon: Clock,
+                 hint: 'Pause the flow for a fixed duration before continuing.' },
+  notify:      { label: 'Send a notification',    short: 'Notify',    color: '#2563EB', icon: Bell,
+                 hint: 'Send a push, email, or in-app message and continue.' },
 };
 
 const FIELD_TYPES = ['text', 'textarea', 'number', 'email', 'url', 'date', 'select', 'checkbox', 'radio'];
+
+// Pre-baked validation presets so non-technical admins never have to type a
+// regex. When `value.preset` is set, the regex/min/max are derived at render
+// time. Custom regex stays available behind the Advanced toggle.
+const FORMAT_PRESETS = {
+  none:       { label: 'No special format',       pattern: '',                         msg: '' },
+  email:      { label: 'Email address',           pattern: '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$',
+                msg: 'Enter a valid email like name@company.com' },
+  phone:      { label: 'Phone number',            pattern: '^[+()\\-\\s0-9]{7,}$',
+                msg: 'Enter a valid phone number' },
+  postal_us:  { label: 'Postal code (US)',        pattern: '^\\d{5}(-\\d{4})?$',
+                msg: 'Enter a 5-digit ZIP (or 9-digit ZIP+4)' },
+  postal_de:  { label: 'Postal code (DE/EU)',     pattern: '^\\d{4,5}$',
+                msg: 'Enter a 4–5 digit postal code' },
+  iban:       { label: 'IBAN',                    pattern: '^[A-Z]{2}\\d{2}[A-Z0-9]{11,30}$',
+                msg: 'Enter a valid IBAN' },
+  url:        { label: 'Website / URL',           pattern: '^https?://.+',
+                msg: 'Enter a URL starting with http(s)://' },
+  custom:     { label: 'Custom regex (advanced)', pattern: '',                         msg: '' },
+};
 
 function blankStep(type, index) {
   const idBase = type === 'form' ? 'collect'
     : type === 'confirm' ? 'confirm'
     : type === 'photo'   ? 'photo'
+    : type === 'approval' ? 'approval'
+    : type === 'branch'   ? 'branch'
+    : type === 'file_upload' ? 'upload'
+    : type === 'signature' ? 'signature'
+    : type === 'location' ? 'location'
+    : type === 'barcode'  ? 'scan'
+    : type === 'wait'     ? 'wait'
+    : type === 'notify'   ? 'notify'
     : 'action';
   const id = `${idBase}-${index + 1}`;
   if (type === 'form') {
@@ -35,7 +82,7 @@ function blankStep(type, index) {
   }
   if (type === 'tool') {
     return {
-      id, type, label: 'Run tool',
+      id, type, label: 'Run action',
       tool: { connectionId: '', toolId: '' }, args: {},
     };
   }
@@ -61,13 +108,90 @@ function blankStep(type, index) {
       },
     };
   }
+  if (type === 'approval') {
+    return {
+      id, type, label: 'Manager approval',
+      approval: {
+        route: 'manager', approver: '',
+        title: 'Approval needed',
+        message: 'Please review and approve this request.',
+        slaHours: 24,
+        onReject: 'cancel',
+        rewindTo: '',
+      },
+    };
+  }
+  if (type === 'branch') {
+    return {
+      id, type, label: 'Branch',
+      branch: { left: '', op: 'equals', right: '', thenGoTo: '', elseGoTo: '' },
+    };
+  }
+  if (type === 'file_upload') {
+    return {
+      id, type, label: 'Upload a file',
+      file: {
+        title: 'Attach a document',
+        description: 'PDFs and images up to 10 MB.',
+        kind: 'any', maxMB: 10, required: true,
+        submitLabel: 'Upload',
+      },
+    };
+  }
+  if (type === 'signature') {
+    return {
+      id, type, label: 'E-signature',
+      signature: {
+        title: 'Sign to acknowledge',
+        description: '',
+        attestation: 'I have read and agree to the policy above.',
+        kind: 'draw', required: true,
+      },
+    };
+  }
+  if (type === 'location') {
+    return {
+      id, type, label: 'Share location',
+      location: {
+        title: 'Share your current location',
+        description: '',
+        accuracy: 'precise', required: true,
+      },
+    };
+  }
+  if (type === 'barcode') {
+    return {
+      id, type, label: 'Scan code',
+      barcode: {
+        title: 'Scan the QR or barcode',
+        description: '',
+        format: 'any', required: true,
+      },
+    };
+  }
+  if (type === 'wait') {
+    return {
+      id, type, label: 'Wait',
+      wait: { amount: 24, unit: 'hours', message: "We'll continue this in 24 hours." },
+    };
+  }
+  if (type === 'notify') {
+    return {
+      id, type, label: 'Send notification',
+      notify: {
+        channel: 'push', to: 'employee',
+        title: 'Update from Navigator', body: '',
+        deepLink: '',
+      },
+    };
+  }
   return {
     id, type, label: 'Confirm',
     summary: { title: 'Confirm?', rows: [], confirmLabel: 'Confirm', cancelLabel: 'Cancel' },
   };
 }
 
-export default function FlowStepBuilder({ steps, onChange, connections = [] }) {
+export default function FlowStepBuilder({ steps, onChange, connections = [], advanced = false }) {
   function addStep(type, atIndex) {
     const next = [...steps];
     const insertAt = atIndex == null ? next.length : atIndex;
@@ -113,6 +237,7 @@ export default function FlowStepBuilder({ steps, onChange, connections = [] }) {
                 index={idx}
                 connections={connections}
                 allSteps={steps}
+                advanced={advanced}
                 onUpdate={(patch) => updateStep(idx, patch)}
                 onRemove={() => removeStep(idx)}
                 onDuplicate={() => duplicateStep(idx)}
@@ -130,11 +255,19 @@ export default function FlowStepBuilder({ steps, onChange, connections = [] }) {
   );
 }
 
+// Grouped step types for the picker. Order matters here — the most common
+// patterns surface first so non-technical admins find them quickly.
+const STEP_GROUPS = [
+  { id: 'collect',  label: 'Collect',  types: ['form', 'file_upload', 'photo', 'signature', 'location', 'barcode'] },
+  { id: 'control',  label: 'Control',  types: ['confirm', 'approval', 'branch', 'wait'] },
+  { id: 'action',   label: 'Action',   types: ['tool', 'notify'] },
+];
+
 function AddStepRow({ onAdd, compact = false }) {
   const [open, setOpen] = useState(false);
   if (compact) {
     return (
-      <div className="flex items-center justify-center" style={{ height: 14 }}>
+      <div className="flex items-center justify-center relative" style={{ height: 14 }}>
         <button
           onClick={() => setOpen((v) => !v)}
           className="h-6 px-2 rounded-full text-[11px] font-semibold text-[#6B7280] bg-white border border-[#E5E7EB] hover:bg-[#F3F4F6] hover:text-[#111827] flex items-center gap-1 shadow-sm"
@@ -142,43 +275,76 @@ function AddStepRow({ onAdd, compact = false }) {
           <Plus size={11} /> {open ? 'Cancel' : 'Insert step'}
         </button>
         {open && (
-          <div className="ml-2 flex gap-1">
-            {Object.entries(STEP_META).map(([t, m]) => (
-              <button
-                key={t}
-                onClick={() => { setOpen(false); onAdd(t); }}
-                className="h-6 px-2 rounded-full text-[11px] font-semibold flex items-center gap-1"
-                style={{ background: `${m.color}1a`, color: m.color }}
-              >
-                <m.icon size={10} /> {m.label}
-              </button>
-            ))}
-          </div>
+          <StepPickerPopover onPick={(t) => { setOpen(false); onAdd(t); }} onClose={() => setOpen(false)} />
         )}
       </div>
     );
   }
   return (
-    <div className="flex flex-wrap justify-center gap-2">
-      {Object.entries(STEP_META).map(([t, m]) => (
-        <button
-          key={t}
-          onClick={() => onAdd(t)}
-          className="px-3 py-1.5 rounded-lg text-[12px] font-semibold flex items-center gap-1.5 transition-colors"
-          style={{ background: `${m.color}1a`, color: m.color }}
-        >
-          <m.icon size={12} /> Add {m.label}
-        </button>
+    <div className="space-y-3">
+      {STEP_GROUPS.map((g) => (
+        <div key={g.id}>
+          <div className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8] mb-1.5 text-center">{g.label}</div>
+          <div className="flex flex-wrap justify-center gap-2">
+            {g.types.map((t) => {
+              const m = STEP_META[t];
+              return (
+                <button
+                  key={t}
+                  onClick={() => onAdd(t)}
+                  className="px-3 py-1.5 rounded-lg text-[12px] font-semibold flex items-center gap-1.5 transition-colors hover:opacity-90"
+                  style={{ background: `${m.color}1a`, color: m.color }}
+                  title={m.hint}
+                >
+                  <m.icon size={12} /> {m.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       ))}
     </div>
   );
 }
 
+function StepPickerPopover({ onPick, onClose }) {
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 w-[420px] z-50 bg-white border border-[#E5E7EB] rounded-xl shadow-xl p-3">
+        {STEP_GROUPS.map((g) => (
+          <div key={g.id} className="mb-2 last:mb-0">
+            <div className="text-[9px] font-bold uppercase tracking-widest text-[#94A3B8] mb-1 px-1">{g.label}</div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {g.types.map((t) => {
+                const m = STEP_META[t];
+                return (
+                  <button
+                    key={t}
+                    onClick={() => onPick(t)}
+                    className="text-left px-2 py-1.5 rounded-lg flex items-center gap-1.5 hover:bg-[#F9FAFB]"
+                    title={m.hint}
+                  >
+                    <div className="w-5 h-5 rounded flex items-center justify-center shrink-0" style={{ background: m.color, color: 'white' }}>
+                      <m.icon size={11} />
+                    </div>
+                    <span className="text-[11.5px] font-semibold text-[#111827] truncate">{m.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 function StepCard({
-  step, index, connections, allSteps,
+  step, index, connections, allSteps, advanced = false,
   onUpdate, onRemove, onDuplicate, onMoveUp, onMoveDown, canMoveUp, canMoveDown,
 }) {
-  const meta = STEP_META[step.type];
+  const meta = STEP_META[step.type] || STEP_META.form;
   const Icon = meta.icon;
   const [expanded, setExpanded] = useState(true);
 
@@ -198,8 +364,9 @@ function StepCard({
           <Icon size={12} />
         </div>
         <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
-          style={{ background: `${meta.color}1a`, color: meta.color }}>
-          {meta.label}
+          style={{ background: `${meta.color}1a`, color: meta.color }}
+          title={meta.label}>
+          {meta.short || meta.label}
         </span>
         <input
           value={step.label}
@@ -228,28 +395,54 @@ function StepCard({
       </div>
       {expanded && (
         <div className="p-3 space-y-3">
-          <FieldRow label="Step id">
-            <input
-              value={step.id}
-              onChange={(e) => onUpdate({ id: slug(e.target.value) })}
-              className="w-full px-2 py-1.5 text-[12px] font-mono bg-white border border-[#E5E7EB] rounded-lg focus:border-[#7C3AED] outline-none"
-            />
-            <p className="text-[10px] text-[#94A3B8] mt-1">
-              Used in token references — <span className="font-mono">{`{{${step.id}.field}}`}</span>
-            </p>
-          </FieldRow>
+          {advanced && (
+            <FieldRow label="Step id">
+              <input
+                value={step.id}
+                onChange={(e) => onUpdate({ id: slug(e.target.value) })}
+                className="w-full px-2 py-1.5 text-[12px] font-mono bg-white border border-[#E5E7EB] rounded-lg focus:border-[#7C3AED] outline-none"
+              />
+              <p className="text-[10px] text-[#94A3B8] mt-1">
+                Used in token references — <span className="font-mono">{`{{${step.id}.field}}`}</span>
+              </p>
+            </FieldRow>
+          )}
 
           {step.type === 'form' && (
-            <FormStepConfig step={step} onUpdate={onUpdate} priorSteps={allSteps.slice(0, index)} />
+            <FormStepConfig step={step} onUpdate={onUpdate} priorSteps={allSteps.slice(0, index)} advanced={advanced} />
           )}
           {step.type === 'tool' && (
-            <ToolStepConfig step={step} onUpdate={onUpdate} connections={connections} priorSteps={allSteps.slice(0, index)} />
+            <ToolStepConfig step={step} onUpdate={onUpdate} connections={connections} priorSteps={allSteps.slice(0, index)} advanced={advanced} />
           )}
           {step.type === 'confirm' && (
-            <ConfirmStepConfig step={step} onUpdate={onUpdate} priorSteps={allSteps.slice(0, index)} />
+            <ConfirmStepConfig step={step} onUpdate={onUpdate} priorSteps={allSteps.slice(0, index)} advanced={advanced} />
           )}
           {step.type === 'photo' && (
             <PhotoStepConfig step={step} onUpdate={onUpdate} />
+          )}
+          {step.type === 'approval' && (
+            <ApprovalStepConfig step={step} onUpdate={onUpdate} priorSteps={allSteps.slice(0, index)} advanced={advanced} />
+          )}
+          {step.type === 'branch' && (
+            <BranchStepConfig step={step} onUpdate={onUpdate} priorSteps={allSteps.slice(0, index)} allSteps={allSteps} advanced={advanced} />
+          )}
+          {step.type === 'file_upload' && (
+            <FileUploadStepConfig step={step} onUpdate={onUpdate} />
+          )}
+          {step.type === 'signature' && (
+            <SignatureStepConfig step={step} onUpdate={onUpdate} priorSteps={allSteps.slice(0, index)} advanced={advanced} />
+          )}
+          {step.type === 'location' && (
+            <LocationStepConfig step={step} onUpdate={onUpdate} />
+          )}
+          {step.type === 'barcode' && (
+            <BarcodeStepConfig step={step} onUpdate={onUpdate} />
+          )}
+          {step.type === 'wait' && (
+            <WaitStepConfig step={step} onUpdate={onUpdate} />
+          )}
+          {step.type === 'notify' && (
+            <NotifyStepConfig step={step} onUpdate={onUpdate} priorSteps={allSteps.slice(0, index)} advanced={advanced} />
           )}
         </div>
       )}
@@ -257,7 +450,7 @@ function StepCard({
   );
 }
 
-function FormStepConfig({ step, onUpdate }) {
+function FormStepConfig({ step, onUpdate, advanced = false }) {
   function patchSpec(p) { onUpdate({ spec: { ...step.spec, ...p } }); }
   function addField() {
     const fields = [...(step.spec?.fields || [])];
@@ -318,6 +511,7 @@ function FormStepConfig({ step, onUpdate }) {
                 field={f}
                 onChange={(p) => updateField(i, p)}
                 onRemove={() => removeField(i)}
+                advanced={advanced}
               />
             ))}
           </div>
@@ -327,7 +521,7 @@ function FormStepConfig({ step, onUpdate }) {
   );
 }
 
-function FieldConfig({ field, onChange, onRemove }) {
+function FieldConfig({ field, onChange, onRemove, advanced = false }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="border border-[#E5E7EB] rounded-lg overflow-hidden bg-white">
@@ -358,13 +552,15 @@ function FieldConfig({ field, onChange, onRemove }) {
       </div>
       {open && (
         <div className="p-2 space-y-2 bg-white">
-          <FieldRow label="Field id">
-            <input
-              value={field.id}
-              onChange={(e) => onChange({ id: slug(e.target.value) })}
-              className="w-full px-2 py-1 text-[11px] font-mono bg-white border border-[#E5E7EB] rounded outline-none"
-            />
-          </FieldRow>
+          {advanced && (
+            <FieldRow label="Field id">
+              <input
+                value={field.id}
+                onChange={(e) => onChange({ id: slug(e.target.value) })}
+                className="w-full px-2 py-1 text-[11px] font-mono bg-white border border-[#E5E7EB] rounded outline-none"
+              />
+            </FieldRow>
+          )}
           <FieldRow label="Description">
             <input
               value={field.description || ''}
@@ -391,6 +587,7 @@ function FieldConfig({ field, onChange, onRemove }) {
             type={field.type}
             value={field.validation || {}}
             onChange={(validation) => onChange({ validation })}
+            advanced={advanced}
           />
         </div>
       )}
@@ -418,10 +615,24 @@ function OptionsEditor({ options, onChange }) {
   );
 }
 
-function ValidationEditor({ type, value, onChange }) {
+function ValidationEditor({ type, value, onChange, advanced = false }) {
   function patch(p) { onChange({ ...value, ...p }); }
   const showStr = type === 'text' || type === 'textarea' || type === 'email' || type === 'url';
   const showNum = type === 'number';
+  // Derive which preset is currently active. If the user has a pattern that
+  // matches a preset, surface that label; otherwise fall back to "custom".
+  const currentPreset = value.preset
+    || Object.entries(FORMAT_PRESETS).find(([, p]) => p.pattern && p.pattern === value.pattern)?.[0]
+    || (value.pattern ? 'custom' : 'none');
+  function pickPreset(key) {
+    const p = FORMAT_PRESETS[key];
+    if (!p) return;
+    patch({
+      preset: key,
+      pattern: p.pattern || undefined,
+      patternMessage: p.msg || undefined,
+    });
+  }
   return (
     <div className="grid grid-cols-2 gap-2">
       {showStr && (
@@ -450,21 +661,36 @@ function ValidationEditor({ type, value, onChange }) {
       )}
       {showStr && (
         <>
-          <FieldRow label="Regex pattern">
-            <input value={value.pattern ?? ''} onChange={(e) => patch({ pattern: e.target.value || undefined })}
-              className="w-full px-2 py-1 text-[11px] font-mono bg-white border border-[#E5E7EB] rounded outline-none" />
+          <FieldRow label="Format">
+            <select
+              value={currentPreset}
+              onChange={(e) => pickPreset(e.target.value)}
+              className="w-full px-2 py-1 text-[11px] bg-white border border-[#E5E7EB] rounded outline-none"
+            >
+              {Object.entries(FORMAT_PRESETS).map(([k, p]) => (
+                <option key={k} value={k}>{p.label}</option>
+              ))}
+            </select>
           </FieldRow>
-          <FieldRow label="Pattern error">
-            <input value={value.patternMessage ?? ''} onChange={(e) => patch({ patternMessage: e.target.value || undefined })}
-              className="w-full px-2 py-1 text-[11px] bg-white border border-[#E5E7EB] rounded outline-none" />
-          </FieldRow>
+          {(advanced || currentPreset === 'custom') && (
+            <>
+              <FieldRow label="Regex pattern (advanced)">
+                <input value={value.pattern ?? ''} onChange={(e) => patch({ pattern: e.target.value || undefined, preset: 'custom' })}
+                  className="w-full px-2 py-1 text-[11px] font-mono bg-white border border-[#E5E7EB] rounded outline-none" />
+              </FieldRow>
+              <FieldRow label="Error message">
+                <input value={value.patternMessage ?? ''} onChange={(e) => patch({ patternMessage: e.target.value || undefined })}
+                  className="w-full px-2 py-1 text-[11px] bg-white border border-[#E5E7EB] rounded outline-none" />
+              </FieldRow>
+            </>
+          )}
         </>
       )}
     </div>
   );
 }
 
-function ToolStepConfig({ step, onUpdate, connections, priorSteps }) {
+function ToolStepConfig({ step, onUpdate, connections, priorSteps, advanced = false }) {
   const tool = step.tool || {};
   const connected = connections.filter((c) => c.status === 'connected' || c.status === 'degraded');
   // Accept either new `connectionId` or legacy `connectorId` on the step payload.
@@ -655,7 +881,7 @@ function TokenPicker({ priorSteps, onPick, onClose }) {
   );
 }
 
-function ConfirmStepConfig({ step, onUpdate, priorSteps }) {
+function ConfirmStepConfig({ step, onUpdate, priorSteps, advanced = false }) {
   const summary = step.summary || {};
   function patch(p) { onUpdate({ summary: { ...summary, ...p } }); }
   function addRow() { patch({ rows: [...(summary.rows || []), { label: '', value: '' }] }); }
@@ -936,6 +1162,523 @@ function PhotoStepConfig({ step, onUpdate }) {
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Approval ──────────────────────────────────────────────────────────────
+function ApprovalStepConfig({ step, onUpdate, priorSteps, advanced = false }) {
+  const a = step.approval || {};
+  function patch(p) { onUpdate({ approval: { ...a, ...p } }); }
+  return (
+    <div className="space-y-3">
+      <div className="px-3 py-2 bg-[#FEF2F2] border border-[#FECACA] rounded-lg text-[11px] text-[#991B1B] leading-relaxed">
+        <b>How approvals work:</b> the flow pauses and an approver is notified. They can accept or reject in their own chat / email / Staffbase post. The employee sees a "waiting" card meanwhile.
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldRow label="Route to">
+          <select
+            value={a.route || 'manager'}
+            onChange={(e) => patch({ route: e.target.value })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#DC2626] outline-none"
+          >
+            <option value="manager">The employee's manager</option>
+            <option value="hr">HR team</option>
+            <option value="it">IT team</option>
+            <option value="finance">Finance team</option>
+            <option value="role">A specific role…</option>
+            <option value="named">A specific person…</option>
+          </select>
+        </FieldRow>
+        <FieldRow label="SLA (hours)">
+          <input
+            type="number"
+            value={a.slaHours ?? 24}
+            onChange={(e) => patch({ slaHours: Math.max(0, Number(e.target.value) || 0) })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#DC2626] outline-none"
+          />
+        </FieldRow>
+      </div>
+      {(a.route === 'role' || a.route === 'named') && (
+        <FieldRow label={a.route === 'role' ? 'Which role' : 'Which person (email or token)'}>
+          <input
+            value={a.approver || ''}
+            onChange={(e) => patch({ approver: e.target.value })}
+            placeholder={a.route === 'role' ? 'e.g. HR Manager' : 'e.g. jane@company.com or {{collect-info.manager_email}}'}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#DC2626] outline-none"
+          />
+        </FieldRow>
+      )}
+      <FieldRow label="Message to approver">
+        <textarea
+          value={a.message || ''}
+          onChange={(e) => patch({ message: e.target.value })}
+          rows={2}
+          placeholder="Please review and approve this request."
+          className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#DC2626] outline-none resize-none"
+        />
+      </FieldRow>
+      <FieldRow label="If rejected">
+        <select
+          value={a.onReject || 'cancel'}
+          onChange={(e) => patch({ onReject: e.target.value })}
+          className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#DC2626] outline-none"
+        >
+          <option value="cancel">Cancel the flow</option>
+          <option value="rewind">Rewind to an earlier step</option>
+          <option value="continue">Continue anyway (record only)</option>
+        </select>
+      </FieldRow>
+      {a.onReject === 'rewind' && (
+        <FieldRow label="Rewind to step">
+          <select
+            value={a.rewindTo || ''}
+            onChange={(e) => patch({ rewindTo: e.target.value || undefined })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#DC2626] outline-none"
+          >
+            <option value="">(default — the last form)</option>
+            {priorSteps.filter((s) => s.type === 'form').map((s) => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </select>
+        </FieldRow>
+      )}
+    </div>
+  );
+}
+
+// ── Branch ────────────────────────────────────────────────────────────────
+function BranchStepConfig({ step, onUpdate, priorSteps, allSteps, advanced = false }) {
+  const b = step.branch || {};
+  function patch(p) { onUpdate({ branch: { ...b, ...p } }); }
+  // Step targets exclude self + earlier (you can only branch forward, otherwise
+  // you get loops in a prototype with no cycle detection).
+  const myIdx = allSteps.findIndex((s) => s.id === step.id);
+  const targetCandidates = allSteps.slice(myIdx + 1);
+
+  return (
+    <div className="space-y-3">
+      <div className="px-3 py-2 bg-[#ECFEFF] border border-[#A5F3FC] rounded-lg text-[11px] text-[#155E75] leading-relaxed">
+        <b>What this does:</b> when the flow reaches this step, evaluate the condition. If it's true, jump to the "Then" step. If false, jump to "Else" (or just continue to the next step).
+      </div>
+      <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-end">
+        <FieldRow label="Compare this">
+          <ValueOrTokenInput
+            value={b.left || ''}
+            onChange={(v) => patch({ left: v })}
+            placeholder='{{collect-expense.amount}}'
+            priorSteps={priorSteps}
+          />
+        </FieldRow>
+        <FieldRow label="To">
+          <select
+            value={b.op || 'equals'}
+            onChange={(e) => patch({ op: e.target.value })}
+            className="px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0891B2] outline-none"
+          >
+            <option value="equals">equals</option>
+            <option value="not_equals">does not equal</option>
+            <option value="greater_than">is greater than</option>
+            <option value="less_than">is less than</option>
+            <option value="contains">contains</option>
+            <option value="is_truthy">is set / truthy</option>
+          </select>
+        </FieldRow>
+        <FieldRow label="This value">
+          <ValueOrTokenInput
+            value={b.right || ''}
+            onChange={(v) => patch({ right: v })}
+            placeholder={b.op === 'is_truthy' ? '(ignored)' : '100'}
+            priorSteps={priorSteps}
+          />
+        </FieldRow>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldRow label="If TRUE, jump to">
+          <select
+            value={b.thenGoTo || ''}
+            onChange={(e) => patch({ thenGoTo: e.target.value || undefined })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0891B2] outline-none"
+          >
+            <option value="">(default — next step)</option>
+            {targetCandidates.map((s) => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </select>
+        </FieldRow>
+        <FieldRow label="If FALSE, jump to">
+          <select
+            value={b.elseGoTo || ''}
+            onChange={(e) => patch({ elseGoTo: e.target.value || undefined })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0891B2] outline-none"
+          >
+            <option value="">(default — next step)</option>
+            {targetCandidates.map((s) => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </select>
+        </FieldRow>
+      </div>
+    </div>
+  );
+}
+
+// Compact input that opens a token picker. Used by Branch's left/right.
+function ValueOrTokenInput({ value, onChange, placeholder, priorSteps }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="flex-1 px-2 py-1.5 text-[12px] font-mono bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0891B2] outline-none"
+      />
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="p-1.5 text-[#0891B2] hover:bg-[#ECFEFF] rounded"
+          title="Pull a value from an earlier step"
+        >
+          <Braces size={13} />
+        </button>
+        {open && (
+          <TokenPicker
+            priorSteps={priorSteps}
+            onPick={(t) => { onChange(`${value || ''}${t}`); setOpen(false); }}
+            onClose={() => setOpen(false)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── File upload ──────────────────────────────────────────────────────────
+function FileUploadStepConfig({ step, onUpdate }) {
+  const f = step.file || {};
+  function patch(p) { onUpdate({ file: { ...f, ...p } }); }
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <FieldRow label="Title (employee sees this)">
+          <input
+            value={f.title || ''}
+            onChange={(e) => patch({ title: e.target.value })}
+            placeholder="Attach a document"
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#9333EA] outline-none"
+          />
+        </FieldRow>
+        <FieldRow label="File type">
+          <select
+            value={f.kind || 'any'}
+            onChange={(e) => patch({ kind: e.target.value })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#9333EA] outline-none"
+          >
+            <option value="any">Any file</option>
+            <option value="pdf">PDFs only</option>
+            <option value="image">Images only</option>
+            <option value="document">Documents (PDF, Word, txt)</option>
+          </select>
+        </FieldRow>
+      </div>
+      <FieldRow label="Helper text">
+        <textarea
+          value={f.description || ''}
+          onChange={(e) => patch({ description: e.target.value })}
+          rows={2}
+          placeholder="PDFs and images up to 10 MB."
+          className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#9333EA] outline-none resize-none"
+        />
+      </FieldRow>
+      <div className="grid grid-cols-3 gap-3">
+        <FieldRow label="Max size (MB)">
+          <input
+            type="number"
+            value={f.maxMB ?? 10}
+            onChange={(e) => patch({ maxMB: Math.max(1, Number(e.target.value) || 1) })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#9333EA] outline-none"
+          />
+        </FieldRow>
+        <FieldRow label="Submit label">
+          <input
+            value={f.submitLabel || 'Upload'}
+            onChange={(e) => patch({ submitLabel: e.target.value })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#9333EA] outline-none"
+          />
+        </FieldRow>
+        <FieldRow label="Required">
+          <select
+            value={f.required !== false ? 'yes' : 'no'}
+            onChange={(e) => patch({ required: e.target.value === 'yes' })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#9333EA] outline-none"
+          >
+            <option value="yes">Yes</option>
+            <option value="no">Optional</option>
+          </select>
+        </FieldRow>
+      </div>
+    </div>
+  );
+}
+
+// ── Signature ────────────────────────────────────────────────────────────
+function SignatureStepConfig({ step, onUpdate }) {
+  const s = step.signature || {};
+  function patch(p) { onUpdate({ signature: { ...s, ...p } }); }
+  return (
+    <div className="space-y-3">
+      <FieldRow label="Title (employee sees this)">
+        <input
+          value={s.title || ''}
+          onChange={(e) => patch({ title: e.target.value })}
+          placeholder="Sign to acknowledge"
+          className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0D9488] outline-none"
+        />
+      </FieldRow>
+      <FieldRow label="Policy / text to attest to">
+        <textarea
+          value={s.description || ''}
+          onChange={(e) => patch({ description: e.target.value })}
+          rows={3}
+          placeholder='Paste the policy or acknowledgment text the employee is signing.'
+          className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0D9488] outline-none resize-y"
+        />
+      </FieldRow>
+      <FieldRow label="Attestation statement">
+        <input
+          value={s.attestation || ''}
+          onChange={(e) => patch({ attestation: e.target.value })}
+          className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0D9488] outline-none"
+        />
+      </FieldRow>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldRow label="Signature method">
+          <select
+            value={s.kind || 'draw'}
+            onChange={(e) => patch({ kind: e.target.value })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0D9488] outline-none"
+          >
+            <option value="draw">Draw signature</option>
+            <option value="type">Type full name</option>
+            <option value="click">Click to acknowledge</option>
+          </select>
+        </FieldRow>
+        <FieldRow label="Required">
+          <select
+            value={s.required !== false ? 'yes' : 'no'}
+            onChange={(e) => patch({ required: e.target.value === 'yes' })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#0D9488] outline-none"
+          >
+            <option value="yes">Yes</option>
+            <option value="no">Optional</option>
+          </select>
+        </FieldRow>
+      </div>
+    </div>
+  );
+}
+
+// ── Location ─────────────────────────────────────────────────────────────
+function LocationStepConfig({ step, onUpdate }) {
+  const l = step.location || {};
+  function patch(p) { onUpdate({ location: { ...l, ...p } }); }
+  return (
+    <div className="space-y-3">
+      <FieldRow label="Title (employee sees this)">
+        <input
+          value={l.title || ''}
+          onChange={(e) => patch({ title: e.target.value })}
+          placeholder="Share your current location"
+          className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#16A34A] outline-none"
+        />
+      </FieldRow>
+      <FieldRow label="Helper text (optional)">
+        <input
+          value={l.description || ''}
+          onChange={(e) => patch({ description: e.target.value })}
+          placeholder='So we can route the incident to the right team.'
+          className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#16A34A] outline-none"
+        />
+      </FieldRow>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldRow label="Accuracy">
+          <select
+            value={l.accuracy || 'precise'}
+            onChange={(e) => patch({ accuracy: e.target.value })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#16A34A] outline-none"
+          >
+            <option value="precise">Precise (GPS)</option>
+            <option value="approximate">Approximate (city-level)</option>
+          </select>
+        </FieldRow>
+        <FieldRow label="Required">
+          <select
+            value={l.required !== false ? 'yes' : 'no'}
+            onChange={(e) => patch({ required: e.target.value === 'yes' })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#16A34A] outline-none"
+          >
+            <option value="yes">Yes</option>
+            <option value="no">Optional</option>
+          </select>
+        </FieldRow>
+      </div>
+    </div>
+  );
+}
+
+// ── Barcode ──────────────────────────────────────────────────────────────
+function BarcodeStepConfig({ step, onUpdate }) {
+  const b = step.barcode || {};
+  function patch(p) { onUpdate({ barcode: { ...b, ...p } }); }
+  return (
+    <div className="space-y-3">
+      <FieldRow label="Title (employee sees this)">
+        <input
+          value={b.title || ''}
+          onChange={(e) => patch({ title: e.target.value })}
+          placeholder="Scan the QR or barcode"
+          className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#EA580C] outline-none"
+        />
+      </FieldRow>
+      <FieldRow label="Helper text">
+        <input
+          value={b.description || ''}
+          onChange={(e) => patch({ description: e.target.value })}
+          placeholder='Point your camera at the label on the equipment.'
+          className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#EA580C] outline-none"
+        />
+      </FieldRow>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldRow label="Accepted format">
+          <select
+            value={b.format || 'any'}
+            onChange={(e) => patch({ format: e.target.value })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#EA580C] outline-none"
+          >
+            <option value="any">Any code</option>
+            <option value="qr">QR code</option>
+            <option value="ean">EAN / UPC</option>
+            <option value="code128">Code 128</option>
+            <option value="datamatrix">DataMatrix</option>
+          </select>
+        </FieldRow>
+        <FieldRow label="Required">
+          <select
+            value={b.required !== false ? 'yes' : 'no'}
+            onChange={(e) => patch({ required: e.target.value === 'yes' })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#EA580C] outline-none"
+          >
+            <option value="yes">Yes</option>
+            <option value="no">Optional</option>
+          </select>
+        </FieldRow>
+      </div>
+    </div>
+  );
+}
+
+// ── Wait ─────────────────────────────────────────────────────────────────
+function WaitStepConfig({ step, onUpdate }) {
+  const w = step.wait || {};
+  function patch(p) { onUpdate({ wait: { ...w, ...p } }); }
+  return (
+    <div className="space-y-3">
+      <div className="px-3 py-2 bg-[#F5F3FF] border border-[#DDD6FE] rounded-lg text-[11px] text-[#5B21B6] leading-relaxed">
+        <b>What this does:</b> the flow pauses for the chosen duration, then resumes automatically. Useful for follow-up reminders or batching downstream work.
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldRow label="How long">
+          <input
+            type="number"
+            value={w.amount ?? 24}
+            onChange={(e) => patch({ amount: Math.max(0, Number(e.target.value) || 0) })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#7C3AED] outline-none"
+          />
+        </FieldRow>
+        <FieldRow label="Unit">
+          <select
+            value={w.unit || 'hours'}
+            onChange={(e) => patch({ unit: e.target.value })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#7C3AED] outline-none"
+          >
+            <option value="minutes">Minutes</option>
+            <option value="hours">Hours</option>
+            <option value="days">Days</option>
+          </select>
+        </FieldRow>
+      </div>
+      <FieldRow label="Message to employee while waiting">
+        <input
+          value={w.message || ''}
+          onChange={(e) => patch({ message: e.target.value })}
+          placeholder="We'll continue this in 24 hours."
+          className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#7C3AED] outline-none"
+        />
+      </FieldRow>
+    </div>
+  );
+}
+
+// ── Notify ───────────────────────────────────────────────────────────────
+function NotifyStepConfig({ step, onUpdate, priorSteps, advanced = false }) {
+  const n = step.notify || {};
+  function patch(p) { onUpdate({ notify: { ...n, ...p } }); }
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <FieldRow label="Channel">
+          <select
+            value={n.channel || 'push'}
+            onChange={(e) => patch({ channel: e.target.value })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] outline-none"
+          >
+            <option value="push">Push notification</option>
+            <option value="email">Email</option>
+            <option value="in_app">In-app banner</option>
+          </select>
+        </FieldRow>
+        <FieldRow label="Send to">
+          <select
+            value={n.to || 'employee'}
+            onChange={(e) => patch({ to: e.target.value })}
+            className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] outline-none"
+          >
+            <option value="employee">The employee</option>
+            <option value="manager">Their manager</option>
+            <option value="role:HR">HR team</option>
+            <option value="role:IT">IT team</option>
+          </select>
+        </FieldRow>
+      </div>
+      <FieldRow label="Title">
+        <input
+          value={n.title || ''}
+          onChange={(e) => patch({ title: e.target.value })}
+          placeholder="Update from Navigator"
+          className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] outline-none"
+        />
+      </FieldRow>
+      <FieldRow label="Body">
+        <textarea
+          value={n.body || ''}
+          onChange={(e) => patch({ body: e.target.value })}
+          rows={2}
+          placeholder='Hi! Your request was just submitted.'
+          className="w-full px-2 py-1.5 text-[12px] bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] outline-none resize-none"
+        />
+      </FieldRow>
+      {advanced && (
+        <FieldRow label="Deep link (optional)">
+          <input
+            value={n.deepLink || ''}
+            onChange={(e) => patch({ deepLink: e.target.value || undefined })}
+            placeholder="staffbase://posts/123 or https://…"
+            className="w-full px-2 py-1.5 text-[12px] font-mono bg-white border border-[#E5E7EB] rounded-lg focus:border-[#2563EB] outline-none"
+          />
+        </FieldRow>
+      )}
     </div>
   );
 }

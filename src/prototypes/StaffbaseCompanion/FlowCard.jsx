@@ -130,8 +130,30 @@ export default function FlowCard({ flow }) {
 // Inline confirm chip for `mode: 'suggested'` flows. The user clicks "Start"
 // to commit the flow — the chat input sends a sentinel that the orchestrator
 // catches on the next turn.
-export function FlowSuggestionChip({ flow, onStart, onDismiss }) {
-  if (!flow) return null;
+//
+// v9: "Not now" now records a dismissal. The chat tracks dismissed flow ids
+// per browser session (via localStorage); the chip suppresses itself for
+// `suppressDays` days after being dismissed, so users don't get nagged.
+export function FlowSuggestionChip({ flow, onStart, onDismiss, suppressDays = 7 }) {
+  const storageKey = flow ? `nav.flow.dismissed.${flow.id || flow.name}` : null;
+  const [dismissed, setDismissed] = React.useState(() => {
+    if (!storageKey) return false;
+    try {
+      const ts = window.localStorage.getItem(storageKey);
+      if (!ts) return false;
+      const ageDays = (Date.now() - Number(ts)) / (1000 * 60 * 60 * 24);
+      return ageDays < suppressDays;
+    } catch { return false; }
+  });
+
+  if (!flow || dismissed) return null;
+
+  function handleDismiss() {
+    try { window.localStorage.setItem(storageKey, String(Date.now())); } catch { /* ignore */ }
+    setDismissed(true);
+    onDismiss?.();
+  }
+
   return (
     <div style={{
       margin: '6px 0',
@@ -159,7 +181,8 @@ export function FlowSuggestionChip({ flow, onStart, onDismiss }) {
       </button>
       <button
         type="button"
-        onClick={onDismiss}
+        onClick={handleDismiss}
+        title={`We won't suggest this for the next ${suppressDays} days.`}
         style={{
           padding: '4px 8px', fontSize: 11.5, fontWeight: 600,
           background: 'transparent', color: '#0F766E', border: 'none', cursor: 'pointer',

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
-import { Eye, RotateCcw, Bot, Wrench, BookOpen, Sparkles, Users, AlertCircle, ChevronRight, Building2, MapPin, Send, ChevronDown, ClipboardList, Workflow, Compass, ShieldCheck, Home } from 'lucide-react'
+import { Eye, RotateCcw, Bot, Wrench, BookOpen, Sparkles, Users, AlertCircle, ChevronRight, Building2, MapPin, Send, ChevronDown, ClipboardList, Workflow, Compass, ShieldCheck, Home, BarChart3, Activity } from 'lucide-react'
 import { StudioShell } from '../../components/StudioShell'
 import { useConfigStore } from '../AIAssistant/useConfigStore'
 import { useActiveTenant } from '../AIAssistant/useActiveTenant'
@@ -20,6 +20,8 @@ import FlowsList from './tabs/FlowsList'
 import FlowDetail from './tabs/FlowDetail'
 import HomeTab from './tabs/HomeTab'
 import SystemPromptEditor from './tabs/SystemPromptEditor'
+import AnalyticsTab from './tabs/AnalyticsTab'
+import AuditLogTab from './tabs/AuditLogTab'
 
 // Tabs:
 //   home        — overview, system prompt, health summary, discovery link
@@ -29,10 +31,12 @@ import SystemPromptEditor from './tabs/SystemPromptEditor'
 //   workspace   — employee directory + tenant settings
 // (The previous standalone Health tab is folded into Home.)
 const TABS = [
-  { id: 'home',        label: 'Home',        icon: Home     },
-  { id: 'experts',     label: 'Experts',     icon: Sparkles },
-  { id: 'connections', label: 'Connections', icon: Wrench   },
-  { id: 'workflows',   label: 'Workflows',   icon: Workflow },
+  { id: 'home',        label: 'Home',        icon: Home      },
+  { id: 'experts',     label: 'Experts',     icon: Sparkles  },
+  { id: 'connections', label: 'Connections', icon: Wrench    },
+  { id: 'workflows',   label: 'Workflows',   icon: Workflow  },
+  { id: 'analytics',   label: 'Analytics',   icon: BarChart3 },
+  { id: 'audit',       label: 'Audit log',   icon: Activity  },
   { id: 'workspace',   label: 'Workspace',   icon: Building2 },
 ]
 
@@ -374,6 +378,12 @@ export default function NavigatorStudio() {
                 onSave={handleSaveWorkflow}
                 onDelete={handleDeleteWorkflow}
               />
+            )}
+            {activeTabId === 'analytics' && (
+              <AnalyticsTab workflows={config.workflows || []} />
+            )}
+            {activeTabId === 'audit' && (
+              <AuditLogTab workflows={config.workflows || []} />
             )}
             {activeTabId === 'workspace' && (
               <WorkspaceTab tenant={tenant} demoUsers={demoUsers} />
