@@ -12,12 +12,13 @@
 //   - The text input is always there for typing.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Send, Loader2, Mic, X, Languages, Radio } from 'lucide-react';
+import { Send, Loader2, Mic, X, Languages, Radio, Check } from 'lucide-react';
 import { useVoiceInput } from './useVoiceInput.js';
 import SlashMenu, { workflowPrompt, expertPrompt, visibleCount, itemAt } from './SlashMenu.jsx';
+import { SUPPORTED_LANGS, LANG_LABELS } from '../../../data/languages.mjs';
 
 const LANG_LABEL = {
-  en: 'EN', de: 'DE', es: 'ES', fr: 'FR', it: 'IT', pt: 'PT', nl: 'NL', ar: 'AR',
+  en: 'EN', de: 'DE', es: 'ES', fr: 'FR', it: 'IT', pt: 'PT', nl: 'NL', ar: 'AR', pl: 'PL',
 };
 
 export default function VoiceComposer({
@@ -171,7 +172,20 @@ export default function VoiceComposer({
     });
   }, [registerAutoStart, disabled, isRecording, isUploading, start]);
 
-  const langPill = sessionLang ? (LANG_LABEL[sessionLang] || sessionLang.toUpperCase()) : null;
+  // Pill is always visible so new users (with no sessionLang yet) can still
+  // pick a language. Fall back to "EN" as a neutral placeholder label.
+  const langPill = sessionLang ? (LANG_LABEL[sessionLang] || sessionLang.toUpperCase()) : 'EN';
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const langMenuRef = useRef(null);
+  useEffect(() => {
+    if (!langMenuOpen) return;
+    function onDocClick(e) {
+      if (!langMenuRef.current) return;
+      if (!langMenuRef.current.contains(e.target)) setLangMenuOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [langMenuOpen]);
 
   return (
     <div style={{ flexShrink: 0, position: 'relative', zIndex: 1, padding: '8px 12px 4px' }}>
@@ -316,24 +330,66 @@ export default function VoiceComposer({
         />
 
         {langPill && (
-          <button
-            type="button"
-            onClick={() => {
-              const next = prompt('Switch language (2-letter ISO code, e.g. en, de, es)?', sessionLang || 'en');
-              if (next && /^[a-z]{2}$/i.test(next.trim())) onLanguageChange?.(next.trim().toLowerCase());
-            }}
-            aria-label="Switch language"
-            style={{
-              flexShrink: 0, padding: '4px 8px', borderRadius: 999,
-              background: 'rgba(124,58,237,0.12)', color: '#5B21B6',
-              border: 'none', fontSize: 11, fontWeight: 700,
-              display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
-            }}
-            title={`Current language: ${langPill}. Tap to switch.`}
-          >
-            <Languages size={11} />
-            {langPill}
-          </button>
+          <div ref={langMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => setLangMenuOpen((v) => !v)}
+              aria-label="Switch language"
+              aria-haspopup="listbox"
+              aria-expanded={langMenuOpen}
+              style={{
+                padding: '4px 8px', borderRadius: 999,
+                background: langMenuOpen ? 'rgba(124,58,237,0.22)' : 'rgba(124,58,237,0.12)',
+                color: '#5B21B6',
+                border: 'none', fontSize: 11, fontWeight: 700,
+                display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+              }}
+              title={`Current language: ${langPill}. Tap to switch.`}
+            >
+              <Languages size={11} />
+              {langPill}
+            </button>
+            {langMenuOpen && (
+              <div
+                role="listbox"
+                style={{
+                  position: 'absolute', bottom: 'calc(100% + 6px)', right: 0,
+                  minWidth: 200, padding: 4, borderRadius: 12,
+                  background: 'white', border: '1px solid rgba(0,0,0,0.08)',
+                  boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+                  zIndex: 50,
+                }}
+              >
+                {SUPPORTED_LANGS.map((code) => {
+                  const meta = LANG_LABELS[code];
+                  if (!meta) return null;
+                  const selected = code === sessionLang;
+                  return (
+                    <button
+                      key={code}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      onClick={() => {
+                        setLangMenuOpen(false);
+                        onLanguageChange?.(code, { persist: true, source: 'picker' });
+                      }}
+                      style={{
+                        display: 'flex', width: '100%', alignItems: 'center', gap: 8,
+                        padding: '8px 10px', border: 'none', background: selected ? 'rgba(124,58,237,0.10)' : 'transparent',
+                        color: '#111827', cursor: 'pointer', borderRadius: 8, fontSize: 13, textAlign: 'left',
+                      }}
+                    >
+                      <span aria-hidden style={{ fontSize: 16, lineHeight: 1 }}>{meta.flag}</span>
+                      <span style={{ flex: 1, fontWeight: selected ? 700 : 500 }}>{meta.native}</span>
+                      <span style={{ color: '#6B7280', fontSize: 11 }}>{meta.name}</span>
+                      {selected && <Check size={12} color="#5B21B6" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
 
         <button

@@ -380,7 +380,7 @@ export default function NavigatorStudio() {
               />
             )}
             {activeTabId === 'analytics' && (
-              <AnalyticsTab workflows={config.workflows || []} />
+              <AnalyticsTab basePath={basePath} navigate={navigate} />
             )}
             {activeTabId === 'audit' && (
               <AuditLogTab workflows={config.workflows || []} />

@@ -8,6 +8,12 @@
       "port": 3000
     },
     {
+      "name": "zee-vercel-alt",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "set -a && source ./.env.local && set +a && exec /opt/homebrew/bin/vercel dev --listen 3458 --yes"],
+      "port": 3458
+    },
+    {
       "name": "zee-static",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["serve", "dist", "-s", "-p", "3457", "--no-clipboard"],

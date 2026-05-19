@@ -1,9 +1,8 @@
 import React from 'react'
 import { Routes, Route, useParams, useNavigate, Link } from 'react-router-dom'
-import { Sparkles, BarChart2, MessageCircle } from 'lucide-react'
+import { Sparkles, MessageCircle } from 'lucide-react'
 import NavigatorStudio from './prototypes/Navigator/NavigatorStudio'
 import NavigatorSetupStudio from './prototypes/NavigatorSetup/NavigatorSetupStudio'
-import NavigatorAnalyticsDashboard from './prototypes/NavigatorAnalytics/NavigatorAnalyticsDashboard'
 import StaffbaseCompanion from './prototypes/StaffbaseCompanion'
 import MCPDemoStudio from './prototypes/MCPDemo/MCPDemoStudio'
 import A2ADemoStudio from './prototypes/A2ADemo/A2ADemoStudio'
@@ -21,8 +20,6 @@ import { TenantPicker } from './components/TenantPicker'
 //                                  write actions gated by confirmation.
 //                                  (Route MUST stay at this path — registered
 //                                   OAuth callback URLs depend on it.)
-//   /navigator-analytics-dashboard — analytics spec (unchanged, externally linked).
-//
 // NavigatorSetup is kept routable at /navigator-setup so the in-Studio Setup
 // tab and any external links continue to work, but it's not surfaced as a
 // gallery card — it's folded into Studio's first tab.
@@ -44,15 +41,6 @@ const PROTOTYPES = [
     status: "live",
     icon: MessageCircle,
     component: StaffbaseCompanion
-  },
-  {
-    id: "navigator-analytics-dashboard",
-    title: "Navigator Analytics Dashboard",
-    description: "Full analytics spec — Adoption, Quality (NRS formula), Engagement, Retention, and Company-level breakdown. Reference for the data team.",
-    epic: "Navigator",
-    status: "ready",
-    icon: BarChart2,
-    component: NavigatorAnalyticsDashboard
   }
 ];
 

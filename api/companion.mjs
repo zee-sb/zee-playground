@@ -16,8 +16,10 @@ import { loadStudio, materializeActiveScope, userToAudience } from '../lib/studi
 import { listConnectionsForUser } from '../lib/connections.mjs';
 import { getVoiceProvider } from '../lib/voice/provider.mjs';
 import { redactPII } from '../lib/voice/pii-redact.mjs';
-import { withStaffbaseContext } from '../lib/staffbase.mjs';
+import { withStaffbaseContext, getBranch } from '../lib/staffbase.mjs';
 import { resolveBranchId, getTenantContext } from '../lib/tenants.mjs';
+import { resolveDefaultLang } from '../lib/i18n/resolve-default-lang.mjs';
+import { SUPPORTED_LANGS } from '../data/languages.mjs';
 
 function baseUrlOf(req) {
   const proto = req.headers['x-forwarded-proto'] || 'http';
@@ -57,6 +59,7 @@ export default async function handler(req, res) {
     if (path === '/api/companion/hero')          return await hero(req, res);
     if (path === '/api/companion/transcribe')    return await transcribe(req, res);
     if (path === '/api/companion/tts')           return await tts(req, res);
+    if (path === '/api/companion/me/preferences') return await mePreferences(req, res);
     // DELETE /api/companion/conversations/:id — owner-only.
     const delMatch = path.match(/^\/api\/companion\/conversations\/([^/]+)$/);
     if (delMatch && req.method === 'DELETE') return await deleteConversation(req, res, delMatch[1]);
@@ -207,11 +210,14 @@ async function chat(req, res) {
     return;
   }
 
-  const { conversationId, message, formSubmission, confirmResponse, photoSubmission, inputModality, lang } = req.body || {};
+  const { conversationId, message, formSubmission, confirmResponse, photoSubmission, inputModality, lang, clientLocale } = req.body || {};
   if (!conversationId) {
     res.status(400).json({ error: 'conversationId is required' });
     return;
   }
+  const inboundClientLocale = typeof clientLocale === 'string' && clientLocale.length <= 16
+    ? clientLocale
+    : null;
   const hasFlowInput = (formSubmission && typeof formSubmission === 'object')
     || (confirmResponse && typeof confirmResponse === 'object')
     || (photoSubmission && typeof photoSubmission === 'object');
@@ -247,7 +253,9 @@ async function chat(req, res) {
         : null;
 
   const own = await sql`
-    select c.id, c.staffbase_branch_id, u.staffbase_user_id, u.email, u.display_name, u.department, u.title from conversations c
+    select c.id, c.staffbase_branch_id, u.staffbase_user_id, u.email, u.display_name, u.department, u.title,
+           u.preferred_language, u.signup_locale, u.custom_fields
+    from conversations c
     join users u on u.id = c.user_id
     where c.id = ${conversationId} and c.user_id = ${session.userId}
   `;
@@ -286,8 +294,10 @@ async function chat(req, res) {
   const emit = (obj) => res.write(JSON.stringify(obj) + '\n');
 
   try {
-    // Resolve the session language: client-provided wins, otherwise inherit
-    // from the most recent assistant turn's stored session_lang.
+    // Resolve the session language. Priority: client-provided inbound (voice
+    // detection / explicit pill switch) → last conversation's session_lang →
+    // resolveDefaultLang() (preferred_language → customFields → signup_locale
+    // → clientLocale → workspace availableLocales → 'en').
     let sessionLang = inboundLang;
     if (!sessionLang) {
       const prior = await sql`
@@ -297,6 +307,20 @@ async function chat(req, res) {
         order by created_at desc limit 1
       `;
       sessionLang = prior[0]?.content?.session_lang || null;
+    }
+    if (!sessionLang) {
+      // First turn on this conversation, no prior session_lang. Run the full
+      // resolver so a brand-new user gets a sensible default instead of
+      // English-by-accident.
+      const workspaceLocales = await getBranch().then((b) => b?.availableLocales || null).catch(() => null);
+      sessionLang = resolveDefaultLang({
+        preferredLanguage: own[0].preferred_language,
+        lastConvoLang: null,
+        staffbaseCustomFields: own[0].custom_fields,
+        signupLocale: own[0].signup_locale,
+        clientLocale: inboundClientLocale,
+        workspaceLocales,
+      });
     }
     if (inboundLang) {
       // Record the language detection / switch on the session for audit.
@@ -585,7 +609,7 @@ async function hero(req, res) {
       const session = await getUserFromReq(req);
       if (session) {
         const [userRows, connRows] = await Promise.all([
-          sql`select email, display_name, department, title from users where id = ${session.userId} limit 1`,
+          sql`select email, display_name, department, title, preferred_language, signup_locale, custom_fields from users where id = ${session.userId} limit 1`,
           listConnectionsForUser(session.userId).catch(() => []),
         ]);
         if (userRows[0]) {
@@ -594,6 +618,9 @@ async function hero(req, res) {
             name: userRows[0].display_name,
             department: userRows[0].department,
             title: userRows[0].title,
+            preferredLanguage: userRows[0].preferred_language,
+            signupLocale: userRows[0].signup_locale,
+            customFields: userRows[0].custom_fields,
           };
         }
         userConnections = new Set((connRows || []).map((c) => c.provider));
@@ -609,8 +636,25 @@ async function hero(req, res) {
   try { studio = await loadStudio({ branchId: heroBranchId }); }
   catch (err) { console.warn('[companion/hero] loadStudio failed:', err.message); }
 
+  // Tenant-scope the branch lookup so availableLocales reflects the active
+  // workspace. clientLocale is opt-in via ?clientLocale=… so the picker can
+  // pre-fill before the user types.
+  const heroTenantCtx = heroBranchId ? await getTenantContext(heroBranchId).catch(() => null) : null;
+  const workspaceLocales = heroTenantCtx
+    ? await withStaffbaseContext(heroTenantCtx, () => getBranch().then((b) => b?.availableLocales || null).catch(() => null))
+    : null;
+  const heroClientLocale = typeof req.query?.clientLocale === 'string' ? req.query.clientLocale : null;
+  const defaultLang = resolveDefaultLang({
+    preferredLanguage: userProfile?.preferredLanguage,
+    lastConvoLang: null,
+    staffbaseCustomFields: userProfile?.customFields,
+    signupLocale: userProfile?.signupLocale,
+    clientLocale: heroClientLocale,
+    workspaceLocales,
+  });
+
   if (!studio) {
-    res.status(200).json({ experts: [], workflows: [], connections: [], needsAuth: [], studioEmpty: true });
+    res.status(200).json({ experts: [], workflows: [], connections: [], needsAuth: [], studioEmpty: true, defaultLang });
     return;
   }
   const scope = materializeActiveScope({
@@ -634,6 +678,7 @@ async function hero(req, res) {
     })),
     tenant: { name: studio.config?.tenantOverrides?.name || 'Staffbase' },
     studioEmpty: false,
+    defaultLang,
   });
 }
 
@@ -746,6 +791,37 @@ async function tts(req, res) {
     console.error('[companion/tts]', err);
     res.status(500).json({ error: 'tts_failed', message: err.message || String(err) });
   }
+}
+
+// ── PATCH /api/companion/me/preferences — persist user language preference ─
+async function mePreferences(req, res) {
+  if (req.method !== 'PATCH' && req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+  if (!dbConfigured()) {
+    res.status(503).json({ error: 'db_not_configured' });
+    return;
+  }
+  const session = await getUserFromReq(req);
+  if (!session) {
+    res.status(401).json({ error: 'not_signed_in' });
+    return;
+  }
+  const { preferredLanguage } = req.body || {};
+  // Allow null/empty to clear the preference. Otherwise must be a 2-char
+  // supported ISO code — anything else is rejected at the schema-level
+  // CHECK constraint too, but better to fail fast here.
+  let normalized = null;
+  if (preferredLanguage !== null && preferredLanguage !== undefined && preferredLanguage !== '') {
+    if (typeof preferredLanguage !== 'string' || !SUPPORTED_LANGS.includes(preferredLanguage.toLowerCase())) {
+      res.status(400).json({ error: 'unsupported_language', supported: SUPPORTED_LANGS });
+      return;
+    }
+    normalized = preferredLanguage.toLowerCase();
+  }
+  await sql`update users set preferred_language = ${normalized} where id = ${session.userId}`;
+  res.status(200).json({ preferredLanguage: normalized });
 }
 
 // FNV-1a 32-bit hash — cheap, dependency-free. Used for voice_audit linkage

@@ -17,6 +17,7 @@ import { TypingIndicator } from '../../chat-widget/TypingIndicator.jsx';
 import { streamPost, listMessages } from './api.js';
 import { markdownComponents, sanitizeStreamingMarkdown } from './lib/markdown.jsx';
 import { useActiveTenant } from '../AIAssistant/useActiveTenant';
+import { LANG_LABELS } from '../../../data/languages.mjs';
 import '../../chat-widget/styles.css';
 
 // Append `?branch=<id>` to API URLs so multi-tenant routes scope to the
@@ -348,18 +349,35 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
 
   // Load Studio-driven Hero chips once per mount. Empty Studio → keep
   // legacy chip fallback inside <Hero>.
+  //
+  // Also forwards navigator.language so the server-side resolver can derive
+  // a sensible default for users with no stored preference. When the server
+  // returns a `defaultLang` and we don't already have a sessionLang locally
+  // (fresh user, no localStorage), adopt it so the picker pill pre-fills.
   useEffect(() => {
     let cancelled = false;
-    fetch(withBranchQuery('/api/companion/hero', branchId))
+    const clientLocale = typeof navigator !== 'undefined' ? navigator.language : null;
+    const heroUrl = withBranchQuery('/api/companion/hero', branchId);
+    const url = clientLocale
+      ? `${heroUrl}${heroUrl.includes('?') ? '&' : '?'}clientLocale=${encodeURIComponent(clientLocale)}`
+      : heroUrl;
+    fetch(url)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (cancelled || !data) return;
         if (!data.studioEmpty && (data.experts?.length || data.assistants?.length || data.workflows?.length || data.flows?.length)) {
           setHeroData(data);
         }
+        if (data.defaultLang && !sessionLang) {
+          setSessionLang(data.defaultLang);
+          try { window.localStorage.setItem('companion.sessionLang', data.defaultLang); } catch { /* */ }
+        }
       })
       .catch(() => { /* ignore */ });
     return () => { cancelled = true; };
+  // sessionLang intentionally omitted — we only want to pre-fill once on mount,
+  // not refire when the user changes language locally.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, branchId]);
 
   const handleEvent = useCallback((evt) => {
@@ -489,6 +507,26 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
             setSessionLang(evt.lang);
             try { window.localStorage.setItem('companion.sessionLang', evt.lang); } catch { /* */ }
           });
+          // Soft confirmation banner — user explicitly asked, so just confirm.
+          next.push({
+            kind: 'lang_notice', mode: 'switched',
+            lang: evt.lang, prevLang: evt.prevLang || null,
+          });
+        }
+      } else if (evt.type === 'language_drift_detected') {
+        // Hard confirmation — render chips so the user explicitly opts in.
+        // Don't change sessionLang yet; the chip click will do it.
+        if (evt.detectedLang && evt.detectedLang !== evt.currentLang) {
+          // Avoid stacking duplicate drift prompts when the user keeps typing.
+          const dup = [...next].reverse().find(
+            (i) => i.kind === 'lang_notice' && i.mode === 'drift_confirm' && i.lang === evt.detectedLang && !i.resolved
+          );
+          if (!dup) {
+            next.push({
+              kind: 'lang_notice', mode: 'drift_confirm',
+              lang: evt.detectedLang, prevLang: evt.currentLang || null,
+            });
+          }
         }
       } else if (evt.type === 'confirm_request') {
         const flowItem = [...next].reverse().find((i) => i.kind === 'flow' && i.id === evt.flowId);
@@ -661,10 +699,42 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
     }
   }
 
-  const handleLanguageChange = useCallback((lang) => {
+  const handleLanguageChange = useCallback((lang, opts = {}) => {
     if (!lang) return;
     setSessionLang(lang);
     try { window.localStorage.setItem('companion.sessionLang', lang); } catch { /* */ }
+    // Persist to the user's stored preference when the change came from an
+    // explicit signal (picker, or drift confirmation). Voice STT drift and
+    // automatic detections don't promote to a durable preference — they're
+    // ephemeral guesses.
+    if (opts.persist) {
+      fetch('/api/companion/me/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preferredLanguage: lang }),
+      }).catch(() => { /* best-effort; localStorage still has it */ });
+    }
+  }, []);
+
+  // Drift-confirm chip handlers. `acceptDrift` flips sessionLang and persists
+  // the user preference; `dismissDrift` just marks the notice resolved so the
+  // chips disappear without changing language.
+  const acceptDrift = useCallback((lang) => {
+    if (!lang) return;
+    handleLanguageChange(lang, { persist: true, source: 'drift_confirm' });
+    setItems((prev) => prev.map((it) => (
+      it.kind === 'lang_notice' && it.mode === 'drift_confirm' && it.lang === lang && !it.resolved
+        ? { ...it, resolved: 'accepted', mode: 'switched' }
+        : it
+    )));
+  }, [handleLanguageChange]);
+
+  const dismissDrift = useCallback((lang) => {
+    setItems((prev) => prev.map((it) => (
+      it.kind === 'lang_notice' && it.mode === 'drift_confirm' && it.lang === lang && !it.resolved
+        ? { ...it, resolved: 'dismissed' }
+        : it
+    )));
   }, []);
 
   // Flow-step form submission. Optimistically record outputs locally; the
@@ -930,7 +1000,7 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
               // stretching the full chat width.
               const COLUMN_ALIGN_KINDS = new Set([
                 'trace', 'tool', 'flow', 'form', 'card',
-                'connector_error', 'connect_prompt',
+                'connector_error', 'connect_prompt', 'lang_notice',
               ]);
               const out = [];
               for (let i = 0; i < items.length; i++) {
@@ -951,6 +1021,8 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
                     suggestionsDisabled={busy || i !== lastSuggestionIdx}
                     tts={tts}
                     sessionLang={sessionLang}
+                    onAcceptDrift={acceptDrift}
+                    onDismissDrift={dismissDrift}
                   />
                 );
                 if (COLUMN_ALIGN_KINDS.has(item.kind)) {
@@ -1885,6 +1957,78 @@ function ActiveContextPill({ context, onClear }) {
   );
 }
 
+// In-chat banner for language switches. Two modes:
+//   - 'switched'      : soft confirmation after an explicit "switch to X"
+//                       (orchestrator already flipped sessionLang).
+//   - 'drift_confirm' : the user typed in a language ≠ current session_lang
+//                       without saying "switch". Renders two chips so the
+//                       user opts in deliberately.
+function LangNotice({ mode, lang, prevLang, resolved, onAccept, onDismiss }) {
+  const meta = LANG_LABELS[lang] || { name: (lang || '').toUpperCase(), native: (lang || '').toUpperCase(), flag: '' };
+  const prevMeta = prevLang ? (LANG_LABELS[prevLang] || { name: prevLang.toUpperCase(), native: prevLang.toUpperCase() }) : null;
+  const palette = {
+    bg: 'rgba(124,58,237,0.10)',
+    border: 'rgba(124,58,237,0.30)',
+    text: '#5B21B6',
+  };
+  if (mode === 'drift_confirm' && !resolved) {
+    return (
+      <div
+        role="status"
+        style={{
+          margin: '8px 0', padding: '10px 12px',
+          background: palette.bg, border: `1px solid ${palette.border}`,
+          borderRadius: 10, fontSize: 12, color: palette.text,
+          display: 'flex', flexDirection: 'column', gap: 8,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span aria-hidden style={{ fontSize: 16 }}>{meta.flag}</span>
+          <span>
+            Looks like you wrote in <strong>{meta.native}</strong>. Want me to continue in {meta.native}
+            {prevMeta ? <> instead of <strong>{prevMeta.native}</strong></> : null}?
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={onAccept}
+            style={{
+              padding: '6px 10px', borderRadius: 999,
+              background: '#7C3AED', color: 'white', border: 'none',
+              fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            }}
+          >Switch to {meta.native}</button>
+          <button
+            type="button"
+            onClick={onDismiss}
+            style={{
+              padding: '6px 10px', borderRadius: 999,
+              background: 'transparent', color: palette.text, border: `1px solid ${palette.border}`,
+              fontSize: 11, fontWeight: 600, cursor: 'pointer',
+            }}
+          >Keep {prevMeta ? prevMeta.native : 'current'}</button>
+        </div>
+      </div>
+    );
+  }
+  // 'switched' (or resolved drift) → soft notice, no controls.
+  return (
+    <div
+      role="status"
+      style={{
+        margin: '8px 0', padding: '8px 12px',
+        background: palette.bg, border: `1px solid ${palette.border}`,
+        borderRadius: 10, fontSize: 11, color: palette.text,
+        display: 'flex', alignItems: 'center', gap: 8,
+      }}
+    >
+      <span aria-hidden style={{ fontSize: 14 }}>{meta.flag}</span>
+      <span>Switched to <strong>{meta.native}</strong>. Say "switch back to {prevMeta ? prevMeta.native : 'English'}" anytime.</span>
+    </div>
+  );
+}
+
 function Item({
   item, itemIndex, userInitials, onSuggestion,
   onFlowFormSubmit, onFlowConfirm,
@@ -1892,7 +2036,20 @@ function Item({
   busy = false,
   suggestionsDisabled = false, sources = [], onOpenSources,
   tts, sessionLang,
+  onAcceptDrift, onDismissDrift,
 }) {
+  if (item.kind === 'lang_notice') {
+    return (
+      <LangNotice
+        mode={item.mode}
+        lang={item.lang}
+        prevLang={item.prevLang}
+        resolved={item.resolved}
+        onAccept={() => onAcceptDrift?.(item.lang)}
+        onDismiss={() => onDismissDrift?.(item.lang)}
+      />
+    );
+  }
   if (item.kind === 'trace') {
     return <TraceCard route={item.route} intent={item.intent} connectors={item.connectors} />;
   }

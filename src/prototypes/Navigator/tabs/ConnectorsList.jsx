@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Wrench, Bot, BookOpen, ChevronRight, ChevronDown, X, Plus, Power, AlertTriangle, Compass, ExternalLink } from 'lucide-react'
+import React, { useMemo, useState, useEffect } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Wrench, Bot, BookOpen, ChevronRight, ChevronDown, X, Plus, Power, AlertTriangle, Compass, ExternalLink, Sparkles } from 'lucide-react'
 import { LogoChip } from '../components/Catalog'
 import AddConnectorModal from './AddConnectorModal'
 
@@ -18,6 +18,23 @@ export default function ConnectorsList({ connections = [], experts = [], onConne
   const [filter, setFilter] = useState('all') // all | toolkit | handoff | search
   const [expandedId, setExpandedId] = useState(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const suggested = searchParams.get('suggested')
+  const suggestedTopic = searchParams.get('topic')
+
+  // Opening the Add modal automatically when arriving from an analytics CTA.
+  useEffect(() => {
+    if (suggested) setAddOpen(true)
+  }, [suggested])
+
+  function dismissSuggestion() {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete('suggested')
+      next.delete('topic')
+      return next
+    }, { replace: true })
+  }
 
   const counts = useMemo(() => {
     const all = connections.length
@@ -70,6 +87,28 @@ export default function ConnectorsList({ connections = [], experts = [], onConne
           Add connection
         </button>
       </div>
+
+      {suggested && (
+        <div className="bg-[#EFF6FF] border border-[#BFDBFE] rounded-xl px-4 py-3 mb-4 flex items-start gap-3">
+          <Sparkles size={16} className="text-[#2563EB] flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <div className="text-[13px] font-semibold text-[#1E3A8A]">
+              Suggested from Analytics{suggestedTopic ? `: ${suggestedTopic}` : ''}
+            </div>
+            <div className="text-[12px] text-[#1E40AF] mt-0.5">
+              Conversations on this topic struggled to find an authoritative answer. Adding a <span className="font-mono">{suggested}</span> source should help.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={dismissSuggestion}
+            className="text-[#1E40AF] hover:text-[#1E3A8A]"
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Kind filter strip */}
       <div className="inline-flex items-center gap-1 border border-[#E5E7EB] rounded-lg p-0.5 bg-white mb-4">

@@ -147,9 +147,10 @@ async function googleCallback(req, res) {
     const avatarInit   = identity.avatar;                  // gradient-initials fallback
     const avatarUrl    = live?.avatar     || null;         // real Staffbase photo
     const customFields = live?.customFields || {};
+    const googleLocale = typeof info.locale === 'string' && info.locale.length <= 16 ? info.locale : null;
     const rows = await sql`
-      insert into users (staffbase_branch_id, staffbase_user_id, email, display_name, department, title, location, avatar_initials, avatar_url, custom_fields, last_login_at)
-      values (${googleBranchId}, ${identity.id}, ${identity.email}, ${displayName}, ${department}, ${title}, ${location}, ${avatarInit}, ${avatarUrl}, ${JSON.stringify(customFields)}::jsonb, now())
+      insert into users (staffbase_branch_id, staffbase_user_id, email, display_name, department, title, location, avatar_initials, avatar_url, custom_fields, signup_locale, last_login_at)
+      values (${googleBranchId}, ${identity.id}, ${identity.email}, ${displayName}, ${department}, ${title}, ${location}, ${avatarInit}, ${avatarUrl}, ${JSON.stringify(customFields)}::jsonb, ${googleLocale}, now())
       on conflict (staffbase_branch_id, staffbase_user_id) do update
         set email           = excluded.email,
             display_name    = excluded.display_name,
@@ -166,6 +167,8 @@ async function googleCallback(req, res) {
                 then excluded.custom_fields
               else users.custom_fields
             end,
+            -- signup_locale is set-once: keep whatever we recorded at first signup.
+            signup_locale   = coalesce(users.signup_locale, excluded.signup_locale),
             last_login_at   = now()
       returning id
     `;
