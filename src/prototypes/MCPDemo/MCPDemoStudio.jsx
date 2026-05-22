@@ -46,12 +46,12 @@ const SERVERS = [
     base: '/api/mcp-intranet', auth: 'none',
     color: '#059669', icon: Building2,
   },
-  {
-    id: 'staffbase', protocol: 'mcp', name: 'Staffbase Intranet v2',
-    description: 'Full Intranet catalog — channels, posts, search, profiles',
-    base: '/api/mcp-staffbase', auth: 'none',
-    color: '#00C7B2', icon: Server,
-  },
+  // Note: the previous in-process `staffbase` mock (/api/mcp-staffbase) was
+  // retired when the Intranet connector switched to the team's MCP-proxy at
+  // https://campsite.staffbase.com/mcp. To test that, go to Navigator Studio
+  // → Connections → Staffbase Intranet → "Test connection" (uses the same
+  // session-aware proxy with the admin's API token). This explorer kept
+  // local-only servers for isolated testing.
   {
     id: 'atlassian', protocol: 'mcp', name: 'Atlassian Internal',
     description: 'Confluence + Jira — requires real Atlassian OAuth via Companion',

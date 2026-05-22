@@ -41,6 +41,58 @@ function extractSuggestions(text) {
   return { clean, suggestions };
 }
 
+// Per-turn rendering reorder: lift the final assistant framing message to the
+// top of its turn so the chat reads "here's what I found → [cards]" instead
+// of "[cards] → here's what I found". A "turn" runs from one user msg to the
+// next; only the last non-streaming assistant `msg` in the turn is hoisted,
+// and only when there is something visual after it (a tool/card/etc) to
+// frame. Streaming messages stay where they land to avoid mid-render jitter.
+const HOIST_AFTER_KINDS = new Set([
+  'tool', 'card', 'chart', 'flow', 'form',
+  'connector_error', 'connect_prompt',
+  'trivia_question', 'trivia_result', 'trivia_recap',
+]);
+
+function reorderTurnItems(items) {
+  if (!Array.isArray(items) || items.length < 2) return items;
+  const out = [];
+  let turnStart = 0;
+  for (let i = 0; i <= items.length; i++) {
+    const atBoundary = i === items.length
+      || (items[i].kind === 'msg' && items[i].role === 'user');
+    if (!atBoundary || i === turnStart) {
+      if (atBoundary) turnStart = i;
+      continue;
+    }
+    const turn = items.slice(turnStart, i);
+    let lastMsgPos = -1;
+    for (let j = turn.length - 1; j >= 0; j--) {
+      const it = turn[j];
+      if (it.kind === 'msg' && it.role === 'assistant' && !it.streaming) {
+        lastMsgPos = j;
+        break;
+      }
+    }
+    // Only hoist when there's a hoist-worthy item AFTER the framing msg in
+    // arrival order — i.e. something to frame. Otherwise leave order intact.
+    let hoist = false;
+    if (lastMsgPos >= 0) {
+      for (let j = 0; j < lastMsgPos; j++) {
+        if (HOIST_AFTER_KINDS.has(turn[j].kind)) { hoist = true; break; }
+      }
+    }
+    if (hoist) {
+      const [framing] = turn.splice(lastMsgPos, 1);
+      // Insert just after a leading user msg (or at index 0 if none).
+      const userIdx = turn.findIndex((it) => it.kind === 'msg' && it.role === 'user');
+      turn.splice(userIdx + 1, 0, framing);
+    }
+    out.push(...turn);
+    turnStart = i;
+  }
+  return out;
+}
+
 function reduceMessages(rows) {
   const out = [];
   for (const row of rows) {
@@ -88,6 +140,13 @@ function reduceMessages(rows) {
       if (item) {
         try { item.result = JSON.parse(c.content); } catch { item.result = c.content; }
         item.status = item.result?.error ? 'error' : 'done';
+        // The orchestrator strips `cards` from what it sends to the LLM and
+        // injects a `_ui` note in its place — so a `_ui` field is the marker
+        // that a structured card was rendered for this tool. Use it to keep
+        // the ToolCallCard compact on history reloads.
+        if (item.result && typeof item.result === 'object' && typeof item.result._ui === 'string') {
+          item.hasCard = true;
+        }
       }
     } else if (row.role === 'system') {
       if (c.pendingConfirmation && Array.isArray(c.toolCalls)) {
@@ -622,8 +681,16 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
         });
       } else if (evt.type === 'chart_card') {
         next.push({ kind: 'chart', chart: evt.chart, source: evt.source || null });
+        if (evt.toolCallId) {
+          const sib = [...next].reverse().find((i) => i.kind === 'tool' && i.id === evt.toolCallId);
+          if (sib) sib.hasCard = true;
+        }
       } else if (evt.type === 'card') {
         next.push({ kind: 'card', card: evt.card, source: evt.source || null });
+        if (evt.toolCallId) {
+          const sib = [...next].reverse().find((i) => i.kind === 'tool' && i.id === evt.toolCallId);
+          if (sib) sib.hasCard = true;
+        }
       } else if (evt.type === 'conversation_renamed') {
         // Fire-and-forget — the parent updates its conversation list.
         // Use queueMicrotask so we don't setState during this setState.
@@ -980,14 +1047,6 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
               // Only the most recent assistant message's suggestion chips are
               // interactive; once the turn has passed they grey out so the
               // user can't accidentally re-trigger an old prompt.
-              let lastSuggestionIdx = -1;
-              for (let i = items.length - 1; i >= 0; i--) {
-                const it = items[i];
-                if (it.kind === 'msg' && it.role === 'assistant' && it.suggestions?.length > 0 && !it.streaming) {
-                  lastSuggestionIdx = i;
-                  break;
-                }
-              }
               // Render every item inline in arrival order — including tool
               // blocks. Earlier versions bundled tools into a tiny "sources"
               // badge under the next assistant message, which made the tool
@@ -1002,9 +1061,22 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
                 'trace', 'tool', 'flow', 'form', 'card',
                 'connector_error', 'connect_prompt', 'lang_notice',
               ]);
+              const ordered = reorderTurnItems(items);
+              // Only the most recent assistant message's suggestion chips are
+              // interactive; once the turn has passed they grey out so the
+              // user can't accidentally re-trigger an old prompt. Index is in
+              // post-reorder space so it matches the loop below.
+              let lastSuggestionIdx = -1;
+              for (let i = ordered.length - 1; i >= 0; i--) {
+                const it = ordered[i];
+                if (it.kind === 'msg' && it.role === 'assistant' && it.suggestions?.length > 0 && !it.streaming) {
+                  lastSuggestionIdx = i;
+                  break;
+                }
+              }
               const out = [];
-              for (let i = 0; i < items.length; i++) {
-                const item = items[i];
+              for (let i = 0; i < ordered.length; i++) {
+                const item = ordered[i];
                 const node = (
                   <Item
                     key={i}
@@ -2094,6 +2166,7 @@ function Item({
         connectorColor={item.connectorColor}
         degraded={item.degraded}
         citations={item.citations}
+        hasCard={item.hasCard}
       />
     );
   }

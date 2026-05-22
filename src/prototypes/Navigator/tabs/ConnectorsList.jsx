@@ -14,7 +14,17 @@ import AddConnectorModal from './AddConnectorModal'
  *   experts[]                      — for the "Used by" column
  *   onConnectionsChange(updater)   — write-through (status toggle, remove)
  */
-export default function ConnectorsList({ connections = [], experts = [], onConnectionsChange }) {
+export default function ConnectorsList({
+  connections = [],
+  experts = [],
+  onConnectionsChange,
+  // Per-connector settings from navigator_config.tenantOverrides.
+  // connectorSettings. Token is server-redacted — we get { hasToken,
+  // mcpUrl, authMode } back from load(), and only send a non-empty
+  // apiToken when the admin types a new one.
+  connectorSettings = {},
+  onConnectorSettingsChange,
+}) {
   const [filter, setFilter] = useState('all') // all | toolkit | handoff | search
   const [expandedId, setExpandedId] = useState(null)
   const [addOpen, setAddOpen] = useState(false)
@@ -158,9 +168,11 @@ export default function ConnectorsList({ connections = [], experts = [], onConne
                       <td className="px-4 py-3 text-[#52525B]">
                         {c.kind === 'toolkit'
                           ? `${(c.tools || []).length} tools`
-                          : c.kind === 'handoff'
-                            ? 'invoke'
-                            : `search · ${c.articleCount || 0} docs`}
+                          : c.kind === 'remote'
+                            ? `${(c.tools || []).length || '—'} tools · remote MCP`
+                            : c.kind === 'handoff'
+                              ? 'invoke'
+                              : `search · ${c.articleCount || 0} docs`}
                       </td>
                       <td className="px-4 py-3">
                         {using.length === 0
@@ -202,7 +214,12 @@ export default function ConnectorsList({ connections = [], experts = [], onConne
                     {expanded && (
                       <tr className="border-t border-[#F1F5F9] bg-[#FAFAFA]">
                         <td colSpan={6} className="px-5 py-3">
-                          <ExpandedRow connection={c} />
+                          <ExpandedRow
+                            connection={c}
+                            onConnectionsChange={onConnectionsChange}
+                            connectorSettings={connectorSettings}
+                            onConnectorSettingsChange={onConnectorSettingsChange}
+                          />
                         </td>
                       </tr>
                     )}
@@ -260,8 +277,14 @@ function KindButton({ id, icon, label, count, active, onClick }) {
 }
 
 function KindBadge({ kind }) {
-  const Icon = kind === 'toolkit' ? Wrench : kind === 'handoff' ? Bot : BookOpen
-  const label = kind === 'toolkit' ? 'Toolkit' : kind === 'handoff' ? 'Handoff' : 'Search'
+  const Icon = kind === 'toolkit' || kind === 'remote'
+    ? Wrench
+    : kind === 'handoff' ? Bot : BookOpen
+  const label = kind === 'toolkit'
+    ? 'Toolkit'
+    : kind === 'remote'
+      ? 'Remote MCP'
+      : kind === 'handoff' ? 'Handoff' : 'Search'
   const color = kindColor(kind)
   return (
     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10.5px] font-semibold" style={{ background: `${color}1a`, color }}>
@@ -274,6 +297,7 @@ function KindBadge({ kind }) {
 function kindColor(kind) {
   if (kind === 'handoff') return '#F59E0B'
   if (kind === 'search') return '#2563EB'
+  if (kind === 'remote') return '#0EA5E9'
   return '#7C3AED'
 }
 
@@ -289,7 +313,7 @@ function StatusPill({ status }) {
   )
 }
 
-function ExpandedRow({ connection }) {
+function ExpandedRow({ connection, onConnectionsChange, connectorSettings, onConnectorSettingsChange }) {
   const tools = connection.tools || []
   return (
     <div>
@@ -304,6 +328,16 @@ function ExpandedRow({ connection }) {
         {connection.provider && <Field label="OAuth provider" value={connection.provider} />}
         {connection.writeTools?.length > 0 && <Field label="Write tools" value={connection.writeTools.join(', ')} />}
       </div>
+      {connection.kind === 'remote' && onConnectorSettingsChange && (
+        <RemoteMcpSettings
+          connection={connection}
+          settings={connectorSettings?.[connection.id] || {}}
+          onChange={(patch) => onConnectorSettingsChange(connection.id, patch)}
+        />
+      )}
+      {onConnectionsChange && (
+        <RoutingHintsEditor connection={connection} onConnectionsChange={onConnectionsChange} />
+      )}
       {tools.length > 0 && (
         <div className="mt-3">
           <div className="text-[10.5px] font-bold uppercase tracking-wider text-[#94A3B8] mb-1.5">Tools ({tools.length})</div>
@@ -320,6 +354,242 @@ function ExpandedRow({ connection }) {
         </div>
       )}
     </div>
+  )
+}
+
+// Inline editor for the routing-hint fields the Tier-1 orchestrator router
+// reads (useWhen, dontUseFor, examples, keywords). Save-on-blur — no separate
+// "save" button so admins can iterate quickly while testing prompts in chat.
+function RoutingHintsEditor({ connection, onConnectionsChange }) {
+  const [useWhen, setUseWhen] = useState(connection.useWhen || '')
+  const [dontUseFor, setDontUseFor] = useState(connection.dontUseFor || '')
+  const [examples, setExamples] = useState((connection.examples || []).join('\n'))
+  const [keywords, setKeywords] = useState(
+    (connection.keywords && connection.keywords.length
+      ? connection.keywords
+      : connection.domains || []
+    ).join(', ')
+  )
+
+  useEffect(() => {
+    setUseWhen(connection.useWhen || '')
+    setDontUseFor(connection.dontUseFor || '')
+    setExamples((connection.examples || []).join('\n'))
+    setKeywords(
+      (connection.keywords && connection.keywords.length
+        ? connection.keywords
+        : connection.domains || []
+      ).join(', ')
+    )
+  }, [connection.id])
+
+  function save(patch) {
+    onConnectionsChange((prev) =>
+      prev.map((c) => c.id === connection.id ? { ...c, ...patch } : c)
+    )
+  }
+
+  function commitExamples() {
+    const lines = examples
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .slice(0, 6)
+    save({ examples: lines })
+  }
+
+  function commitKeywords() {
+    const tokens = keywords
+      .split(/[,\n]/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .slice(0, 12)
+    save({ keywords: tokens })
+  }
+
+  return (
+    <div className="mt-4 rounded-lg border border-[#E5E7EB] bg-white p-3">
+      <div className="flex items-center gap-2 mb-2">
+        <Sparkles size={12} className="text-[#7C3AED]" />
+        <span className="text-[11px] font-bold uppercase tracking-wider text-[#52525B]">
+          Routing hints
+        </span>
+        <span className="text-[11px] text-[#94A3B8] font-normal">
+          Read by the orchestrator's Tier-1 router to pick this connector over overlapping ones.
+        </span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <HintField
+          label="Use when"
+          placeholder="Hardware, VPN, MFA, software access, security incidents."
+          value={useWhen}
+          onChange={setUseWhen}
+          onBlur={() => save({ useWhen: useWhen.trim().slice(0, 200) })}
+          maxLength={200}
+          rows={3}
+        />
+        <HintField
+          label="Don't use for"
+          placeholder="Project tracking — use Atlassian/Jira for sprints, epics, bugs."
+          value={dontUseFor}
+          onChange={setDontUseFor}
+          onBlur={() => save({ dontUseFor: dontUseFor.trim().slice(0, 160) })}
+          maxLength={160}
+          rows={3}
+        />
+        <HintField
+          label="Example user phrases"
+          placeholder={'My laptop is slow\nI need GitHub access'}
+          value={examples}
+          onChange={setExamples}
+          onBlur={commitExamples}
+          rows={4}
+          hint="One per line · up to 6"
+        />
+        <HintField
+          label="Keywords"
+          placeholder="ticket, helpdesk, vpn, mfa, laptop"
+          value={keywords}
+          onChange={setKeywords}
+          onBlur={commitKeywords}
+          rows={4}
+          hint="Comma-separated · up to 12. Falls back to the connector's built-in domains when empty."
+        />
+      </div>
+    </div>
+  )
+}
+
+// Settings panel for `kind: 'remote'` connectors — captures the MCP server
+// URL + API token (Basic auth). Live in the expanded row so admins can
+// configure without leaving the connector list. The token field is a
+// password input and the stored value never round-trips to the browser
+// (api/navigator-config.mjs strips it on load → we see `hasToken: bool`
+// only). Sending an empty apiToken on save preserves the stored one.
+function RemoteMcpSettings({ connection, settings, onChange }) {
+  const hasToken = Boolean(settings.hasToken)
+  const [mcpUrl, setMcpUrl] = useState(settings.mcpUrl || connection.endpoint || '')
+  const [apiToken, setApiToken] = useState('')
+  const [authMode] = useState(settings.authMode || 'basic')
+  const [testState, setTestState] = useState({ status: 'idle', message: '', tools: 0 })
+
+  useEffect(() => {
+    setMcpUrl(settings.mcpUrl || connection.endpoint || '')
+    setApiToken('')
+  }, [connection.id])
+
+  function commit(patch) {
+    onChange?.(patch)
+  }
+
+  async function testConnection() {
+    setTestState({ status: 'testing', message: 'Calling tools/list…', tools: 0 })
+    try {
+      const res = await fetch('/api/connector-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: mcpUrl,
+          method: 'tools/list',
+          params: {},
+          auth: apiToken
+            ? { type: 'header', headerName: 'Authorization', headerValue: `${authMode === 'cookie' ? `Cookie: ${settings.cookieName || ''}=${apiToken}` : `Basic ${apiToken}`}` }
+            : (hasToken ? { type: 'none' } : { type: 'none' }),
+        }),
+      })
+      const json = await res.json()
+      if (json.ok) {
+        const count = json.result?.tools?.length || 0
+        setTestState({ status: 'ok', message: `Connected — ${count} tools discovered.`, tools: count })
+      } else {
+        setTestState({ status: 'error', message: json.error || 'Test failed', tools: 0 })
+      }
+    } catch (err) {
+      setTestState({ status: 'error', message: err.message || 'Network error', tools: 0 })
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-lg border border-[#E5E7EB] bg-white p-3">
+      <div className="flex items-center gap-2 mb-2">
+        <Wrench size={12} className="text-[#0EA5E9]" />
+        <span className="text-[11px] font-bold uppercase tracking-wider text-[#52525B]">
+          MCP server settings
+        </span>
+        <span className="text-[11px] text-[#94A3B8] font-normal">
+          Remote MCP endpoint + API token. Use a read-only token for demos — admin tokens grant full write access to the app.
+        </span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <label className="block">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8] mb-1">MCP URL</div>
+          <input
+            type="url"
+            value={mcpUrl}
+            onChange={(e) => setMcpUrl(e.target.value)}
+            onBlur={() => commit({ mcpUrl: mcpUrl.trim() })}
+            placeholder="https://campsite.staffbase.com/mcp"
+            className="w-full text-[12px] font-mono px-2 py-1.5 rounded border border-[#E5E7EB] focus:border-[#0EA5E9] focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]/40 text-[#111827] bg-white"
+          />
+        </label>
+        <label className="block">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8] mb-1 flex items-center gap-2">
+            API token
+            {hasToken && !apiToken && (
+              <span className="text-[10px] font-normal text-[#16A34A] normal-case tracking-normal">✓ saved</span>
+            )}
+          </div>
+          <input
+            type="password"
+            value={apiToken}
+            onChange={(e) => setApiToken(e.target.value)}
+            onBlur={() => {
+              if (apiToken) commit({ apiToken, authMode })
+            }}
+            placeholder={hasToken ? '••••••••••••• (leave blank to keep)' : 'Paste API token from /studio/settings/security/api'}
+            autoComplete="new-password"
+            className="w-full text-[12px] font-mono px-2 py-1.5 rounded border border-[#E5E7EB] focus:border-[#0EA5E9] focus:outline-none focus:ring-1 focus:ring-[#0EA5E9]/40 text-[#111827] bg-white"
+          />
+        </label>
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={testConnection}
+          disabled={!mcpUrl || testState.status === 'testing'}
+          className="px-2.5 py-1 text-[11.5px] font-semibold rounded border border-[#E5E7EB] hover:border-[#0EA5E9] hover:text-[#0EA5E9] disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {testState.status === 'testing' ? 'Testing…' : 'Test connection'}
+        </button>
+        {testState.status === 'ok' && (
+          <span className="text-[11.5px] text-[#16A34A]">{testState.message}</span>
+        )}
+        {testState.status === 'error' && (
+          <span className="text-[11.5px] text-[#B91C1C]">{testState.message}</span>
+        )}
+        {!hasToken && !apiToken && testState.status === 'idle' && (
+          <span className="text-[11.5px] text-[#94A3B8]">No token configured — the orchestrator will skip this connector.</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function HintField({ label, value, onChange, onBlur, placeholder, rows = 3, maxLength, hint }) {
+  return (
+    <label className="block">
+      <div className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8] mb-1">{label}</div>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
+        placeholder={placeholder}
+        rows={rows}
+        maxLength={maxLength}
+        className="w-full text-[12px] px-2 py-1.5 rounded border border-[#E5E7EB] focus:border-[#7C3AED] focus:outline-none focus:ring-1 focus:ring-[#7C3AED]/40 text-[#111827] bg-white resize-y"
+      />
+      {hint && <div className="text-[10.5px] text-[#94A3B8] mt-0.5">{hint}</div>}
+    </label>
   )
 }
 
