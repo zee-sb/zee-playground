@@ -118,7 +118,15 @@ export async function streamPost(url, body, onEvent) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok && !res.body) throw new Error(`request failed: ${res.status}`);
+  if (!res.ok) {
+    // Read the body so a JSON error response like `{ "error": "not_signed_in" }`
+    // surfaces as a thrown Error instead of being silently consumed as a no-op
+    // NDJSON event by the reader loop below.
+    let detail = '';
+    try { detail = (await res.text()).slice(0, 200); } catch { /* ignore */ }
+    if (res.status === 401) throw new Error('Please sign in again — your session expired.');
+    throw new Error(`request failed: ${res.status}${detail ? ` ${detail}` : ''}`);
+  }
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
