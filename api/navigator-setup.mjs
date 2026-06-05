@@ -380,16 +380,51 @@ function summariseUsers(users, posts, { usersTotal, groups } = {}) {
       departments: [],
       locations: [],
       customFieldKeys: [],
+      titleValues: [],
+      customFieldValues: {},
       topAuthors: [],
     };
   }
   const deptCounts = new Map();
   const locCounts = new Map();
   const customKeys = new Set();
+  // titleValues: dedup by lowercased key, but keep the first-seen casing for display.
+  const titleByKey = new Map();
+  // customFieldValues: per-field map of lowercased-value → { value (display), count }.
+  const cfValues = new Map();
   for (const u of users) {
     if (u.department) deptCounts.set(u.department, (deptCounts.get(u.department) || 0) + 1);
     if (u.location) locCounts.set(u.location, (locCounts.get(u.location) || 0) + 1);
-    if (u.customFields) for (const k of Object.keys(u.customFields)) customKeys.add(k);
+    if (u.title) {
+      const raw = String(u.title).trim();
+      if (raw) {
+        const key = raw.toLowerCase();
+        const entry = titleByKey.get(key);
+        if (entry) entry.count += 1;
+        else titleByKey.set(key, { name: raw, count: 1 });
+      }
+    }
+    if (u.customFields) {
+      for (const [k, v] of Object.entries(u.customFields)) {
+        customKeys.add(k);
+        if (v == null) continue;
+        // Stringify primitives, flatten one level of arrays. Skip objects (manager
+        // structs, image blobs) — those don't make useful vocabulary.
+        const vals = Array.isArray(v) ? v : [v];
+        for (const item of vals) {
+          if (item == null) continue;
+          if (typeof item === 'object') continue;
+          const raw = String(item).trim();
+          if (!raw || raw.length > 80) continue;
+          const valKey = raw.toLowerCase();
+          if (!cfValues.has(k)) cfValues.set(k, new Map());
+          const inner = cfValues.get(k);
+          const entry = inner.get(valKey);
+          if (entry) entry.count += 1;
+          else inner.set(valKey, { value: raw, count: 1 });
+        }
+      }
+    }
   }
   // If the user directory didn't expose department/location for most users,
   // fall back to group titles as a secondary signal — they often encode the
@@ -419,12 +454,34 @@ function summariseUsers(users, posts, { usersTotal, groups } = {}) {
     .slice(0, 8)
     .map(([name, postCount]) => ({ name, postCount }));
 
+  // Top distinct title strings so the LLM (and Setup UI) can see how this
+  // org actually phrases roles ("CEO" vs "Chief Executive Officer" vs
+  // "Geschäftsführer"). Drop singletons that look like free-form unique
+  // strings rather than role vocabulary, except when the sample is small.
+  const titleEntries = [...titleByKey.values()].sort((a, b) => b.count - a.count);
+  const titleMinCount = users.length >= 30 ? 2 : 1;
+  const titleValues = titleEntries.filter((t) => t.count >= titleMinCount).slice(0, 20);
+
+  // Per-field value distribution. Only keep fields where ≥2 users share a
+  // value — that filters out noisy free-form fields (phone numbers, one-off
+  // bios) and keeps enum-shaped fields like "function" or "office".
+  const customFieldValues = {};
+  for (const [k, inner] of cfValues.entries()) {
+    const entries = [...inner.values()]
+      .filter((e) => e.count >= 2)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+    if (entries.length) customFieldValues[k] = entries;
+  }
+
   return {
     totalUsers: usersTotal ?? users.length,
     sampledUsers: users.length,
     departments: rank(deptCounts).slice(0, 15),
     locations: rank(locCounts).slice(0, 15),
     customFieldKeys: [...customKeys].slice(0, 12),
+    titleValues,
+    customFieldValues,
     topAuthors,
   };
 }

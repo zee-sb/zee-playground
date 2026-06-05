@@ -769,6 +769,8 @@ function WorkspaceOverview({ discovery, condensed = false }) {
   const departments = orgSignals?.departments || []
   const locations = orgSignals?.locations || []
   const topAuthors = orgSignals?.topAuthors || []
+  const titleValues = orgSignals?.titleValues || []
+  const customFieldValues = orgSignals?.customFieldValues || {}
   const totalChannels = channels?.length || 0
   const totalPages = pages?.length || 0
   const totalGroups = groups?.length || 0
@@ -809,6 +811,8 @@ function WorkspaceOverview({ discovery, condensed = false }) {
         <StatCard icon={Languages} label="Languages" value={languages.length} hint={languages.length > 0 ? languages.slice(0, 2).map(localeLabel).join(', ') + (languages.length > 2 ? '…' : '') : null} />
       </div>
 
+      <PeopleVocabularyCard titleValues={titleValues} customFieldValues={customFieldValues} />
+
       {!condensed && (
         <>
           <div className="grid lg:grid-cols-3 gap-4">
@@ -844,7 +848,7 @@ function WorkspaceOverview({ discovery, condensed = false }) {
             <QuestionTypesCard questionTypes={workspace.questionTypes} />
           )}
 
-          {(orgSignals?.customFieldKeys?.length > 0 || workspace?.workspaceFacts?.length > 0) && (
+          {(titleValues.length > 0 || orgSignals?.customFieldKeys?.length > 0 || workspace?.workspaceFacts?.length > 0) && (
             <div className="grid lg:grid-cols-2 gap-4">
               {workspace?.workspaceFacts?.length > 0 && (
                 <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
@@ -859,6 +863,22 @@ function WorkspaceOverview({ discovery, condensed = false }) {
                   </ul>
                 </div>
               )}
+              {titleValues.length > 0 && (
+                <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Users size={14} className="text-[#7C3AED]" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">Titles in this org</span>
+                  </div>
+                  <p className="text-[12px] text-[#71717A] mb-2">How roles are actually phrased in the directory — Navigator uses these terms when looking people up.</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {titleValues.slice(0, 20).map((t) => (
+                      <span key={t.name} title={`${t.count} ${t.count === 1 ? 'person' : 'people'} in the sample`} className="text-[11.5px] px-2 py-0.5 rounded-md bg-[#F5F3FF] border border-[#DDD6FE] text-[#5B21B6] font-medium">
+                        {t.name}<span className="text-[#A1A1AA] font-normal ml-1">{t.count}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               {orgSignals?.customFieldKeys?.length > 0 && (
                 <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
                   <div className="flex items-center gap-2 mb-3">
@@ -866,16 +886,75 @@ function WorkspaceOverview({ discovery, condensed = false }) {
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">Custom profile fields</span>
                   </div>
                   <p className="text-[12px] text-[#71717A] mb-2">Workspace-specific fields detected in user profiles.</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {orgSignals.customFieldKeys.map((k) => (
-                      <span key={k} className="text-[11.5px] px-2 py-0.5 rounded-md bg-[#F5F5F7] border border-[#E4E4E7] text-[#52525B] font-mono">{k}</span>
-                    ))}
+                  <div className="space-y-1.5">
+                    {orgSignals.customFieldKeys.map((k) => {
+                      const vals = customFieldValues[k] || []
+                      return (
+                        <div key={k} className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[11.5px] px-2 py-0.5 rounded-md bg-[#F5F5F7] border border-[#E4E4E7] text-[#52525B] font-mono">{k}</span>
+                          {vals.length > 0 && (
+                            <span className="text-[12px] text-[#52525B]">
+                              {vals.slice(0, 5).map((v) => v.value).join(' · ')}
+                              {vals.length > 5 && <span className="text-[#A1A1AA]"> +{vals.length - 5}</span>}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
             </div>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+function PeopleVocabularyCard({ titleValues, customFieldValues }) {
+  const titles = Array.isArray(titleValues) ? titleValues : []
+  const fieldEntries = Object.entries(customFieldValues || {}).filter(([, v]) => Array.isArray(v) && v.length > 0)
+  if (titles.length === 0 && fieldEntries.length === 0) return null
+  return (
+    <div className="bg-white border border-[#E4E4E7] rounded-2xl p-5 shadow-sm">
+      <div className="flex items-center gap-2 mb-1">
+        <Users size={14} className="text-[#7C3AED]" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-[#71717A]">People vocabulary</span>
+      </div>
+      <p className="text-[12px] text-[#71717A] mb-3">
+        How roles and custom fields are actually phrased in the directory — Navigator uses this when answering questions like
+        <span className="font-medium text-[#3F3F46]"> "who's the CEO" </span>
+        or
+        <span className="font-medium text-[#3F3F46]"> "find someone in marketing"</span>.
+      </p>
+      {titles.length > 0 && (
+        <div className="mb-3">
+          <div className="text-[11px] font-semibold text-[#52525B] mb-1.5">Titles in use ({titles.length})</div>
+          <div className="flex flex-wrap gap-1.5">
+            {titles.slice(0, 20).map((t) => (
+              <span key={t.name} title={`${t.count} ${t.count === 1 ? 'person' : 'people'} in the sample`} className="text-[11.5px] px-2 py-0.5 rounded-md bg-[#F5F3FF] border border-[#DDD6FE] text-[#5B21B6] font-medium">
+                {t.name}<span className="text-[#A1A1AA] font-normal ml-1">{t.count}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {fieldEntries.length > 0 && (
+        <div>
+          <div className="text-[11px] font-semibold text-[#52525B] mb-1.5">Custom profile field values</div>
+          <div className="space-y-1">
+            {fieldEntries.map(([k, vals]) => (
+              <div key={k} className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11.5px] px-2 py-0.5 rounded-md bg-[#F5F5F7] border border-[#E4E4E7] text-[#52525B] font-mono">{k}</span>
+                <span className="text-[12px] text-[#52525B]">
+                  {vals.slice(0, 5).map((v) => v.value).join(' · ')}
+                  {vals.length > 5 && <span className="text-[#A1A1AA]"> +{vals.length - 5}</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   )

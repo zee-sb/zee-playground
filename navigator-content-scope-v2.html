@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Navigator · Content Scope V2 (NAV-1071)</title>
+<style>
+  :root{
+    --teal:#00C7B2; --teal-dark:#00A896; --teal-soft:#E6FAF7;
+    --bg:#F5F5F7; --surface:#FFFFFF; --ink:#1A1A1F; --muted:#6B7280;
+    --line:#E5E7EB; --line-strong:#D1D5DB; --blue:#2563EB; --blue-soft:#EFF4FF;
+    --danger:#DC2626; --danger-soft:#FEF2F2; --amber:#B45309; --amber-soft:#FEF6E7;
+    --radius:12px; --shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.5;
+  }
+  .topbar{
+    background:var(--surface);border-bottom:1px solid var(--line);
+    padding:18px 28px;display:flex;align-items:flex-start;justify-content:space-between;
+  }
+  .topbar h1{font-size:26px;font-weight:800;margin:0;letter-spacing:-.02em}
+  .topbar .sub{color:var(--muted);font-size:14px;margin-top:2px}
+  .topbar .actions{display:flex;gap:18px;align-items:center}
+  .topbar .actions a{color:var(--muted);text-decoration:none;font-size:14px;display:flex;gap:6px;align-items:center}
+  .btn-save{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:14px;font-weight:600;cursor:pointer}
+  .tabs{background:var(--surface);border-bottom:1px solid var(--line);padding:0 28px;display:flex;gap:26px}
+  .tabs a{padding:14px 2px;color:var(--muted);text-decoration:none;font-size:15px;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tabs a.active{color:var(--ink);font-weight:600;border-bottom-color:var(--ink)}
+
+  .wrap{max-width:920px;margin:28px auto;padding:0 24px;display:flex;flex-direction:column;gap:20px}
+
+  /* preview-as control */
+  .preview-bar{
+    display:flex;align-items:center;gap:14px;background:#111827;color:#fff;
+    border-radius:var(--radius);padding:12px 16px;font-size:13px;
+  }
+  .preview-bar .tag{background:rgba(255,255,255,.12);border-radius:6px;padding:3px 8px;font-weight:600;letter-spacing:.02em}
+  .preview-bar .seg{margin-left:auto;display:flex;background:rgba(255,255,255,.10);border-radius:8px;padding:3px}
+  .preview-bar .seg button{background:none;border:none;color:#cbd5e1;font-size:13px;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:600}
+  .preview-bar .seg button.on{background:#fff;color:#111827}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px 26px}
+  .card h2{font-size:18px;font-weight:700;margin:0 0 4px}
+  .card .desc{color:var(--muted);font-size:14px;margin:0 0 18px;max-width:640px}
+  .badge{display:inline-block;background:var(--blue-soft);color:var(--blue);font-size:12px;font-weight:600;border-radius:6px;padding:2px 8px;margin-left:8px;vertical-align:middle}
+
+  .section{padding:18px 0;border-top:1px solid var(--line)}
+  .section:first-of-type{border-top:none;padding-top:4px}
+  .section-head{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+  .section-head h3{font-size:15px;font-weight:700;margin:0}
+  .section-head .icon{width:26px;height:26px;border-radius:7px;background:var(--teal-soft);display:flex;align-items:center;justify-content:center;font-size:14px}
+  .section .hint{color:var(--muted);font-size:13px;margin:0 0 14px 36px}
+
+  .body-indent{margin-left:36px}
+
+  /* segmented radios */
+  .seg-radio{display:flex;gap:10px;flex-wrap:wrap}
+  .seg-radio label{
+    flex:1;min-width:150px;border:1.5px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer;
+    display:flex;align-items:center;gap:10px;background:#fff;transition:all .12s;
+  }
+  .seg-radio label:hover{border-color:var(--line-strong)}
+  .seg-radio label.sel{border-color:var(--teal);background:var(--teal-soft);box-shadow:0 0 0 3px rgba(0,199,178,.12)}
+  .seg-radio input{accent-color:var(--teal);width:16px;height:16px;margin:0}
+  .seg-radio .lbl{font-size:14px;font-weight:600}
+  .seg-radio .sub{font-size:12px;color:var(--muted);font-weight:400}
+
+  /* toggle switch */
+  .switch-row{display:flex;align-items:center;justify-content:space-between;gap:16px;background:var(--amber-soft);border:1px solid #F4E2BE;border-radius:10px;padding:12px 14px;margin-bottom:14px}
+  .switch-row.plain{background:#fff;border:1px solid var(--line)}
+  .switch-row .t{font-size:14px;font-weight:600}
+  .switch-row .s{font-size:12px;color:var(--muted)}
+  .switch{position:relative;width:42px;height:24px;flex:0 0 auto}
+  .switch input{opacity:0;width:0;height:0}
+  .slider{position:absolute;inset:0;background:#cbd5e1;border-radius:999px;transition:.15s;cursor:pointer}
+  .slider:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.15s}
+  .switch input:checked + .slider{background:var(--teal)}
+  .switch input:checked + .slider:before{transform:translateX(18px)}
+
+  /* item picker */
+  .picker{border:1px solid var(--line);border-radius:10px;margin-top:12px;overflow:hidden}
+  .picker .search{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+  .picker .search input{border:none;outline:none;font-size:14px;width:100%;background:none}
+  .picker .list{max-height:230px;overflow:auto}
+  .picker .item{display:flex;align-items:center;gap:11px;padding:10px 14px;border-top:1px solid #F1F2F4;cursor:pointer}
+  .picker .item:first-child{border-top:none}
+  .picker .item:hover{background:#FAFAFB}
+  .picker .item input{accent-color:var(--teal);width:16px;height:16px}
+  .picker .item .meta{margin-left:auto;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .picker .item .stale{color:var(--amber);background:var(--amber-soft);border-radius:5px;padding:1px 6px;font-weight:600}
+  .picker .foot{padding:8px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);display:flex;justify-content:space-between;background:#FCFCFD}
+  .picker .foot a{color:var(--blue);cursor:pointer;text-decoration:none}
+
+  .mode-verb{font-weight:700}
+  .mode-include{color:var(--teal-dark)}
+  .mode-exclude{color:var(--danger)}
+
+  /* freshness */
+  .fresh-opts{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .chip{border:1.5px solid var(--line);background:#fff;border-radius:999px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer}
+  .chip.sel{border-color:var(--teal);background:var(--teal-soft);color:var(--teal-dark)}
+  .date-row{margin-top:12px;display:flex;align-items:center;gap:10px;font-size:14px}
+  .date-row input[type=date]{border:1.5px solid var(--line-strong);border-radius:8px;padding:8px 10px;font-size:14px}
+
+  /* info note (no spaces) */
+  .note{display:flex;gap:12px;background:var(--blue-soft);border:1px solid #D5E2FB;border-radius:10px;padding:14px 16px;font-size:13px;color:#1E40AF}
+  .note .ic{font-size:16px}
+
+  .hidden{display:none !important}
+  .disabled{opacity:.45;pointer-events:none}
+
+  /* summary */
+  .summary{position:sticky;bottom:16px}
+  .summary .card{background:#0F172A;color:#E2E8F0;border:none}
+  .summary h2{color:#fff;display:flex;align-items:center;gap:8px}
+  .summary .pulse{width:8px;height:8px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 0 rgba(0,199,178,.6);animation:pulse 2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,199,178,.5)}70%{box-shadow:0 0 0 8px rgba(0,199,178,0)}100%{box-shadow:0 0 0 0 rgba(0,199,178,0)}}
+  .summary .line{font-size:15px;line-height:1.7;color:#CBD5E1}
+  .summary .line b{color:#fff}
+  .summary .pill{display:inline-block;background:rgba(255,255,255,.08);border-radius:6px;padding:2px 9px;margin:2px 3px;font-size:13px}
+  .summary .pill.inc{background:rgba(0,199,178,.18);color:#5EEAD4}
+  .summary .pill.exc{background:rgba(248,113,113,.16);color:#FCA5A5}
+  .summary .est{margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.1);font-size:13px;color:#94A3B8;display:flex;justify-content:space-between}
+  .summary .est b{color:#fff;font-size:18px}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div>
+      <h1>Navigator</h1>
+      <div class="sub">Configure Navigator settings and preferences</div>
+    </div>
+    <div class="actions">
+      <a href="#">📊 Analytics</a>
+      <a href="#">🎨 Branding</a>
+      <button class="btn-save">Save</button>
+    </div>
+  </div>
+  <div class="tabs">
+    <a href="#">Identity</a>
+    <a href="#" class="active">Knowledge</a>
+    <a href="#">Settings</a>
+  </div>
+
+  <div class="wrap">
+
+    <!-- Prototype-only control -->
+    <div class="preview-bar">
+      <span class="tag">PROTOTYPE</span>
+      <span>Preview this tenant as:</span>
+      <div class="seg" id="tenantSeg">
+        <button data-tenant="spaces" class="on">Has Spaces</button>
+        <button data-tenant="nospaces">No Spaces (flat intranet)</button>
+      </div>
+    </div>
+
+    <!-- MAIN CARD -->
+    <div class="card">
+      <h2>Content Scope <span class="badge">V2 · NAV-1071</span></h2>
+      <p class="desc">Limit what Navigator searches so it answers from current, relevant content — and skips old, broken, or noisy sources. Permissions still apply on top of everything here.</p>
+
+      <!-- SPACES (has-spaces only) -->
+      <div class="section" id="secSpaces">
+        <div class="section-head"><span class="icon">🗂️</span><h3>Spaces</h3></div>
+        <p class="hint">Choose which Spaces Navigator draws News and Pages from.</p>
+        <div class="body-indent">
+          <div class="seg-radio" data-group="spaces">
+            <label class="sel"><input type="radio" name="spaces" value="all" checked><span><span class="lbl">All Spaces</span><br><span class="sub">Everything the user can access</span></span></label>
+            <label><input type="radio" name="spaces" value="include"><span><span class="lbl">Selected only</span><br><span class="sub">Limit to chosen Spaces</span></span></label>
+            <label><input type="radio" name="spaces" value="exclude"><span><span class="lbl">Exclude selected</span><br><span class="sub">All except chosen Spaces</span></span></label>
+          </div>
+          <div id="spacesPicker"></div>
+        </div>
+      </div>
+
+      <!-- NO-SPACES note -->
+      <div class="section hidden" id="secNoSpaces">
+        <div class="note"><span class="ic">ℹ️</span><span>This workspace isn’t organized into Spaces. Scope Navigator directly by <b>news channels</b> and <b>pages</b> below — the controls work exactly the same, just without a Space layer.</span></div>
+      </div>
+
+      <!-- NEWS -->
+      <div class="section" id="secNews">
+        <div class="section-head"><span class="icon">📰</span><h3>News channels</h3></div>
+        <p class="hint">News is the most common source of time-sensitive, quickly-stale content.</p>
+        <div class="body-indent">
+          <div class="switch-row" id="newsAllOffRow">
+            <div><div class="t">Exclude all news</div><div class="s">Navigator ignores every news channel and answers from Pages only.</div></div>
+            <label class="switch"><input type="checkbox" id="excludeAllNews"><span class="slider"></span></label>
+          </div>
+          <div id="newsBody">
+            <div class="seg-radio" data-group="news">
+              <label class="sel"><input type="radio" name="news" value="all" checked><span><span class="lbl">All news channels</span></span></label>
+              <label><input type="radio" name="news" value="include"><span><span class="lbl">Selected only</span></span></label>
+              <label><input type="radio" name="news" value="exclude"><span><span class="lbl">Exclude selected</span></span></label>
+            </div>
+            <div id="newsPicker"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGES -->
+      <div class="section" id="secPages">
+        <div class="section-head"><span class="icon">📄</span><h3>Pages</h3></div>
+        <p class="hint">Curate exactly which pages Navigator can cite.</p>
+        <div class="body-indent">
+          <div class="seg-radio" data-group="pages">
+            <label class="sel"><input type="radio" name="pages" value="all" checked><span><span class="lbl">All pages</span></span></label>
+            <label><input type="radio" name="pages" value="include"><span><span class="lbl">Selected only</span></span></label>
+            <label><input type="radio" name="pages" value="exclude"><span><span class="lbl">Exclude selected</span></span></label>
+          </div>
+          <div id="pagesPicker"></div>
+        </div>
+      </div>
+
+      <!-- FRESHNESS -->
+      <div class="section" id="secFresh">
+        <div class="section-head"><span class="icon">🕒</span><h3>Content freshness</h3></div>
+        <p class="hint">Exclude anything not updated recently, based on its last-modified date.</p>
+        <div class="body-indent">
+          <div class="switch-row plain">
+            <div><div class="t">Only use recently updated content</div><div class="s">Hide stale content from answers regardless of Space, channel, or page.</div></div>
+            <label class="switch"><input type="checkbox" id="freshOn"><span class="slider"></span></label>
+          </div>
+          <div id="freshBody" class="hidden">
+            <div class="fresh-opts" id="freshChips">
+              <span class="chip sel" data-m="6">Last 6 months</span>
+              <span class="chip" data-m="12">Last 12 months</span>
+              <span class="chip" data-m="18">Last 18 months</span>
+              <span class="chip" data-m="24">Last 24 months</span>
+              <span class="chip" data-m="custom">Custom date…</span>
+            </div>
+            <div class="date-row hidden" id="freshDateRow">
+              <span>Exclude content not modified since</span>
+              <input type="date" id="freshDate" value="2024-01-01">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+<script>
+// ---------- sample data ----------
+const SPACES = ["HR & People","IT & Security","Sales","Engineering","Marketing","Frontline Ops","Legal","Regional — EMEA"];
+const NEWS = [
+  {n:"Company News", days:5},{n:"HR Announcements", days:20},{n:"IT Alerts", days:2},
+  {n:"Regional — EMEA", days:60},{n:"Social Club", days:400},{n:"Leadership Blog", days:120}
+];
+const PAGES = [
+  {n:"Employee Handbook", days:40},{n:"Travel Policy", days:15},{n:"Security Standards", days:90},
+  {n:"Org Chart", days:5},{n:"Benefits 2024", days:200},{n:"Old Intranet FAQ", days:920},
+  {n:"Onboarding Guide", days:35},{n:"Brand Guidelines", days:300}
+];
+
+// ---------- state ----------
+const S = {
+  tenant:"spaces",
+  spacesMode:"all", spacesSel:new Set(),
+  excludeAllNews:false, newsMode:"all", newsSel:new Set(),
+  pagesMode:"all", pagesSel:new Set(),
+  freshOn:false, freshMonths:6, freshCustom:"2024-01-01"
+};
+
+// ---------- picker renderer ----------
+function buildPicker(mountId, items, selSet, opts={}){
+  const mount = document.getElementById(mountId);
+  if(!opts.active){ mount.innerHTML=""; return; }
+  const verbClass = opts.mode==="exclude" ? "mode-exclude":"mode-include";
+  const verb = opts.mode==="exclude" ? "Excluding":"Including";
+  let html = `<div class="picker"><div class="search">🔎 <input placeholder="Search ${opts.label}…" data-search="${mountId}"></div><div class="list">`;
+  items.forEach((it,i)=>{
+    const name = typeof it==="string"?it:it.n;
+    const days = typeof it==="string"?null:it.days;
+    const checked = selSet.has(name)?"checked":"";
+    const stale = (days!==null && days>365) ? `<span class="stale">stale · ${Math.round(days/30)}mo</span>`:"";
+    const ago = days!==null?`<span>updated ${days<31?days+"d":Math.round(days/30)+"mo"} ago</span>`:"";
+    html+=`<label class="item" data-row><input type="checkbox" data-pick="${mountId}" value="${name}" ${checked}><span>${name}</span><span class="meta">${stale}${ago}</span></label>`;
+  });
+  html+=`</div><div class="foot"><span><span class="mode-verb ${verbClass}">${verb} ${selSet.size}</span> of ${items.length}</span><span><a data-all="${mountId}">Select all</a> · <a data-none="${mountId}">Clear</a></span></div></div>`;
+  mount.innerHTML=html;
+}
+
+// ---------- summary (removed) ----------
+function renderSummary(){}
+
+// ---------- visibility / logic ----------
+function refresh(){
+  // tenant
+  const isSpaces = S.tenant==="spaces";
+  document.getElementById("secSpaces").classList.toggle("hidden",!isSpaces);
+  document.getElementById("secNoSpaces").classList.toggle("hidden",isSpaces);
+
+  // spaces picker
+  buildPicker("spacesPicker", SPACES, S.spacesSel, {active:S.spacesMode!=="all", mode:S.spacesMode, label:"Spaces"});
+
+  // news
+  document.getElementById("newsBody").classList.toggle("disabled",S.excludeAllNews);
+  document.getElementById("excludeAllNews").checked=S.excludeAllNews;
+  buildPicker("newsPicker", NEWS, S.newsSel, {active:!S.excludeAllNews && S.newsMode!=="all", mode:S.newsMode, label:"channels"});
+
+  // pages
+  buildPicker("pagesPicker", PAGES, S.pagesSel, {active:S.pagesMode!=="all", mode:S.pagesMode, label:"pages"});
+
+  // freshness
+  document.getElementById("freshBody").classList.toggle("hidden",!S.freshOn);
+  document.getElementById("freshDateRow").classList.toggle("hidden",S.freshMonths!=="custom");
+
+  // selected styling on seg-radios
+  document.querySelectorAll(".seg-radio label").forEach(l=>{
+    const inp=l.querySelector("input"); l.classList.toggle("sel",inp.checked);
+  });
+  document.querySelectorAll("#freshChips .chip").forEach(c=>c.classList.toggle("sel",String(S.freshMonths)===c.dataset.m));
+
+  renderSummary();
+}
+
+// ---------- events ----------
+document.getElementById("tenantSeg").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b)return;
+  document.querySelectorAll("#tenantSeg button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); S.tenant=b.dataset.tenant; refresh();
+});
+
+document.addEventListener("change",e=>{
+  if(e.target.name==="spaces"){ S.spacesMode=e.target.value; refresh(); }
+  if(e.target.name==="news"){ S.newsMode=e.target.value; refresh(); }
+  if(e.target.name==="pages"){ S.pagesMode=e.target.value; refresh(); }
+  if(e.target.id==="excludeAllNews"){ S.excludeAllNews=e.target.checked; refresh(); }
+  if(e.target.id==="freshOn"){ S.freshOn=e.target.checked; refresh(); }
+  if(e.target.id==="freshDate"){ S.freshCustom=e.target.value; renderSummary(); }
+  if(e.target.dataset.pick){
+    const map={spacesPicker:S.spacesSel,newsPicker:S.newsSel,pagesPicker:S.pagesSel}[e.target.dataset.pick];
+    if(e.target.checked) map.add(e.target.value); else map.delete(e.target.value);
+    // update foot count without full rebuild (keeps scroll/search)
+    refreshFoot(e.target.dataset.pick); renderSummary();
+  }
+});
+
+document.addEventListener("click",e=>{
+  if(e.target.classList.contains("chip")){ S.freshMonths = e.target.dataset.m==="custom"?"custom":parseInt(e.target.dataset.m); refresh(); }
+  const all=e.target.dataset.all, none=e.target.dataset.none;
+  if(all){ setAll(all,true); } if(none){ setAll(none,false); }
+});
+
+document.addEventListener("input",e=>{
+  if(e.target.dataset.search){
+    const q=e.target.value.toLowerCase();
+    e.target.closest(".picker").querySelectorAll(".item").forEach(it=>{
+      it.style.display = it.textContent.toLowerCase().includes(q)?"":"none";
+    });
+  }
+});
+
+function setAll(mountId,on){
+  const items={spacesPicker:SPACES,newsPicker:NEWS,pagesPicker:PAGES}[mountId];
+  const set={spacesPicker:S.spacesSel,newsPicker:S.newsSel,pagesPicker:S.pagesSel}[mountId];
+  items.forEach(it=>{const n=typeof it==="string"?it:it.n; if(on)set.add(n);else set.delete(n);});
+  const mode={spacesPicker:S.spacesMode,newsPicker:S.newsMode,pagesPicker:S.pagesMode}[mountId];
+  buildPicker(mountId,items,set,{active:true,mode:mode,label:""}); renderSummary();
+}
+function refreshFoot(mountId){
+  const set={spacesPicker:S.spacesSel,newsPicker:S.newsSel,pagesPicker:S.pagesSel}[mountId];
+  const mode={spacesPicker:S.spacesMode,newsPicker:S.newsMode,pagesPicker:S.pagesMode}[mountId];
+  const foot=document.querySelector(`#${mountId} .foot .mode-verb`);
+  if(foot){ foot.textContent=(mode==="exclude"?"Excluding ":"Including ")+set.size; }
+}
+
+refresh();
+</script>
+</body>
+</html>
