@@ -4,3 +4,8 @@ node_modules/
 .env
 .env.local
 .env*.local
+
+# Working artifacts produced during exploration / live-MCP probes (decks,
+# md drafts, JSON dumps). Keep them on disk locally but out of git.
+outputs/
+*.docx

@@ -4,6 +4,11 @@
 // browser CORS. (Named `connector-proxy` rather than `mcp-proxy` because the
 // `/api/mcp-:flavor` rewrite in vercel.json would otherwise capture the path.)
 //
+// Also handles the MCP Streamable HTTP session protocol: if the first hit
+// returns an `Mcp-Session-Id` response header, we replay the requested
+// method with that header set. That covers the Staffbase MCP-proxy and any
+// other 2025-03-26-spec server pasted into the modal.
+//
 // POST /api/connector-proxy
 // Body: { url: "https://...", method?: "tools/list", params?: {}, auth?: {
 //   type: "none" | "bearer" | "header", token?, headerName?, headerValue?
@@ -48,47 +53,93 @@ export default async function handler(req, res) {
     headers[auth.headerName] = auth.headerValue;
   }
 
-  const rpcBody = {
-    jsonrpc: '2.0',
-    id: Date.now(),
-    method,
-    params,
-  };
+  // Step 1 — try the requested method directly. If the endpoint is a
+  // session-mode MCP server (Streamable HTTP), this initial hit will either
+  // respond with an Mcp-Session-Id header (which we then replay against) or
+  // fail with a 4xx telling us to initialize first. Either way step 2 picks
+  // up the slack — single-shot servers just return their result here.
+  let attempt = await postRpc(targetUrl, headers, method, params);
+  if (attempt.networkError) {
+    res.status(502).json({ ok: false, error: `Could not reach endpoint: ${attempt.networkError}` });
+    return;
+  }
 
-  let upstreamRes;
+  // Step 2 — if the upstream looks session-mode, run the MCP initialize
+  // handshake to capture a Mcp-Session-Id, then replay the requested method
+  // with that header set. We treat "got a session id back" OR "got a 4xx
+  // (likely 'session id required')" as the trigger.
+  const needsHandshake =
+    attempt.respSessionId ||
+    (attempt.status >= 400 && attempt.status < 500 && method !== 'initialize');
+
+  if (needsHandshake) {
+    const init = await postRpc(targetUrl, headers, 'initialize', {
+      protocolVersion: '2025-03-26',
+      capabilities: {},
+      clientInfo: { name: 'zee-playground-studio', version: '0.1' },
+    });
+    if (init.networkError) {
+      res.status(502).json({ ok: false, error: `Could not reach endpoint: ${init.networkError}` });
+      return;
+    }
+    if (!init.respSessionId) {
+      // Some servers return the id in the body — fall through and let the
+      // caller see the original error.
+    } else {
+      attempt = await postRpc(targetUrl, { ...headers, 'Mcp-Session-Id': init.respSessionId }, method, params);
+      if (attempt.networkError) {
+        res.status(502).json({ ok: false, error: `Could not reach endpoint: ${attempt.networkError}` });
+        return;
+      }
+    }
+  }
+
+  if (attempt.status >= 400) {
+    res.status(200).json({
+      ok: false,
+      status: attempt.status,
+      error: `Endpoint returned ${attempt.status}: ${attempt.text.slice(0, 200)}`,
+    });
+    return;
+  }
+
+  if (!attempt.parsed) {
+    res.status(200).json({
+      ok: false,
+      error: 'Endpoint did not return a JSON-RPC response',
+      raw: attempt.text.slice(0, 400),
+    });
+    return;
+  }
+  if (attempt.parsed.error) {
+    res.status(200).json({ ok: false, error: attempt.parsed.error.message || JSON.stringify(attempt.parsed.error) });
+    return;
+  }
+  res.status(200).json({ ok: true, result: attempt.parsed.result });
+}
+
+// Shared transport helper used for both the initial hit and the
+// post-handshake replay. Returns a normalized `{ status, text, parsed,
+// respSessionId, networkError? }` so the handler above stays linear.
+async function postRpc(url, baseHeaders, method, params) {
+  const rpcBody = { jsonrpc: '2.0', id: Date.now(), method, params: params || {} };
+  let res;
   try {
-    upstreamRes = await fetch(targetUrl, {
+    res = await fetch(url, {
       method: 'POST',
-      headers,
+      headers: baseHeaders,
       body: JSON.stringify(rpcBody),
-      // Cap the request so a misbehaving endpoint can't hang the serverless fn.
       signal: AbortSignal.timeout(15_000),
     });
   } catch (err) {
-    res.status(502).json({
-      ok: false,
-      error: `Could not reach endpoint: ${err.message || 'network error'}`,
-    });
-    return;
+    return { networkError: err.message || 'network error' };
   }
-
-  const text = await upstreamRes.text();
-  if (!upstreamRes.ok) {
-    res.status(200).json({
-      ok: false,
-      status: upstreamRes.status,
-      error: `Endpoint returned ${upstreamRes.status}: ${text.slice(0, 200)}`,
-    });
-    return;
-  }
-
-  // MCP endpoints sometimes stream — accept either application/json or SSE.
+  const text = await res.text();
+  const respSessionId = res.headers.get('mcp-session-id') || null;
+  const ct = (res.headers.get('content-type') || '').toLowerCase();
   let parsed = null;
-  const ct = (upstreamRes.headers.get('content-type') || '').toLowerCase();
   if (ct.includes('text/event-stream') || text.includes('\ndata:')) {
-    // Pick the last `data:` frame that parses to a JSON-RPC response.
-    const lines = text.split('\n');
-    for (const line of lines) {
+    for (const line of text.split('\n')) {
       const m = line.match(/^data:\s*(.*)$/);
       if (!m) continue;
       try {
@@ -99,20 +150,7 @@ export default async function handler(req, res) {
   } else {
     try { parsed = JSON.parse(text); } catch {}
   }
-
-  if (!parsed) {
-    res.status(200).json({
-      ok: false,
-      error: 'Endpoint did not return a JSON-RPC response',
-      raw: text.slice(0, 400),
-    });
-    return;
-  }
-  if (parsed.error) {
-    res.status(200).json({ ok: false, error: parsed.error.message || JSON.stringify(parsed.error) });
-    return;
-  }
-  res.status(200).json({ ok: true, result: parsed.result });
+  return { status: res.status, text, parsed, respSessionId };
 }
 
 async function readJson(req) {

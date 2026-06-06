@@ -257,6 +257,9 @@ function buildServerPayload(config) {
       name: tenant.name,
       brandColor: tenant.brandColor,
       workspaceUrl: tenant.workspace,
+      // Per-connector settings (Staffbase MCP-proxy URL/token, etc.). Sent
+      // back so the server can persist them alongside the connector list.
+      ...(tenant.connectorSettings ? { connectorSettings: tenant.connectorSettings } : {}),
     },
   };
 }
@@ -558,6 +561,24 @@ export function useConfigStore({ onConflict, branchId = null } = {}) {
   const setExperts = makeArraySetter('experts')
   const setWorkflows = makeArraySetter('workflows')
 
+  // Patch a single connector's settings block (URL, API token, etc.). Lives
+  // under config.tenant.connectorSettings locally — mergeServerConfig flattens
+  // the server's tenantOverrides into config.tenant, and buildServerPayload
+  // re-extracts the connectorSettings on the way back. Sending a patch with
+  // no `apiToken` key preserves the stored token (server merges based on
+  // whether the field is a non-empty string).
+  const setConnectorSettings = useCallback((connectorId, patch) => {
+    if (!connectorId || !patch || typeof patch !== 'object') return;
+    setConfigState((prev) => {
+      const tenant = { ...(prev.tenant || {}) };
+      const cs = { ...(tenant.connectorSettings || {}) };
+      cs[connectorId] = { ...(cs[connectorId] || {}), ...patch };
+      tenant.connectorSettings = cs;
+      schedulePush();
+      return { ...prev, tenant };
+    })
+  }, [schedulePush])
+
   // Local-only reset (legacy) — clears localStorage and re-seeds in memory.
   // Doesn't touch the server. Use `reseed()` for the canonical reset.
   const resetConfig = useCallback(() => {
@@ -656,6 +677,7 @@ export function useConfigStore({ onConflict, branchId = null } = {}) {
     setConnections,
     setExperts,
     setWorkflows,
+    setConnectorSettings,
     // TEMPORARY legacy aliases — remove once Studio UI rename is complete.
     setConnectors: setConnections,
     setFlows: setWorkflows,

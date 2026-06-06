@@ -56,12 +56,12 @@ Walk three things, fast.
 **A. Customer signal gallery (Section D)** — 5 min
 - Read three stickies aloud at random ("Camion — wrong HR email, contradictory replies, can't trigger forms"). Don't editorialize. Let them land.
 
-**B. Stickiness Engine framework (Section B)** — 5 min
-- Trigger: why open it
-- Deliver: does it work
-- Reward: was it worth it
-- Invest: does it learn me
-- "These are loop phases, not a sequence. A feature can sit in multiple — that's fine."
+**B. Three-audience framework (Section B)** — 5 min
+- Staffbase: does this scale us up?
+- Customer: does this enable the admin/CSM?
+- Employee: does this pull them back?
+- "Every column is a path to the same north star — AI MAU. An idea can hit more than one column, but pick the one where it has the biggest first-order impact and note the spillovers."
+- Anchor it for the eng/infra folks: "Scalability, eval gates, cost-to-serve — those live in Staffbase. You have a home on this board."
 
 **C. Current 4 bets (Section E)** — 5 min
 - Read titles and one-line outcomes only. Don't sell them. People will vote later.
@@ -73,11 +73,11 @@ Walk three things, fast.
 ## 0:25 — 0:30 · Solo brainstorm setup (5 min)
 
 **You say:**
-> "For the next 30 minutes, no talking. Open the Miro board. You should already have at least 2 ideas per bucket from pre-work. Now add more.
+> "For the next 30 minutes, no talking. Open the Miro board. You should already have at least 2 ideas per column from pre-work — Staffbase, Customer, Employee. Now add more.
 >
-> Rules: one idea per sticky. Use the template (signal · metric · effort · author). Don't worry about overlap with other people's ideas — duplicates are signal. If you can't think of what fits, look at the customer signals in Section D and drag them into the bucket where they apply.
+> Rules: one idea per sticky. Use the template (signal · MAU story · metric · effort · author). Don't worry about overlap with other people's ideas — duplicates are signal. If you can't think of what fits, look at the customer signals in Section D and drag them into the column where they apply.
 >
-> If you have an idea that doesn't fit any bucket, use the **Wildcards lane**. Don't force-fit.
+> If you have an idea that doesn't fit any of the three audiences, use the **Wildcards lane**. Don't force-fit.
 >
 > Go."
 
@@ -89,19 +89,20 @@ Set a 30-min Miro timer. Put music on (low). Turn on **anonymous mode**.
 
 **Your job during this block:**
 - Don't talk.
-- Watch which buckets are filling slowly. If at minute 15 one bucket is empty, drop in 2-3 of your own seeded ideas to break the freeze.
+- Watch which columns are filling slowly. If at minute 15 one column is empty, drop in 2-3 of your own seeded ideas to break the freeze.
 - At minute 25, send a 5-min warning in the chat.
 
-**Buckets that often go slow:**
-- **Invest** (Memory + admin) often goes underweight because it's less visceral than UI/UX. Be ready to seed.
-- **Trigger** can fill with platitudes ("more notifications!"). When you cluster, push for specificity.
+**Columns that often go slow:**
+- **Staffbase** can feel "not my job" to UX/AI folks — eng/infra people will naturally fill it, but encourage the rest of the team to add ideas about cost, scale, positioning, and capacity. Be ready to seed.
+- **Customer** can fill with surface-level branding asks ("custom slogan"). When you cluster, push toward admin trust and audit visibility — the harder stuff.
+- **Employee** will fill the fastest. The trap is that it fills with platitudes ("better answers!"). When you cluster, push for specificity: *which moment in the conversation, which surface*.
 
 ---
 
 ## 1:00 — 1:15 · Silent walk-the-wall (15 min)
 
 **You say:**
-> "Stop adding. Now silently scroll through every bucket. Read everything. Don't comment yet."
+> "Stop adding. Now silently scroll through every column. Read everything. Don't comment yet."
 
 Turn off anonymous mode now (so authorship becomes visible).
 
@@ -141,8 +142,9 @@ Move to Section G (bet shaping). Take the top **6–8 themes** by dot count.
 
 For each theme, fill in a Bet Card:
 - **Hypothesis** ("If we ___ then ___" — must include a metric)
-- Phase (T / D / R / I — often more than one)
-- Metric to watch (prefer non-LLM-judge: MAU, repeat-use rate, recovery rate, branch activation)
+- Primary audience (Staffbase / Customer / Employee) + spillover audiences
+- **MAU story** — how this ladders up to MAU even if the primary audience isn't Employee (e.g., "Activation Concierge → admins deploy with confidence → more employees see Navigator in a usable state → MAU lifts")
+- Metric to watch (prefer non-LLM-judge: MAU, repeat-use rate, recovery rate, branch activation, time-to-onboard)
 - Confidence 1-5
 - Effort S/M/L/XL
 - Quarter
@@ -163,7 +165,7 @@ For each theme, fill in a Bet Card:
 Move to Section H. Drag the Bet Cards onto the Impact × Effort matrix.
 
 **Frame it clearly:**
-> "Impact here means *expected MAU lift in 2026*, not 'general goodness.' If a bet doesn't have a credible MAU story, that's information."
+> "Impact here means *expected MAU lift in 2026*, not 'general goodness.' A Staffbase-column bet (e.g. eval gates) still has to ladder up to MAU — through unblocking velocity or removing risk. If a bet doesn't have a credible MAU story across any path, that's information."
 
 **Use dot color for confidence:**
 - Green = we know this will move the metric
@@ -225,7 +227,8 @@ Move to Section I.
 
 | If this happens | Do this |
 |---|---|
-| Quiet team — nothing in the buckets | Lower the bar publicly: "I'll put two bad ideas in each bucket right now to show the floor is low." Then do it. |
+| Quiet team — nothing in the columns | Lower the bar publicly: "I'll put two bad ideas in each column right now to show the floor is low." Then do it. |
+| Staffbase column stays empty | Address it directly: "Engineers, infra folks — this is your column. Scalability, cost, eval gates, time-to-onboard. Don't be polite about it." Seed it with the activation backlog and the LLM-as-judge problem. |
 | Loud voice dominates discussion | Switch to silent dot-vote mid-conversation. Voting beats arguing. |
 | Someone is litigating Nav 2.0 itself | "We decided that on May 6. Today is about everything else." If it persists, park it and address 1:1. |
 | Bets are vague ("be better at quality") | Force a specific metric and a specific user moment. "Who, doing what, on what surface." |

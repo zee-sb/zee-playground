@@ -19,6 +19,8 @@ import {
   saveConfig,
   ensureConfigRow,
   RevisionConflictError,
+  redactConnectorSettings,
+  mergeRedactedConnectorSettings,
 } from '../lib/workspace-config.mjs';
 import { getBlueprint, listExperts, createExpert, deleteExpert } from '../lib/blueprints.mjs';
 import { checkConfigHealth } from '../lib/navigator-health.mjs';
@@ -118,13 +120,19 @@ async function handleLoad(req, res) {
       empty: true,
     });
   }
+  // Redact connector API tokens before sending the config to the browser —
+  // the UI only needs `hasToken: true|false` to render the connector card.
+  const safeTenantOverrides = {
+    ...config.tenantOverrides,
+    connectorSettings: redactConnectorSettings(config.tenantOverrides?.connectorSettings),
+  };
   return res.status(200).json({
     branchId: tenant.branchId,
     branchName: tenant.branchName,
     config: {
       connections: config.connections,
       workflows: config.workflows,
-      tenantOverrides: config.tenantOverrides,
+      tenantOverrides: safeTenantOverrides,
     },
     blueprintGroups,
     revision: config.revision,
@@ -154,20 +162,38 @@ async function handleSave(req, res) {
     await ensureConfigRow(tenant.branchId);
   }
 
+  // The browser never sees connector API tokens (see handleLoad's redaction)
+  // so an incoming save() would otherwise blank them out. Merge stored
+  // tokens back in before persisting.
+  const existing = await getConfig(tenant.branchId).catch(() => null);
+  const incomingTenantOverrides = (config.tenantOverrides && typeof config.tenantOverrides === 'object')
+    ? { ...config.tenantOverrides }
+    : {};
+  incomingTenantOverrides.connectorSettings = mergeRedactedConnectorSettings(
+    incomingTenantOverrides.connectorSettings,
+    existing?.tenantOverrides?.connectorSettings,
+  );
+  const configForSave = { ...config, tenantOverrides: incomingTenantOverrides };
+
   const saved = await saveConfig({
     branchId: tenant.branchId,
-    config,
+    config: configForSave,
     baseRevision: baseRevision ?? 1,
     userId: null,
   });
 
+  // Redact tokens on the way out too — same shape the UI gets from handleLoad.
+  const safeTenantOverrides = {
+    ...saved.tenantOverrides,
+    connectorSettings: redactConnectorSettings(saved.tenantOverrides?.connectorSettings),
+  };
   return res.status(200).json({
     branchId: tenant.branchId,
     branchName: tenant.branchName,
     config: {
       connections: saved.connections,
       workflows: saved.workflows,
-      tenantOverrides: saved.tenantOverrides,
+      tenantOverrides: safeTenantOverrides,
     },
     revision: saved.revision,
     updatedAt: saved.updatedAt,
