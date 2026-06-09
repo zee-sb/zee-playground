@@ -1,7 +1,8 @@
-// OpenAI proxy — keeps API key server-side.
-// POST { messages, tools?, model? } → streams OpenAI response chunks as NDJSON.
+// AI chat proxy — keeps API key server-side. Routes to Anthropic via Azure AI
+// Foundry; response is shaped like OpenAI Chat Completions so legacy callers
+// don't notice the swap. POST { messages, tools?, model? } → streams chunks as SSE.
 
-import OpenAI from 'openai';
+import { createAIClient } from '../lib/ai-client.mjs';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -22,20 +23,19 @@ export default async function handler(req, res) {
     return;
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    res.status(500).json({ error: 'OPENAI_API_KEY is not configured on the server' });
+  if (!process.env.AZURE_KEY) {
+    res.status(500).json({ error: 'AZURE_KEY is not configured on the server' });
     return;
   }
 
-  const { messages, tools, model = 'gpt-5-mini' } = req.body || {};
+  const { messages, tools, model } = req.body || {};
 
   if (!messages?.length) {
     res.status(400).json({ error: 'messages array is required' });
     return;
   }
 
-  const client = new OpenAI({ apiKey });
+  const client = createAIClient();
 
   try {
     const params = { model, messages, stream: true };

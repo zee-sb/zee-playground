@@ -7,7 +7,7 @@
 //   POST /api/companion/chat                       → NDJSON orchestrator stream
 //   POST /api/companion/confirm                    → resume paused write-tool turn
 
-import OpenAI from 'openai';
+import { createAIClient } from '../lib/ai-client.mjs';
 import { getUserFromReq } from '../lib/session.mjs';
 import { sql, dbConfigured } from '../lib/db.mjs';
 import { runOrchestratedTurn } from '../lib/orchestrator/index.mjs';
@@ -392,7 +392,7 @@ async function chat(req, res) {
       where conversation_id = ${conversationId}
       order by created_at asc
     `;
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const openai = createAIClient();
     const onAssistantMessage = async (msg) => {
       await sql`
         insert into messages (conversation_id, role, content)
@@ -562,7 +562,7 @@ async function confirm(req, res) {
       where conversation_id = ${conversationId} and role != 'system'
       order by created_at asc
     `;
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const openai = createAIClient();
     const stream = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       stream: true,

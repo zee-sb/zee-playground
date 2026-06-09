@@ -18,7 +18,7 @@
 //   - scaffold-flow              — kept as `scaffold-flow` action name
 //                                  (workflow scaffolder)
 
-import OpenAI from 'openai';
+import { createAIClient } from '../lib/ai-client.mjs';
 import { withStaffbaseContext } from '../lib/staffbase.mjs';
 import {
   getBlueprint,
@@ -229,9 +229,8 @@ async function handleCreateFromDescription(req, res) {
 
     // Step 1 — generate name + icon + description from the user's input.
     emit({ step: 1, totalSteps: 4, label: 'Generating name & icon' });
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error('OPENAI_API_KEY missing');
-    const client = new OpenAI({ apiKey });
+    if (!process.env.AZURE_KEY) throw new Error('AZURE_KEY missing');
+    const client = createAIClient();
 
     const namingResp = await client.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -513,7 +512,7 @@ async function handleScaffoldWorkflow(req, res) {
     }
   }
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const openai = createAIClient();
   const sys = `You are a workflow designer for an enterprise assistant. Output JSON only.
 
 Step types:

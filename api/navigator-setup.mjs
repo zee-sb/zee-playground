@@ -16,7 +16,7 @@
 // GET /api/navigator-setup?action=search-preview&query=<term>
 //   Thin pass-through to searchPosts for the gap-detection widget.
 
-import OpenAI from 'openai';
+import { createAIClient } from '../lib/ai-client.mjs';
 import {
   listChannels, listRecentPosts, listUsers, searchPosts, getPost,
   listPages, listGroups, getUsersTotal, getBranch,
@@ -489,9 +489,8 @@ function summariseUsers(users, posts, { usersTotal, groups } = {}) {
 // ── Pass A: workspace overview + glossary + main instructions ──────────────
 
 async function passAWorkspace({ channels, topPosts, deepPosts, orgSignals, languages, pages, groups, audienceOverride }) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
-  const client = new OpenAI({ apiKey });
+  if (!process.env.AZURE_KEY) throw new Error('AZURE_KEY is not configured');
+  const client = createAIClient();
 
   const compactChannels = channels.map((c) => ({
     id: c.id, title: c.title, postCount: c.sampledPostCount,
@@ -640,9 +639,8 @@ function buildFallbackWorkspace({ channels, orgSignals, languages, audienceOverr
 // ── Pass B: Assistant proposal ─────────────────────────────────────────────
 
 async function passBAssistants({ channels, topPosts, deepPosts, orgSignals, languages, workspace, pages, groups, baseApiUrl, existingCoverage }) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
-  const client = new OpenAI({ apiKey });
+  if (!process.env.AZURE_KEY) throw new Error('AZURE_KEY is not configured');
+  const client = createAIClient();
 
   const compactChannels = channels.map((c) => ({
     id: c.id, title: c.title, description: (c.description || '').slice(0, 120), postCount: c.sampledPostCount,
@@ -870,9 +868,8 @@ async function handleUpdateMainInstructions(req, res) {
 // update-main-instructions with the result if the user accepts.
 
 async function handleOptimizeMainInstructions(req, res) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return res.status(503).json({ error: 'openai_not_configured', code: 'openai_missing' });
+  if (!process.env.AZURE_KEY) {
+    return res.status(503).json({ error: 'azure_key_not_configured', code: 'azure_key_missing' });
   }
   const body = await readJsonBody(req);
   const draft = typeof body.mainInstructions === 'string' ? body.mainInstructions : null;
@@ -918,7 +915,7 @@ async function handleOptimizeMainInstructions(req, res) {
     workspaceContext = { audience: bodyAudience };
   }
 
-  const client = new OpenAI({ apiKey });
+  const client = createAIClient();
   const system = loadDiscoveryPrompt('optimize-main');
 
   const response = await client.chat.completions.create({
