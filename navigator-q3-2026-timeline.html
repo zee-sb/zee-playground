@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Navigator — Q3 2026 Delivery Timeline</title>
+<style>
+  :root{
+    color-scheme: light;
+    --bg:#F5F5F7; --surface:#FFFFFF; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0;
+    --teal:#00C7B2; --amber:#f59e0b; --green:#16a766; --slate:#64748b; --red:#ef4444;
+    --col:64px; --lanew:236px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1280px;margin:0 auto;padding:22px 20px 60px;}
+  h1{font-size:22px;margin:0 0 2px;letter-spacing:-.2px}
+  .sub{color:var(--muted);margin:0 0 16px;font-size:13px}
+  .banner{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:10px;padding:10px 14px;font-size:12.5px;margin:0 0 16px}
+  .banner b{color:#7c2d12}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:0 0 14px;font-size:12px;color:var(--muted)}
+  .lg{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:14px;height:14px;border-radius:4px;display:inline-block}
+  .sw.ip{background:var(--teal)} .sw.disc{background:var(--amber)} .sw.open{background:var(--slate)}
+  .sw.del{background:var(--green)}
+  .sw.gate{background:#fff;border:2px solid var(--teal)}
+
+  .board{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:auto;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .grid{min-width:calc(var(--lanew) + var(--col)*12);}
+  .months,.weeks{display:grid;grid-template-columns:var(--lanew) repeat(12,var(--col));position:sticky;top:0;z-index:5;background:var(--surface)}
+  .months>div,.weeks>div{border-bottom:1px solid var(--line);padding:7px 8px;font-size:11px;color:var(--muted);text-align:center}
+  .months>div{font-weight:700;color:var(--ink);font-size:12.5px;border-left:1px solid var(--line)}
+  .months .corner,.weeks .corner{position:sticky;left:0;background:var(--surface);z-index:6;text-align:left;border-left:none}
+  .months .corner{font-size:13px;color:var(--ink)}
+  .mJul{grid-column:2 / span 4} .mAug{grid-column:6 / span 4} .mSep{grid-column:10 / span 4}
+  .weeks>div{border-left:1px solid #eef2f6}
+
+  .lane{display:grid;grid-template-columns:var(--lanew) repeat(12,var(--col));border-top:1px solid var(--line)}
+  .lane:hover{background:#fafbfc}
+  .lanehead{position:sticky;left:0;background:var(--surface);z-index:4;padding:10px 12px;border-right:1px solid var(--line)}
+  .lane:hover .lanehead{background:#fafbfc}
+  .bet{font-weight:700;font-size:13px}
+  .betmeta{font-size:11px;color:var(--muted);margin-top:2px}
+  .track{grid-column:2 / span 12;position:relative;display:grid;grid-template-columns:repeat(12,var(--col));grid-auto-rows:30px;row-gap:6px;padding:9px 0;}
+  .track::before{content:"";position:absolute;inset:0;background-image:repeating-linear-gradient(90deg,transparent,transparent calc(var(--col) - 1px),#eef2f6 calc(var(--col) - 1px),#eef2f6 var(--col));pointer-events:none}
+  .bar{position:relative;height:30px;border-radius:7px;padding:0 9px;display:flex;align-items:center;font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;box-shadow:0 1px 1px rgba(0,0,0,.06)}
+  .bar.ip{background:var(--teal);color:#06302a}
+  .bar.disc{background:var(--amber);color:#3d2600}
+  .bar.open{background:#cbd5e1;color:#1e293b}
+  .bar.del{background:var(--green);color:#06281a}
+  .bar.gate{box-shadow:0 0 0 2px #06302a inset, 0 1px 2px rgba(0,0,0,.12)}
+  .bar .tip{visibility:hidden;opacity:0;transition:.12s;position:absolute;left:0;top:34px;z-index:20;width:260px;background:#0f172a;color:#fff;border-radius:8px;padding:9px 11px;font-weight:400;font-size:11.5px;line-height:1.4;white-space:normal;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+  .bar:hover .tip{visibility:visible;opacity:1}
+  .bar .tip b{color:var(--teal)}
+  .flag{font-size:10px;margin-left:6px;opacity:.85}
+  .footnote{color:var(--muted);font-size:11.5px;margin-top:14px}
+  .cp{display:inline-block;background:#ecfeff;border:1px solid #a5f3fc;color:#0e7490;border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Navigator — Q3 2026 Delivery Timeline</h1>
+  <p class="sub">Five product bets · epic-level deliverables sequenced by dependency · Jul–Sep 2026 · constructed plan, not Jira dates</p>
+
+  <div class="banner">
+    <b>Scope:</b> the five product bets — 01 Conversation · 03 Analytics · 05 Orchestration · 02 Assistants · 04 Concierge. (BET-00 Tech Enablement and the externally-gated BET-06 / BET-07 are out of this view.)
+    <b>Why it's a plan, not a readout:</b> Navigator epics carry no due dates in Jira today (only NAV-216 had one, already past), so this is sequenced from each initiative's MVP scope and dependency graph — planning targets to confirm in sprint planning.
+  </div>
+
+  <div class="legend">
+    <span class="lg"><i class="sw ip"></i>In Progress</span>
+    <span class="lg"><i class="sw del"></i>Delivery</span>
+    <span class="lg"><i class="sw disc"></i>Problem Discovery</span>
+    <span class="lg"><i class="sw open"></i>Open / planned</span>
+    <span class="lg"><i class="sw gate"></i>Trust / prod gate (★)</span>
+    <span class="lg"><span class="cp">→</span> dependency</span>
+  </div>
+
+  <div class="board"><div class="grid" id="grid"></div></div>
+
+  <p class="footnote">
+    <b>Critical path:</b> BET-01 experience foundation + BET-03 Evals 2.0 (the trust gate) ship first →
+    BET-05 orchestration ("the brain") matures → BET-02 &amp; BET-04 run together on the shared AI-generation engine.
+    BET-01's rich-card envelope (1.6) renders BET-05 tool results. <b>Out of Q3:</b> BET-02 §2.4 per-Expert tool hooks (blocked by BET-05 §5.2) lands Q4.
+    Hover any bar for scope, status, owner and dependencies.
+  </p>
+</div>
+
+<script>
+const BETS = [
+  {key:"BET-01", pi:"PI-152", name:"Conversation 2.0", owner:"Khaled", st:"In Progress",
+   epics:[
+     {l:"1.2 Stable transport", c:1, s:3, st:"ip", tip:"No mid-session drops on websocket failure. The experience foundation everything else sits on."},
+     {l:"1.3 Drop live voice", c:1, s:2, st:"ip", tip:"Retire the live-voice path that breaks demos on mobile."},
+     {l:"1.4 Source citing", c:3, s:3, st:"open", tip:"Accurate inline citations instead of link dumps."},
+     {l:"1.1 Continuity (history+restore)", c:5, s:4, st:"open", tip:"History view + restore a conversation. Returning-users lever."},
+     {l:"1.5 LLM follow-up Qs", c:6, s:3, st:"open", tip:"Tailored next questions per conversation."},
+     {l:"1.6 Rich UI cards", c:7, s:4, st:"open", tip:"Structured cards + buttons. The envelope that renders BET-05 tool results in chat."},
+   ]},
+  {key:"BET-03", pi:"PI-305", name:"Actionable Analytics", owner:"Zee", st:"Open",
+   epics:[
+     {l:"Conversation logs (NAV-216)", c:1, s:2, st:"del", tip:"Raw material for charts + evals. Already in Delivery."},
+     {l:"3.1 Evals 2.0", c:2, s:6, st:"open", gate:true, tip:"The trust gate. Accurate, trustworthy quality measurement replacing LLM-as-judge. Cross-cuts PI-163 (AI Quality Gates, Martin). Gates confident shipping in BET-02/04/05."},
+     {l:"3.2 Aggregated charts", c:6, s:3, st:"open", tip:"Resolution rate, topic clusters, satisfaction per assistant/audience/time."},
+     {l:"3.3 Feedback + signals", c:8, s:3, st:"open", tip:"Per-turn + per-conversation ratings, free-text, quality signals."},
+     {l:"3.4 Suggested actions", c:10, s:3, st:"open", tip:"Turn each signal into a recommended move (cover gap, create Expert, refresh source). Feeds BET-04 config (later)."},
+   ]},
+  {key:"BET-05", pi:"PI-307", name:"MCP + A2A Orchestration", owner:"Khaled", st:"In Progress",
+   epics:[
+     {l:"5.1 Orchestration layer (brain)", c:2, s:5, st:"ip", tip:"Route tools, agents and per-user context to best-fit handler. The brain that BET-02 routing depends on."},
+     {l:"5.2 MCP client + discovery", c:6, s:3, st:"open", tip:"Connect to customer MCP servers; understand tools/resources/prompts."},
+     {l:"5.3 A2A handoff", c:8, s:2, st:"open", tip:"Hand off to customer-owned A2A-compliant agents."},
+     {l:"5.4 Connector placement", c:9, s:2, st:"open", tip:"Admin chooses global vs per-Expert connector availability."},
+     {l:"5.5 Identity / RBAC passthrough", c:10, s:3, st:"open", gate:true, tip:"Per-user auth; connector RBAC enforced. Blocking for prod rollout."},
+   ]},
+  {key:"BET-02", pi:"PI-304", name:"Assistants 2.0", owner:"Zee", st:"Open",
+   epics:[
+     {l:"2.1 Use-case templates", c:5, s:3, st:"open", tip:"Pre-built Experts (HR, IT, Benefits, Onboarding). Shares AI-gen engine with BET-04."},
+     {l:"2.2 Smart setup & content", c:7, s:3, st:"open", tip:"Suggest relevant intranet content + starter instructions per Expert."},
+     {l:"2.3 Group targeting", c:9, s:3, st:"open", tip:"Many Experts scoped to group sets (e.g. German managers in Product). Needs IDAM/user groups. (§2.4 tool hooks → Q4, blocked by BET-05 5.2.)"},
+   ]},
+  {key:"BET-04", pi:"PI-306", name:"Navigator Concierge", owner:"Filip", st:"Problem Discovery",
+   epics:[
+     {l:"4.1 Company & audience", c:5, s:3, st:"disc", tip:"Who the company is + audience types → system-prompt grounding. Shares AI-gen infra with BET-02 (2.2)."},
+     {l:"4.2 Structural scan", c:6, s:3, st:"disc", tip:"News, spaces, groups, profile fields — decode meaning + group descriptions."},
+     {l:"4.3 Topics", c:8, s:2, st:"open", tip:"Most-popular topics + top search queries; powers 'what can I help with?'."},
+     {l:"4.4 Glossary", c:9, s:2, st:"open", tip:"Company vocabulary mined from titles, channels, profile-field codes."},
+     {l:"4.5 Granular scoping 2.0", c:10, s:3, st:"open", tip:"Admins exclude noisy/outdated content without restructuring the intranet."},
+   ]},
+];
+
+const grid = document.getElementById('grid');
+grid.insertAdjacentHTML('beforeend',
+  '<div class="months"><div class="corner">Bet / Initiative</div>'
+  + '<div class="mJul">JULY</div><div class="mAug">AUGUST</div><div class="mSep">SEPTEMBER</div></div>');
+let wk='<div class="weeks"><div class="corner"></div>';
+['1','2','3','4','1','2','3','4','1','2','3','4'].forEach(w=>wk+='<div>W'+w+'</div>');
+wk+='</div>'; grid.insertAdjacentHTML('beforeend', wk);
+
+BETS.forEach(b=>{
+  let lane='<div class="lane"><div class="lanehead"><div class="bet">'+b.key+'</div>'
+    +'<div class="betmeta">'+b.name+' · '+b.owner+' · '+b.st+'<br>'+b.pi+'</div></div>';
+  lane+='<div class="track">';
+  b.epics.forEach(e=>{
+    const cls='bar '+e.st+(e.gate?' gate':'');
+    lane+='<div class="'+cls+'" style="grid-column:'+e.c+' / span '+e.s+'">'
+      +e.l+(e.gate?'<span class="flag">★</span>':'')
+      +'<span class="tip"><b>'+e.l+'</b><br>'+e.tip+'</span></div>';
+  });
+  lane+='</div></div>';
+  grid.insertAdjacentHTML('beforeend', lane);
+});
+</script>
+</body>
+</html>
