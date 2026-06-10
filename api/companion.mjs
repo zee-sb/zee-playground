@@ -10,7 +10,7 @@
 import { createAIClient } from '../lib/ai-client.mjs';
 import { getUserFromReq } from '../lib/session.mjs';
 import { sql, dbConfigured } from '../lib/db.mjs';
-import { runOrchestratedTurn } from '../lib/orchestrator/index.mjs';
+import { runOrchestratedTurn, repairToolPairing } from '../lib/orchestrator/index.mjs';
 import { CONNECTORS } from '../lib/connector-registry.mjs';
 import { loadStudio, materializeActiveScope, userToAudience } from '../lib/studio-config.mjs';
 import { listConnectionsForUser } from '../lib/connections.mjs';
@@ -568,7 +568,7 @@ async function confirm(req, res) {
       stream: true,
       messages: [
         { role: 'system', content: 'Briefly confirm what just happened, citing IDs/URLs from the tool result. One or two sentences. Then end with a <suggestions>["...","...","..."]</suggestions> block.' },
-        ...historyRows.map(rowToOpenAi).filter(Boolean),
+        ...repairToolPairing(historyRows.map(rowToOpenAi).filter(Boolean)),
       ],
     });
     let finalText = '';
