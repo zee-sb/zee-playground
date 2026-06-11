@@ -52,6 +52,7 @@ export const PERSONAS = [
       'What changed in the works council agreement on remote work?',
       'Where is the latest salary bands document?',
       'How do I order a laptop for a new intern?',
+      'My laptop screen is flickering — can someone fix it?',
     ],
   },
 ]
@@ -253,6 +254,27 @@ const LAPTOP_ORDER_SCRIPT = [
   } },
 ]
 
+// Agent handoff (A2A) — the IT Virtual Agent is just another source in the
+// Studio; here the employee sees a labeled takeover and a labeled return.
+const HARDWARE_REPAIR_SCRIPT = [
+  { delay: 500, part: { type: 'progress', stepDelay: 900, steps: [
+    { label: 'Recognized this as a hardware repair' },
+    { label: 'The IT Virtual Agent handles repairs — handing over' },
+  ] } },
+  { delay: 400, part: { type: 'handoff', state: 'active', agent: 'IT Virtual Agent',
+    text: 'The IT Virtual Agent has taken over this conversation. It only sees this chat — Navigator takes back over when it’s done.' } },
+  { delay: 1100, part: { type: 'agentText', agent: 'IT Virtual Agent',
+    text: 'Hi Jonas — sorry about the screen. I’ve booked a repair slot: bring the laptop to the IT desk (Berlin, 4th floor) tomorrow 9:00–12:00. A loaner will be ready for you. Reference: ITVA-2291.' } },
+  { delay: 900, part: { type: 'handoff', state: 'returned', agent: 'IT Virtual Agent',
+    text: 'Back with Navigator. Your repair is booked under ITVA-2291 — I’ll remind you tomorrow morning.' } },
+  { delay: 200, part: { type: 'engineRoom', lines: [
+    'handoff: a2a → it-virtual-agent (agent card v0.3)',
+    'scope: this conversation only · identity: agent (own)',
+    'tier: trigger — takeover previewed in the progress narrative',
+    'returned with structured outcome: repair_booked ITVA-2291',
+  ] } },
+]
+
 // ── Matching ─────────────────────────────────────────────────────────────────
 
 const SCRIPTS = [
@@ -264,6 +286,7 @@ const SCRIPTS = [
   { id: 'salary-bands',     keywords: ['salary band', 'salary bands', 'compensation bands'],                         persona: 'jonas', steps: SALARY_BANDS_SCRIPT },
   { id: 'laptop',           keywords: ['laptop for a new intern', 'laptop for an intern', 'order a laptop'],         persona: 'jonas', steps: LAPTOP_SCRIPT },
   { id: 'laptop-order',     keywords: ['order the intern laptop now'],                                               persona: 'jonas', steps: LAPTOP_ORDER_SCRIPT },
+  { id: 'hardware-repair',  keywords: ['screen is flickering', 'laptop screen', 'hardware repair', 'repair my laptop'], persona: 'jonas', steps: HARDWARE_REPAIR_SCRIPT },
 ]
 
 export function matchScript(text, persona, ctx) {

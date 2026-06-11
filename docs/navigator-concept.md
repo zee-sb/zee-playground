@@ -19,7 +19,7 @@ Everything an admin touches collapses into two objects. Everything else is engin
 
 ### Sources & Actions — what Navigator can see and do
 
-One entry per connected **system** (Staffbase, SharePoint, Workday, ServiceNow…), never per protocol. Whether a system speaks MCP or a classic API is invisible; what the admin sees per connection:
+One entry per connected **system** (Staffbase, SharePoint, Workday, ServiceNow…), never per protocol. External agents (A2A handoffs) are not a separate concept either — an agent is just another source whose capability is "takes over conversations about X," with Trigger-tier semantics and its own scoped identity. Whether a system speaks MCP or a classic API is invisible; what the admin sees per connection:
 
 | Facet | What the admin sees | What the admin decides |
 |---|---|---|
@@ -58,7 +58,7 @@ The second object holds policy, not plumbing:
 
 ## 3. The learning loop — the Studio's actual job
 
-The Studio's home page is the **question log**, not a builder. Setup is the first lap of a loop that never stops:
+The Studio's home page is the **Overview**: the question log, the analytics that matter (questions, answered-with-citations rate, escalations, top gap), and **setup health** on one surface. Navigator continuously derives "in tune" checks across the whole config — a bundle leaning on a degraded source, a cite-or-refuse domain with no backing content, a process submitting to a system whose write capability is still Assist-tier, an escalation route pointing at nothing — each rendered as a plain sentence with a one-click fix. The admin never has to deduce whether settings and reality have drifted apart; the Studio says so and offers the repair. Setup is the first lap of a loop that never stops:
 
 - **Day 0:** connect Staffbase. Navigator answers from intranet content with citations. That's the whole minimum setup — one decision, value before configuration.
 - **Continuously:** Navigator clusters real questions and surfaces demand: *"17 people asked about parking permits this week. No source covers it. Draft answer attached — approve, edit, or route to Facilities?"* Gaps, stale-content flags, repeated escalations, and candidate capability bundles all arrive as **proposals the admin reviews**, not blank forms the admin fills.

@@ -8,14 +8,23 @@ import { useCallback, useEffect, useState } from 'react'
  * localStorage so the UI paints immediately, write through on every
  * mutation, cross-tab sync via the `storage` event.
  *
+ * Two seeds:
+ *   buildV2Seed()   — full demo data (setup.stage = 'demo')
+ *   buildDay0Seed() — fresh tenant   (setup.stage = 'day0' → 'connected')
+ *
+ * Cross-cutting layer: deriveTuneChecks(config) — a pure function that
+ * computes whether the whole config is "in tune" (sources, policies,
+ * processes, packs, terminology, escalation routes all consistent).
+ * Rendered as the Setup health strip on the Overview tab; each finding
+ * carries either a one-click fix descriptor or a deep-link.
+ *
  * Server seam: `fetchServerV2` / `pushServerV2` are intentional no-op
  * stubs. When a `/api/navigator-v2-config` endpoint exists, implement the
- * two transports below and the rest of the hook works unchanged (the
- * background-fetch + debounced-push effects are already wired to them).
+ * two transports below and the rest of the hook works unchanged.
  */
 
 export const V2_STORAGE_KEY = 'navigatorV2Config'
-export const V2_VERSION = 4
+export const V2_VERSION = 5
 
 // ── Server seam (intentionally inert) ───────────────────────────────────────
 // GET  /api/navigator-v2-config?action=load   → { config, revision }
@@ -46,69 +55,99 @@ export const TIER_OPTIONS = [
 
 export const TONE_PRESETS = ['Friendly & concise', 'Formal', 'Plainspoken frontline']
 
-// ── Seed ─────────────────────────────────────────────────────────────────────
+// ── Source catalog ───────────────────────────────────────────────────────────
+// One entry per SYSTEM (or external agent), never per protocol. Day-0 connect
+// and the demand-driven suggestions both clone from here, so the two seeds
+// can't drift apart.
+
+export const SOURCE_DEFS = {
+  staffbase: {
+    id: 'staffbase', kind: 'system', name: 'Staffbase Intranet', color: '#00C7B2',
+    health: 'connected',
+    identity: 'service', identityOptions: ['service'],
+    engineRoom: 'engine room: native API · campsite.staffbase.com · content + directory scopes',
+    capabilities: [
+      { id: 'sb-answer',  label: 'Answer questions from news, pages & policies', write: false, tier: 'assist' },
+      { id: 'sb-people',  label: 'Look up people in the directory',              write: false, tier: 'assist' },
+      { id: 'sb-comment', label: 'Post a comment or reply on your behalf',       write: true,  tier: 'trigger' },
+    ],
+  },
+  sharepoint: {
+    id: 'sharepoint', kind: 'system', name: 'SharePoint', color: '#0EA5E9',
+    health: 'degraded',
+    healthNote: 'Auth token expired 2h ago — retrieval paused. Employees are told: “I can’t verify SharePoint content right now.” No stale answers are served.',
+    identity: 'employee', identityOptions: ['employee', 'service'],
+    engineRoom: 'engine room: MCP · sharepoint-mcp v1.4 · Graph delegated scopes',
+    capabilities: [
+      { id: 'sp-search', label: 'Search policy & procedure documents', write: false, tier: 'assist' },
+      { id: 'sp-meta',   label: 'Check document owner & freshness',    write: false, tier: 'assist' },
+    ],
+  },
+  workday: {
+    id: 'workday', kind: 'system', name: 'Workday', color: '#F59E0B',
+    health: 'connected',
+    identity: 'employee', identityOptions: ['employee', 'service'],
+    engineRoom: 'engine room: MCP · workday-mcp v2.1 · 14 tools exposed',
+    capabilities: [
+      { id: 'wd-balance', label: 'Look up time-off balances',                 write: false, tier: 'assist' },
+      { id: 'wd-leave',   label: 'Submit a leave request, acting as you',     write: true,  tier: 'trigger' },
+      { id: 'wd-data',    label: 'Update personal data (address, bank)',      write: true,  tier: 'trigger' },
+      { id: 'wd-payslip', label: 'Explain your payslip line by line',         write: false, tier: 'assist' },
+    ],
+  },
+  servicenow: {
+    id: 'servicenow', kind: 'system', name: 'ServiceNow', color: '#10B981',
+    health: 'connected',
+    identity: 'employee', identityOptions: ['employee', 'service'],
+    engineRoom: 'engine room: REST API · now-bridge v3 · ITSM + HRSD tables',
+    capabilities: [
+      { id: 'sn-status', label: 'Check the status of your tickets',          write: false, tier: 'assist' },
+      { id: 'sn-create', label: 'Open an IT ticket on your behalf',          write: true,  tier: 'trigger' },
+      { id: 'sn-reset',  label: 'Reset your password after verification',    write: true,  tier: 'execute' },
+    ],
+  },
+  personio: {
+    id: 'personio', kind: 'system', name: 'Personio', color: '#7C3AED',
+    health: 'connected',
+    identity: 'employee', identityOptions: ['employee'],
+    engineRoom: 'engine room: MCP · personio-mcp v0.9 · read + absence scopes',
+    capabilities: [
+      { id: 'pe-contract', label: 'Look up your contract & tariff details', write: false, tier: 'assist' },
+      { id: 'pe-bank',     label: 'Update your bank details',               write: true,  tier: 'trigger' },
+    ],
+  },
+  // External agents are just another source — same card, same tiers, same
+  // health. A handoff is Trigger-semantics: the employee confirms before the
+  // agent takes the conversation over.
+  'it-agent': {
+    id: 'it-agent', kind: 'agent', name: 'IT Virtual Agent', color: '#6366F1',
+    health: 'connected',
+    identity: 'agent', identityOptions: ['agent'],
+    scopeNote: 'Receives only the conversation you hand over and the employee’s name — nothing else.',
+    engineRoom: 'engine room: A2A protocol · agent card v0.3 · vendor-hosted (ServiceNow VA)',
+    capabilities: [
+      { id: 'ag-repair', label: 'Take over conversations about hardware repairs', write: true, handoff: true, tier: 'trigger' },
+      { id: 'ag-status', label: 'Report repair progress back into the chat',      write: false, tier: 'assist' },
+    ],
+  },
+}
+
+const clone = (x) => JSON.parse(JSON.stringify(x))
+
+// ── Seeds ────────────────────────────────────────────────────────────────────
 
 export function buildV2Seed() {
   return {
     version: V2_VERSION,
+    setup: { stage: 'demo', connectedAt: null, liveDismissed: true },
 
-    // ── Sources & Actions — one card per SYSTEM, never per protocol ────────
     sources: [
-      {
-        id: 'staffbase', name: 'Staffbase Intranet', color: '#00C7B2',
-        health: 'connected',
-        identity: 'service', identityOptions: ['service'],
-        engineRoom: 'engine room: native API · campsite.staffbase.com · content + directory scopes',
-        capabilities: [
-          { id: 'sb-answer',  label: 'Answer questions from news, pages & policies', write: false, tier: 'assist' },
-          { id: 'sb-people',  label: 'Look up people in the directory',              write: false, tier: 'assist' },
-          { id: 'sb-comment', label: 'Post a comment or reply on your behalf',       write: true,  tier: 'trigger' },
-        ],
-      },
-      {
-        id: 'sharepoint', name: 'SharePoint', color: '#0EA5E9',
-        health: 'degraded',
-        healthNote: 'Auth token expired 2h ago — retrieval paused. Employees are told: “I can’t verify SharePoint content right now.” No stale answers are served.',
-        identity: 'employee', identityOptions: ['employee', 'service'],
-        engineRoom: 'engine room: MCP · sharepoint-mcp v1.4 · Graph delegated scopes',
-        capabilities: [
-          { id: 'sp-search', label: 'Search policy & procedure documents', write: false, tier: 'assist' },
-          { id: 'sp-meta',   label: 'Check document owner & freshness',    write: false, tier: 'assist' },
-        ],
-      },
-      {
-        id: 'workday', name: 'Workday', color: '#F59E0B',
-        health: 'connected',
-        identity: 'employee', identityOptions: ['employee', 'service'],
-        engineRoom: 'engine room: MCP · workday-mcp v2.1 · 14 tools exposed',
-        capabilities: [
-          { id: 'wd-balance', label: 'Look up time-off balances',                 write: false, tier: 'assist' },
-          { id: 'wd-leave',   label: 'Submit a leave request, acting as you',     write: true,  tier: 'trigger' },
-          { id: 'wd-data',    label: 'Update personal data (address, bank)',      write: true,  tier: 'trigger' },
-          { id: 'wd-payslip', label: 'Explain your payslip line by line',         write: false, tier: 'assist' },
-        ],
-      },
-      {
-        id: 'servicenow', name: 'ServiceNow', color: '#10B981',
-        health: 'connected',
-        identity: 'employee', identityOptions: ['employee', 'service'],
-        engineRoom: 'engine room: REST API · now-bridge v3 · ITSM + HRSD tables',
-        capabilities: [
-          { id: 'sn-status', label: 'Check the status of your tickets',          write: false, tier: 'assist' },
-          { id: 'sn-create', label: 'Open an IT ticket on your behalf',          write: true,  tier: 'trigger' },
-          { id: 'sn-reset',  label: 'Reset your password after verification',    write: true,  tier: 'execute' },
-        ],
-      },
-      {
-        id: 'personio', name: 'Personio', color: '#7C3AED',
-        health: 'connected',
-        identity: 'employee', identityOptions: ['employee'],
-        engineRoom: 'engine room: MCP · personio-mcp v0.9 · read + absence scopes',
-        capabilities: [
-          { id: 'pe-contract', label: 'Look up your contract & tariff details', write: false, tier: 'assist' },
-          { id: 'pe-bank',     label: 'Update your bank details',               write: true,  tier: 'trigger' },
-        ],
-      },
+      clone(SOURCE_DEFS.staffbase),
+      clone(SOURCE_DEFS.sharepoint),
+      clone(SOURCE_DEFS.workday),
+      clone(SOURCE_DEFS.servicenow),
+      clone(SOURCE_DEFS.personio),
+      clone(SOURCE_DEFS['it-agent']),
     ],
 
     // ── Question log — clustered demand, last 7 days ────────────────────────
@@ -214,7 +253,9 @@ export function buildV2Seed() {
         general: { type: 'channel', target: '#ask-internal-comms' },
         hr:      { type: 'queue',   target: 'HR Direct' },
         medical: { type: 'team',    target: 'Flight Ops Duty Office' },
-        legal:   { type: 'team',    target: 'Works Council Office' },
+        // Live tune issue (seeded): legal is set to "deflect to human" but
+        // nobody finished wiring the route. Setup health catches the dead end.
+        legal:   { type: 'team',    target: '' },
       },
       bundles: [
         {
@@ -251,13 +292,83 @@ export function buildV2Seed() {
       ],
     },
 
-    // ── Packs ───────────────────────────────────────────────────────────────
     installedPacks: {}, // packId → { installedAt, answers, priorPolicies }
+    day0Suggestions: [], // demand-driven onboarding nudges — day-0 mode only
 
     escalations: [
       { id: 'esc-seed-1', topic: 'Works council agreement — remote work', to: 'HR Direct', via: 'chat', when: 'Tue 14:12', status: 'open' },
     ],
   }
+}
+
+/**
+ * Day-0 seed: a fresh tenant. Nothing connected, nothing observed.
+ * Defaults are deliberately conservative so the Setup health strip reads
+ * "in tune" the moment the intranet connects — value first, configuration
+ * only when demand justifies it.
+ */
+export function buildDay0Seed() {
+  return {
+    version: V2_VERSION,
+    setup: { stage: 'day0', connectedAt: null, liveDismissed: false },
+    sources: [],
+    questionClusters: [],
+    proposals: [],
+    behaviors: {
+      answerPolicies: { general: 'citations', hr: 'citations', medical: 'deflect', legal: 'deflect' },
+      policyOrigins: {},
+      terminology: [],
+      tonePreset: 'Friendly & concise',
+      bannedPhrases: [],
+      rawInstructions: '',
+      escalationRoutes: {
+        general: { type: 'channel', target: '#ask-internal-comms' },
+        hr:      { type: 'queue',   target: 'HR Direct' },
+        medical: { type: 'team',    target: 'Flight Ops Duty Office' },
+        legal:   { type: 'team',    target: 'Works Council Office' },
+      },
+      bundles: [],
+      processes: [],
+    },
+    installedPacks: {},
+    day0Suggestions: [],
+    escalations: [],
+  }
+}
+
+/**
+ * Demand-driven suggestions that appear after the day-0 connect — over time
+ * within a session (timed reveal) or all at once on reload. Each carries the
+ * evidence cluster that lands in the question log when it reveals, so the
+ * "watching" state visibly fills up.
+ */
+function buildDay0Suggestions() {
+  return [
+    {
+      id: 'sg-servicenow', appearAfterMs: 7000, status: 'pending', sourceId: 'servicenow',
+      title: '12 questions about IT tickets already — connect ServiceNow?',
+      detail: 'Ticket status and password resets keep coming up. ServiceNow was detected in your SSO catalog — one connection covers both.',
+      cta: 'Connect ServiceNow',
+      cluster: { id: 'd0-it', theme: 'IT tickets & password resets', count: 12, trend: 'up', delta: 'new', coverage: 'gap',
+        note: 'No connected source covers this yet — see the suggestion above.' },
+    },
+    {
+      id: 'sg-hrpack', appearAfterMs: 15000, status: 'pending',
+      title: 'HR questions are forming a pattern — install the HR Starter pack?',
+      detail: 'Leave, contracts, payroll. The pack’s needs match your connected sources, so it’s useful immediately — and uninstall reverts everything.',
+      cta: 'Install HR Starter',
+      cluster: { id: 'd0-hr', theme: 'Parental leave & contracts', count: 7, trend: 'up', delta: 'new', coverage: 'partial',
+        note: 'Partially answered from intranet pages — the HR Starter pack adds policies and a notification process.' },
+    },
+    {
+      id: 'sg-workday', appearAfterMs: 23000, status: 'pending', sourceId: 'workday',
+      title: '9 people asked about their leave balance — connect Workday?',
+      detail: 'Balances live in Workday. Connected under employee identity, Navigator answers each person from their own record — no shared service account.',
+      cta: 'Connect Workday',
+      cluster: { id: 'd0-leave', theme: 'Time-off balances', count: 9, trend: 'up', delta: 'new', coverage: 'gap',
+        note: 'Needs an HRIS connection — see the suggestion above.' },
+    },
+  ]
 }
 
 // Static pack catalog — definitions don't change at runtime, so they live
@@ -384,6 +495,196 @@ export const PACKS_CATALOG = [
   },
 ]
 
+// ── Setup health — deriveTuneChecks ──────────────────────────────────────────
+
+// Which sources can back which answer-policy domain (for the "policy with no
+// backing source" check).
+const DOMAIN_SOURCE_HINTS = {
+  general: ['staffbase'],
+  hr:      ['staffbase', 'workday', 'personio'],
+  medical: ['sharepoint'],
+  legal:   ['staffbase'],
+}
+
+// Sensible defaults for one-click route repair.
+const SUGGESTED_ROUTES = {
+  general: { type: 'channel', target: '#ask-internal-comms' },
+  hr:      { type: 'queue',   target: 'HR Direct' },
+  medical: { type: 'team',    target: 'Flight Ops Duty Office' },
+  legal:   { type: 'team',    target: 'Works Council Office' },
+}
+
+// Deterministic stand-in for "does this term ever appear in indexed
+// content?" — the full build checks the retrieval index.
+const CONTENT_VOCAB = [
+  'flexible time off', 'chemnitz campus', 'meal allowance',
+  'parental leave (elternzeit)', 'maternity protection (mutterschutz)',
+  'single sign-on', 'two-factor login',
+  'safety & emergency procedures', 'flight attendant',
+]
+
+const SEVERITY_RANK = { error: 0, warn: 1, info: 2 }
+
+function sourceNameIn(text, source) {
+  return (text || '').toLowerCase().includes(source.name.toLowerCase())
+}
+
+function processTargets(proc, sourceList) {
+  // Which known system does this process write into? Inferred from step text.
+  for (const s of sourceList) {
+    if (proc.steps.some((st) => sourceNameIn(st.label, s))) return s
+  }
+  return null
+}
+
+/**
+ * Pure consistency pass over the whole config. Returns an array of findings:
+ *   { id, severity: 'error'|'warn'|'info', text, fix?, link? }
+ *   fix  — one-click descriptor, applied via store.applyTuneFix(fix)
+ *   link — { tab, label } deep-link into the right Studio tab
+ * No find­ings = the workspace is "in tune".
+ */
+export function deriveTuneChecks(config) {
+  if (!config || config.setup?.stage === 'day0') return []
+  const checks = []
+  const sources = config.sources || []
+  const b = config.behaviors || {}
+  const allKnownSources = Object.values(SOURCE_DEFS)
+  const connectedIds = new Set(sources.map((s) => s.id))
+
+  // 1 — A degraded/disconnected source that other config depends on.
+  for (const src of sources) {
+    if (src.health === 'connected') continue
+    const dependents = []
+    for (const [domainId, hintIds] of Object.entries(DOMAIN_SOURCE_HINTS)) {
+      const policy = b.answerPolicies?.[domainId]
+      if (hintIds.includes(src.id) && policy && policy !== 'deflect') {
+        const others = hintIds.filter((id) => id !== src.id && connectedIds.has(id))
+        if (others.length === 0) dependents.push(`${DOMAINS.find((d) => d.id === domainId)?.name} answers`)
+      }
+    }
+    const bundles = (b.bundles || []).filter((bd) => bd.sources.some((ref) => sourceNameIn(ref, src)))
+    if (bundles.length) dependents.push(bundles.map((bd) => `“${bd.name}”`).join(', '))
+    const procs = (b.processes || []).filter((p) => processTargets(p, [src]))
+    if (procs.length) dependents.push(procs.map((p) => `the “${p.name}” process`).join(', '))
+    const isDown = src.health === 'disconnected'
+    checks.push({
+      id: `tune-health-${src.id}`,
+      severity: isDown ? 'error' : 'warn',
+      text: `${src.name} is ${isDown ? 'disconnected' : 'degraded'}${src.healthNote ? ' (auth expired)' : ''}. ${
+        dependents.length
+          ? `Depends on it: ${dependents.join('; ')} — employees get an honest refusal with escalation instead of stale answers.`
+          : 'Nothing critical depends on it yet, but retrieval from it is paused.'
+      }`,
+      fix: { type: 'reconnect-source', sourceId: src.id, label: `Reconnect ${src.name}` },
+      link: { tab: 'sources', label: 'Open Sources & Actions' },
+    })
+  }
+
+  // 2 — Config that references a system which isn't connected at all.
+  const missing = new Map() // sourceId → string[] of dependents
+  const need = (srcId, what) => {
+    if (connectedIds.has(srcId)) return
+    if (!missing.has(srcId)) missing.set(srcId, [])
+    missing.get(srcId).push(what)
+  }
+  for (const def of allKnownSources) {
+    if (connectedIds.has(def.id)) continue
+    for (const bd of b.bundles || []) {
+      if (bd.sources.some((ref) => sourceNameIn(ref, def))) need(def.id, `bundle “${bd.name}”`)
+    }
+    for (const p of b.processes || []) {
+      if (p.steps.some((st) => sourceNameIn(st.label, def))) need(def.id, `process “${p.name}”`)
+    }
+  }
+  for (const [packId] of Object.entries(config.installedPacks || {})) {
+    const pack = PACKS_CATALOG.find((p) => p.id === packId)
+    if (!pack) continue
+    for (const intent of pack.intents) {
+      if (intent.matchSource && !connectedIds.has(intent.matchSource)) {
+        need(intent.matchSource, `${pack.name} pack (${intent.label.toLowerCase()})`)
+      }
+    }
+  }
+  for (const [srcId, deps] of missing) {
+    const def = SOURCE_DEFS[srcId]
+    const suggestion = (config.day0Suggestions || []).find((s) => s.sourceId === srcId && s.status === 'visible')
+    checks.push({
+      id: `tune-missing-${srcId}`,
+      severity: 'info',
+      text: `${def?.name || srcId} isn’t connected, but ${deps.join(', ')} expect${deps.length === 1 ? 's' : ''} it. Navigator answers what it can and watches the question log for the rest.`,
+      fix: suggestion ? { type: 'apply-suggestion', suggestionId: suggestion.id, label: `Connect ${def?.name}` } : undefined,
+      link: { tab: 'sources', label: 'Open Sources & Actions' },
+    })
+  }
+
+  // 3 — An answer policy that promises citations but has no backing source.
+  for (const d of DOMAINS) {
+    const policy = b.answerPolicies?.[d.id]
+    if (!policy || policy === 'deflect') continue
+    const hintIds = DOMAIN_SOURCE_HINTS[d.id] || []
+    if (!hintIds.some((id) => connectedIds.has(id))) {
+      const label = POLICY_OPTIONS.find((p) => p.id === policy)?.label || policy
+      checks.push({
+        id: `tune-policy-${d.id}`,
+        severity: 'warn',
+        text: `${d.name} is set to “${label}”, but no source that covers it is connected — every question there refuses or escalates.`,
+        fix: { type: 'set-policy', domainId: d.id, policy: 'deflect', label: 'Deflect to human for now' },
+        link: { tab: 'sources', label: 'Open Sources & Actions' },
+      })
+    }
+  }
+
+  // 4 — A process whose submit target has every write capability on Assist.
+  for (const proc of b.processes || []) {
+    const target = processTargets(proc, sources)
+    if (!target) continue
+    const writeCaps = target.capabilities.filter((c) => c.write)
+    if (writeCaps.length && writeCaps.every((c) => c.tier === 'assist')) {
+      const first = writeCaps[0]
+      checks.push({
+        id: `tune-tier-${proc.id}`,
+        severity: proc.status === 'active' ? 'warn' : 'info',
+        text: `“${proc.name}” submits via ${target.name}, but every ${target.name} write capability is set to Assist — the process can’t complete its submit step.`,
+        fix: { type: 'set-tier', sourceId: target.id, capId: first.id, tier: 'trigger', label: `Set “${first.label}” to Trigger` },
+        link: { tab: 'sources', label: 'Open Sources & Actions' },
+      })
+    }
+  }
+
+  // 5 — A terminology pair that never matches any indexed content.
+  for (const t of b.terminology || []) {
+    if (!CONTENT_VOCAB.includes((t.to || '').toLowerCase())) {
+      checks.push({
+        id: `tune-term-${t.id}`,
+        severity: 'info',
+        text: `Terminology pair “${t.from} → ${t.to}” has never matched any indexed content — ${t.to} isn’t in a connected source, so the pair does nothing yet.`,
+        fix: { type: 'remove-term', termId: t.id, label: 'Remove the pair' },
+        link: { tab: 'behaviors', label: 'Open Behaviors' },
+      })
+    }
+  }
+
+  // 6 — An escalation route that points at nothing.
+  for (const d of DOMAINS) {
+    const route = b.escalationRoutes?.[d.id]
+    if (route && route.target && route.target.trim()) continue
+    const policy = b.answerPolicies?.[d.id]
+    const suggested = SUGGESTED_ROUTES[d.id]
+    checks.push({
+      id: `tune-route-${d.id}`,
+      severity: policy === 'deflect' ? 'error' : 'warn',
+      text: policy === 'deflect'
+        ? `${d.name} is set to “Deflect to human”, but its escalation route is empty — those questions currently dead-end.`
+        : `${d.name} has no escalation route — when Navigator can’t answer there, the question has nowhere to go.`,
+      fix: suggested ? { type: 'set-route', domainId: d.id, route: suggested, label: `Route to ${suggested.target}` } : undefined,
+      link: { tab: 'behaviors', label: 'Open Behaviors' },
+    })
+  }
+
+  return checks.sort((a, b2) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b2.severity])
+}
+
 // ── localStorage adapters ────────────────────────────────────────────────────
 
 export function loadV2Config() {
@@ -414,7 +715,8 @@ export function clearV2Config() {
 /**
  * Called by the V2 chat when a question gets routed to a human, so the
  * escalation shows up in the Studio question log (the loop closing in both
- * directions is the demo's point). Works without the Studio being open.
+ * directions is the demo's point). Works without the Studio being open, and
+ * is safe in day-0 mode (the cluster mapping is a no-op there).
  */
 export function recordChatEscalation({ topic, to }) {
   const config = loadV2Config() || buildV2Seed()
@@ -432,6 +734,85 @@ export function recordChatEscalation({ topic, to }) {
     ),
   }
   saveV2Config(next)
+  return next
+}
+
+// ── Pure mutation helpers (shared by hook actions) ───────────────────────────
+
+function applyPackInstall(prev, pack, answers = {}) {
+  const priorPolicies = {}
+  const nextPolicies = { ...prev.behaviors.answerPolicies }
+  const nextOrigins = { ...prev.behaviors.policyOrigins }
+  for (const pol of pack.contents.policies) {
+    priorPolicies[pol.domain] = prev.behaviors.answerPolicies[pol.domain]
+    nextPolicies[pol.domain] = pol.policy
+    nextOrigins[pol.domain] = pack.name
+  }
+  return {
+    ...prev,
+    behaviors: {
+      ...prev.behaviors,
+      answerPolicies: nextPolicies,
+      policyOrigins: nextOrigins,
+      bundles: [
+        ...pack.contents.bundles.map((bd) => ({ ...bd, fromPack: pack.id, origin: 'pack' })),
+        ...prev.behaviors.bundles,
+      ],
+      processes: [
+        ...pack.contents.processes.map((p) => ({ ...p, fromPack: pack.id, origin: 'pack' })),
+        ...prev.behaviors.processes,
+      ],
+      terminology: [
+        ...prev.behaviors.terminology,
+        ...pack.contents.terminology.map((t, i) => ({
+          id: `t-${pack.id}-${i}`, ...t, fromPack: pack.id,
+        })),
+      ],
+    },
+    installedPacks: {
+      ...prev.installedPacks,
+      [pack.id]: { installedAt: Date.now(), answers, priorPolicies },
+    },
+  }
+}
+
+function applyPackUninstall(prev, pack) {
+  const record = prev.installedPacks[pack.id]
+  const nextPolicies = { ...prev.behaviors.answerPolicies }
+  const nextOrigins = { ...prev.behaviors.policyOrigins }
+  if (record?.priorPolicies) {
+    for (const [domain, prior] of Object.entries(record.priorPolicies)) {
+      if (prior) nextPolicies[domain] = prior
+      delete nextOrigins[domain]
+    }
+  }
+  const nextInstalled = { ...prev.installedPacks }
+  delete nextInstalled[pack.id]
+  let next = {
+    ...prev,
+    behaviors: {
+      ...prev.behaviors,
+      answerPolicies: nextPolicies,
+      policyOrigins: nextOrigins,
+      bundles: prev.behaviors.bundles.filter((bd) => bd.fromPack !== pack.id),
+      processes: prev.behaviors.processes.filter((p) => p.fromPack !== pack.id),
+      terminology: prev.behaviors.terminology.filter((t) => t.fromPack !== pack.id),
+    },
+    installedPacks: nextInstalled,
+  }
+  // Day-0 coherence: if this pack arrived via a suggestion, re-open it so the
+  // question log doesn't claim coverage that no longer exists.
+  if (pack.id === 'hr-starter' && (prev.day0Suggestions || []).some((s) => s.id === 'sg-hrpack' && s.status === 'done')) {
+    next = {
+      ...next,
+      day0Suggestions: next.day0Suggestions.map((s) => s.id === 'sg-hrpack' ? { ...s, status: 'visible' } : s),
+      questionClusters: next.questionClusters.map((c) =>
+        c.id === 'd0-hr'
+          ? { ...c, coverage: 'partial', note: 'Partially answered from intranet pages — the HR Starter pack adds policies and a notification process.' }
+          : c
+      ),
+    }
+  }
   return next
 }
 
@@ -480,6 +861,78 @@ export function useV2Store() {
     setConfigState((prev) => (typeof updater === 'function' ? updater(prev) : updater))
   }, [])
 
+  // ── Day-0 onboarding ───────────────────────────────────────────────────
+  /** The one decision: connect the intranet. Everything after is iteration. */
+  const connectIntranet = useCallback(() => {
+    update((prev) => {
+      if (prev.setup?.stage !== 'day0') return prev
+      return {
+        ...prev,
+        setup: { stage: 'connected', connectedAt: Date.now(), liveDismissed: false },
+        sources: [clone(SOURCE_DEFS.staffbase)],
+        day0Suggestions: buildDay0Suggestions(),
+      }
+    })
+  }, [update])
+
+  /** Timed reveal: pending suggestions become visible (and drop their
+   * evidence cluster into the question log) once their delay elapsed.
+   * Called from the Overview tab on an interval — and on reload, everything
+   * overdue reveals at once. Deterministic, no randomness. */
+  const revealDueSuggestions = useCallback(() => {
+    update((prev) => {
+      if (prev.setup?.stage !== 'connected') return prev
+      const elapsed = Date.now() - (prev.setup.connectedAt || 0)
+      const due = (prev.day0Suggestions || []).filter((s) => s.status === 'pending' && elapsed >= s.appearAfterMs)
+      if (due.length === 0) return prev
+      const dueIds = new Set(due.map((s) => s.id))
+      return {
+        ...prev,
+        day0Suggestions: prev.day0Suggestions.map((s) => dueIds.has(s.id) ? { ...s, status: 'visible' } : s),
+        questionClusters: [
+          ...prev.questionClusters,
+          ...due.map((s) => ({ ...s.cluster })),
+        ],
+      }
+    })
+  }, [update])
+
+  /** One click on a day-0 suggestion: connect the system / install the pack,
+   * and flip its evidence cluster to covered. */
+  const applySuggestion = useCallback((suggestionId) => {
+    update((prev) => {
+      const sg = (prev.day0Suggestions || []).find((s) => s.id === suggestionId)
+      if (!sg || sg.status === 'done') return prev
+      let next = {
+        ...prev,
+        day0Suggestions: prev.day0Suggestions.map((s) => s.id === suggestionId ? { ...s, status: 'done' } : s),
+      }
+      if (sg.sourceId && !next.sources.some((s) => s.id === sg.sourceId)) {
+        next = { ...next, sources: [...next.sources, clone(SOURCE_DEFS[sg.sourceId])] }
+      }
+      if (sg.id === 'sg-hrpack' && !next.installedPacks['hr-starter']) {
+        const pack = PACKS_CATALOG.find((p) => p.id === 'hr-starter')
+        next = applyPackInstall(next, pack)
+      }
+      const coveredNotes = {
+        'd0-it':    'Covered — ServiceNow is connected. Status checks and ticket creation are live.',
+        'd0-hr':    'Covered — HR Starter installed: policies, a parental-leave process, and terminology are active.',
+        'd0-leave': 'Covered — Workday connected under employee identity. Everyone sees their own balance.',
+      }
+      next = {
+        ...next,
+        questionClusters: next.questionClusters.map((c) =>
+          c.id === sg.cluster.id ? { ...c, coverage: 'answered', note: coveredNotes[c.id] || 'Covered.' } : c
+        ),
+      }
+      return next
+    })
+  }, [update])
+
+  const dismissLiveMoment = useCallback(() => {
+    update((prev) => ({ ...prev, setup: { ...prev.setup, liveDismissed: true } }))
+  }, [update])
+
   // ── Sources & Actions ──────────────────────────────────────────────────
   const setCapabilityTier = useCallback((sourceId, capId, tier) => {
     update((prev) => ({
@@ -495,6 +948,16 @@ export function useV2Store() {
     update((prev) => ({
       ...prev,
       sources: prev.sources.map((s) => s.id === sourceId ? { ...s, identity } : s),
+    }))
+  }, [update])
+
+  /** Simulated re-auth: clears a degraded/disconnected state. */
+  const reconnectSource = useCallback((sourceId) => {
+    update((prev) => ({
+      ...prev,
+      sources: prev.sources.map((s) =>
+        s.id === sourceId ? { ...s, health: 'connected', healthNote: undefined } : s
+      ),
     }))
   }, [update])
 
@@ -651,77 +1114,34 @@ export function useV2Store() {
   const installPack = useCallback((packId, answers = {}) => {
     const pack = PACKS_CATALOG.find((p) => p.id === packId)
     if (!pack) return
-    update((prev) => {
-      const priorPolicies = {}
-      const nextPolicies = { ...prev.behaviors.answerPolicies }
-      const nextOrigins = { ...prev.behaviors.policyOrigins }
-      for (const pol of pack.contents.policies) {
-        priorPolicies[pol.domain] = prev.behaviors.answerPolicies[pol.domain]
-        nextPolicies[pol.domain] = pol.policy
-        nextOrigins[pol.domain] = pack.name
-      }
-      return {
-        ...prev,
-        behaviors: {
-          ...prev.behaviors,
-          answerPolicies: nextPolicies,
-          policyOrigins: nextOrigins,
-          bundles: [
-            ...pack.contents.bundles.map((b) => ({ ...b, fromPack: pack.id, origin: 'pack' })),
-            ...prev.behaviors.bundles,
-          ],
-          processes: [
-            ...pack.contents.processes.map((p) => ({ ...p, fromPack: pack.id, origin: 'pack' })),
-            ...prev.behaviors.processes,
-          ],
-          terminology: [
-            ...prev.behaviors.terminology,
-            ...pack.contents.terminology.map((t, i) => ({
-              id: `t-${pack.id}-${i}`, ...t, fromPack: pack.id,
-            })),
-          ],
-        },
-        installedPacks: {
-          ...prev.installedPacks,
-          [packId]: { installedAt: Date.now(), answers, priorPolicies },
-        },
-      }
-    })
+    update((prev) => applyPackInstall(prev, pack, answers))
   }, [update])
 
   const uninstallPack = useCallback((packId) => {
     const pack = PACKS_CATALOG.find((p) => p.id === packId)
     if (!pack) return
-    update((prev) => {
-      const record = prev.installedPacks[packId]
-      const nextPolicies = { ...prev.behaviors.answerPolicies }
-      const nextOrigins = { ...prev.behaviors.policyOrigins }
-      if (record?.priorPolicies) {
-        for (const [domain, prior] of Object.entries(record.priorPolicies)) {
-          if (prior) nextPolicies[domain] = prior
-          delete nextOrigins[domain]
-        }
-      }
-      const nextInstalled = { ...prev.installedPacks }
-      delete nextInstalled[packId]
-      return {
-        ...prev,
-        behaviors: {
-          ...prev.behaviors,
-          answerPolicies: nextPolicies,
-          policyOrigins: nextOrigins,
-          bundles: prev.behaviors.bundles.filter((b) => b.fromPack !== packId),
-          processes: prev.behaviors.processes.filter((p) => p.fromPack !== packId),
-          terminology: prev.behaviors.terminology.filter((t) => t.fromPack !== packId),
-        },
-        installedPacks: nextInstalled,
-      }
-    })
+    update((prev) => applyPackUninstall(prev, pack))
   }, [update])
 
-  const resetV2 = useCallback(() => {
+  // ── Setup health fixes ─────────────────────────────────────────────────
+  /** Applies a one-click fix descriptor from deriveTuneChecks. */
+  const applyTuneFix = useCallback((fix) => {
+    if (!fix) return
+    switch (fix.type) {
+      case 'reconnect-source':  reconnectSource(fix.sourceId); break
+      case 'set-tier':          setCapabilityTier(fix.sourceId, fix.capId, fix.tier); break
+      case 'remove-term':       removeTerminology(fix.termId); break
+      case 'set-route':         setEscalationRoute(fix.domainId, fix.route); break
+      case 'set-policy':        setAnswerPolicy(fix.domainId, fix.policy); break
+      case 'apply-suggestion':  applySuggestion(fix.suggestionId); break
+      default: break
+    }
+  }, [reconnectSource, setCapabilityTier, removeTerminology, setEscalationRoute, setAnswerPolicy, applySuggestion])
+
+  /** Two reset modes: 'demo' (full seeded data) or 'day0' (fresh tenant). */
+  const resetV2 = useCallback((mode = 'demo') => {
     clearV2Config()
-    const seeded = buildV2Seed()
+    const seeded = mode === 'day0' ? buildDay0Seed() : buildV2Seed()
     saveV2Config(seeded)
     setConfigState(seeded)
   }, [])
@@ -729,8 +1149,13 @@ export function useV2Store() {
   return {
     config,
     update,
+    connectIntranet,
+    revealDueSuggestions,
+    applySuggestion,
+    dismissLiveMoment,
     setCapabilityTier,
     setIdentityMode,
+    reconnectSource,
     approveProposal,
     dismissProposal,
     setAnswerPolicy,
@@ -746,6 +1171,7 @@ export function useV2Store() {
     removeProcess,
     installPack,
     uninstallPack,
+    applyTuneFix,
     resetV2,
   }
 }

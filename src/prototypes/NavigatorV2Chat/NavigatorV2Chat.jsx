@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft, ChevronDown, ChevronUp, Send, Sparkles, Check, X, Pencil, ExternalLink,
-  ShieldCheck, Zap, Undo2, Route, Flag, CircleCheck, Loader2, BadgeCheck, User, Settings2,
+  ShieldCheck, Zap, Undo2, Route, Flag, CircleCheck, Loader2, BadgeCheck, User, Settings2, Bot,
 } from 'lucide-react'
 import { PERSONAS, CONTINUATIONS, matchScript, fallbackScript } from './scripts'
 import { recordChatEscalation } from '../NavigatorV2/useV2Store'
@@ -355,6 +355,8 @@ function Part(props) {
       </button>
     )
     case 'escalation':    return <EscalationCard part={part} />
+    case 'handoff':       return <HandoffCard part={part} />
+    case 'agentText':     return <AgentTextPart part={part} />
     case 'offers':        return <Offers part={part} onSend={props.onSend} />
     case 'engineRoom':    return <EngineRoom part={part} />
     default:              return null
@@ -586,6 +588,37 @@ function EscalationCard({ part }) {
           <span>expected reply: {part.eta}</span>
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * A2A handoff marker — the employee always sees who is talking. In the
+ * Studio, the agent is just another source card; here, the takeover and the
+ * return are both labeled moments.
+ */
+function HandoffCard({ part }) {
+  const returned = part.state === 'returned'
+  return (
+    <div className={`flex items-start gap-2 rounded-xl px-3 py-2 border ${returned ? 'bg-[#F7FEFC] border-[#99E8DE]' : 'bg-[#EEF2FF] border-[#C7D2FE]'}`}>
+      {returned ? <Sparkles size={12} className="mt-0.5 shrink-0" style={{ color: TEAL }} /> : <Bot size={12} className="mt-0.5 shrink-0 text-[#4338CA]" />}
+      <div>
+        <div className={`text-[10px] font-bold uppercase tracking-widest ${returned ? 'text-[#067A6E]' : 'text-[#4338CA]'}`}>
+          {returned ? 'Back with Navigator' : `Handed over to ${part.agent}`}
+        </div>
+        <p className={`text-[11.5px] leading-snug mt-0.5 ${returned ? 'text-[#067A6E]' : 'text-[#4338CA]'}`}>{part.text}</p>
+      </div>
+    </div>
+  )
+}
+
+function AgentTextPart({ part }) {
+  return (
+    <div className="bg-white border border-[#C7D2FE] rounded-2xl rounded-tl-md px-3.5 py-2.5 shadow-sm">
+      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-[#4338CA] mb-1">
+        <Bot size={11} /> {part.agent}
+      </div>
+      <p className="text-[13.5px] leading-relaxed text-[#1F2937] whitespace-pre-line">{part.text}</p>
     </div>
   )
 }

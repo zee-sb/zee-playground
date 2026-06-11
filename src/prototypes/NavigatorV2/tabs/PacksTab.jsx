@@ -74,7 +74,9 @@ export default function PacksTab({ store }) {
         <p className="text-[12px] text-[#6B7280] leading-relaxed">
           Installed items appear in <strong className="text-[#374151]">Behaviors</strong>, marked with their pack of
           origin. Pack processes arrive as drafts — test-drive them in chat before activating. Uninstalling reverts
-          policies and removes the pack's bundles, processes, and terminology.
+          policies and removes the pack's bundles, processes, and terminology. Needs that stay unmatched after
+          install show up in <strong className="text-[#374151]">Setup health</strong> on the Overview tab until a
+          matching source connects.
         </p>
       </div>
 

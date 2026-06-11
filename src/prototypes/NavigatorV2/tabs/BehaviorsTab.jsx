@@ -253,7 +253,8 @@ function EscalationRoutes({ store, behaviors }) {
               <input
                 value={route.target}
                 onChange={(e) => setEscalationRoute(d.id, { ...route, target: e.target.value })}
-                className="flex-1 min-w-[160px] text-[12.5px] font-medium text-[#374151] px-2.5 py-1.5 bg-white border border-[#E5E7EB] rounded-lg outline-none focus:border-[#00A593]"
+                placeholder="No route set — Setup health flags this"
+                className={`flex-1 min-w-[160px] text-[12.5px] font-medium text-[#374151] px-2.5 py-1.5 bg-white border rounded-lg outline-none focus:border-[#00A593] ${route.target?.trim() ? 'border-[#E5E7EB]' : 'border-[#FCA5A5]'}`}
               />
             </div>
           )
