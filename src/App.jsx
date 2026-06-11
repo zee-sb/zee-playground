@@ -46,12 +46,14 @@ const PROTOTYPES = [
   },
   // ── Navigator V2 — the target concept (docs/navigator-concept.md) ──
   // Built as a separate pair so stakeholders can A/B the current approach
-  // (cards above) against the new model in one deployment. Client-side
-  // only: state lives in localStorage via useV2Store (server seam stubbed).
+  // (cards above) against the new model in one deployment. Now wired to the
+  // live runtime: V2 state persists per tenant inside navigator_config
+  // (tenantOverrides.v2) and lib/v2-compiler.mjs emits the V1 entities the
+  // orchestrator executes (connections / workflows / experts, origin:'v2').
   {
     id: "navigator-v2-studio",
     title: "Navigator Studio V2 (Target Concept)",
-    description: "The admin surface inverted: home is the Question Log — clustered real demand, gaps, and Navigator's own proposals to approve, edit, or dismiss. Sources & Actions with risk tiers and inherited permissions, Behaviors as structured policy (no prompt textbox), processes described not built, and installable Packs.",
+    description: "The admin surface inverted: home is the Question Log — clustered real demand, gaps, and Navigator's own proposals to approve, edit, or dismiss. Sources & Actions with risk tiers and inherited permissions, Behaviors as structured policy (no prompt textbox), processes described not built, and installable Packs. Edits compile to live runtime entities per tenant.",
     epic: "Navigator 2.0",
     status: "concept",
     icon: Inbox,
@@ -60,7 +62,7 @@ const PROTOTYPES = [
   {
     id: "navigator-v2-chat",
     title: "Navigator V2 — Employee Chat (Target Concept)",
-    description: "One Navigator, no expert picker. Scripted trust moments end-to-end: inspectable context contract, citations with freshness, action preview → receipt → undo, trust ladder with auto-approvals, plain-language progress narrative, honest limits with escalation, and a strict cite-or-refuse domain. Built mobile-first (390px).",
+    description: "One Navigator, no expert picker. Live mode streams the real orchestrator with V2 trust moments — citations, plain-language progress narrative, action preview with risk tiers (assist / trigger / execute), receipts, and a client-side trust ladder. Scripted demo mode keeps the deterministic walkthrough. Built mobile-first (390px).",
     epic: "Navigator 2.0",
     status: "concept",
     icon: MessagesSquare,

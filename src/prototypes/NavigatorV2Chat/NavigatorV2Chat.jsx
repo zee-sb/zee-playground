@@ -3,17 +3,27 @@ import { Link } from 'react-router-dom'
 import {
   ArrowLeft, ChevronDown, ChevronUp, Send, Sparkles, Check, X, Pencil, ExternalLink,
   ShieldCheck, Zap, Undo2, Route, Flag, CircleCheck, Loader2, BadgeCheck, User, Settings2, Bot,
+  Plug, FileText,
 } from 'lucide-react'
 import { PERSONAS, CONTINUATIONS, matchScript, fallbackScript } from './scripts'
 import { recordChatEscalation } from '../NavigatorV2/useV2Store'
+import { useActiveTenant } from '../AIAssistant/useActiveTenant'
+import { useLiveNavigator } from './live'
 
 /**
  * Navigator V2 — Employee Chat (target concept).
  *
- * One Navigator: no expert picker, no assistant gallery. A scripted demo
- * engine plays the trust moments deterministically — context contract,
- * citations, action preview → receipt, trust ladder, progress narrative,
- * honest limits, multi-domain composition, cite-or-refuse.
+ * One Navigator: no expert picker, no assistant gallery. Two modes:
+ *
+ *   Scripted demo — the original deterministic engine (scripts.js),
+ *                   unchanged. Persona switcher applies here only.
+ *   Live          — streams real turns from /api/companion/chat through the
+ *                   shared chat adapter (src/ui/chat-adapter.js) and renders
+ *                   them with the V2 trust components: citations, plain-
+ *                   language progress narrative (raw trace stays in the
+ *                   collapsed engine room), preview → receipt, trust ladder
+ *                   with client-side auto-approvals, JIT connect cards.
+ *                   Default whenever a tenant is active.
  *
  * Layout is mobile-first: a single column that looks right at 390px
  * (the concept's litmus test) and simply centers on desktop.
@@ -34,6 +44,13 @@ function saveTrust(t) {
 }
 
 export default function NavigatorV2Chat() {
+  const { branchId } = useActiveTenant()
+  // Mode: 'live' is the default when a tenant is present; 'scripted' keeps
+  // the original demo engine untouched. User toggle wins once used.
+  const [modeOverride, setModeOverride] = useState(null)
+  const mode = modeOverride || (branchId ? 'live' : 'scripted')
+  const live = useLiveNavigator(branchId, mode === 'live')
+
   const [persona, setPersona] = useState(PERSONAS[0])
   const [messages, setMessages] = useState(() => [greetingMessage(PERSONAS[0])])
   const [input, setInput] = useState('')
@@ -45,11 +62,15 @@ export default function NavigatorV2Chat() {
   const trustRef = useRef(trust)
   const scrollRef = useRef(null)
 
+  const isLive = mode === 'live'
+  const shownMessages = isLive ? live.messages : messages
+  const shownBusy = isLive ? live.busy : busy
+
   useEffect(() => { trustRef.current = trust; saveTrust(trust) }, [trust])
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [messages, busy])
+  }, [shownMessages, shownBusy])
 
   const setTrust = useCallback((key, value) => {
     setTrustState((prev) => ({ ...prev, [key]: value }))
@@ -100,7 +121,14 @@ export default function NavigatorV2Chat() {
 
   const send = useCallback(async (rawText) => {
     const text = (rawText ?? input).trim()
-    if (!text || busy) return
+    if (!text) return
+    if (isLive) {
+      if (live.busy || live.session.status !== 'ready') return
+      setInput('')
+      await live.send(text)
+      return
+    }
+    if (busy) return
     setInput('')
     const userMsg = { id: nextId(), role: 'user', parts: [{ partId: nextId(), type: 'text', text }] }
     const assistantMsg = { id: nextId(), role: 'assistant', parts: [] }
@@ -110,10 +138,16 @@ export default function NavigatorV2Chat() {
     const steps = matchScript(text, persona.id, ctx) || fallbackScript(persona.name)
     await runSteps(assistantMsg.id, steps)
     setBusy(false)
-  }, [input, busy, persona, runSteps])
+  }, [input, busy, persona, runSteps, isLive, live])
 
-  // Approve / cancel on an action preview card.
+  // Approve / cancel on an action preview card. Live preview parts carry
+  // `live: true` and route to /api/companion/confirm; scripted ones play
+  // their canned continuation.
   const handleApprove = useCallback(async (messageId, part) => {
+    if (part.live) {
+      await live.confirmPending(messageId, part, 'confirm')
+      return
+    }
     updatePart(messageId, part.partId, { status: 'approved' })
     const continuation = CONTINUATIONS[part.continuation]
     if (continuation) {
@@ -121,19 +155,32 @@ export default function NavigatorV2Chat() {
       await runSteps(messageId, continuation)
       setBusy(false)
     }
-  }, [updatePart, runSteps])
+  }, [updatePart, runSteps, live])
 
   const handleCancel = useCallback((messageId, part) => {
+    if (part.live) {
+      live.confirmPending(messageId, part, 'cancel')
+      return
+    }
     updatePart(messageId, part.partId, { status: 'cancelled' })
     appendPart(messageId, { type: 'text', text: 'Cancelled — nothing was submitted. The draft is gone.' })
-  }, [updatePart, appendPart])
+  }, [updatePart, appendPart, live])
 
   const handleUndo = useCallback((messageId, part) => {
     updatePart(messageId, part.partId, { undone: true })
     appendPart(messageId, { type: 'note', text: `Undone — ${part.reference} was withdrawn in ${part.system}. Nothing remains on file.` })
   }, [updatePart, appendPart])
 
-  const trustRules = Object.entries(trust).filter(([, v]) => v)
+  const trustRules = isLive
+    ? Object.entries(live.trust).filter(([, v]) => v)
+    : Object.entries(trust).filter(([, v]) => v)
+
+  const liveUser = live.session.user
+  const liveReady = live.session.status === 'ready'
+  const chips = isLive
+    ? (live.chips.length ? live.chips : ['What can you help me with?', 'Request time off', 'I need a new laptop'])
+    : persona.chips
+  const composerDisabled = isLive ? (live.busy || !liveReady) : busy
 
   return (
     <div className="min-h-[100dvh] bg-[#F5F5F7] flex justify-center">
@@ -152,18 +199,35 @@ export default function NavigatorV2Chat() {
               <div className="text-[14px] font-bold text-[#111827] leading-tight">Navigator</div>
               <div className="text-[10.5px] text-[#9CA3AF] leading-tight">One assistant — no expert picker</div>
             </div>
-            {/* Persona switcher — demo affordance */}
-            <div className="relative">
-              <select
-                value={persona.id}
-                onChange={(e) => switchPersona(e.target.value)}
-                className="appearance-none text-[11px] font-bold text-[#374151] bg-[#F3F4F6] border border-[#E5E7EB] rounded-full pl-3 pr-7 py-1.5 cursor-pointer outline-none max-w-[170px] truncate"
-                aria-label="Demo persona"
-              >
-                {PERSONAS.map((p) => <option key={p.id} value={p.id}>{p.short}</option>)}
-              </select>
-              <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#9CA3AF] pointer-events-none" />
+            {/* Mode toggle: scripted demo vs the live orchestrator */}
+            <div className="inline-flex bg-[#F3F4F6] rounded-full p-0.5 shrink-0" role="tablist" aria-label="Chat mode">
+              {[['scripted', 'Scripted demo'], ['live', 'Live']].map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => setModeOverride(id)}
+                  className={`px-2.5 py-1 text-[10.5px] font-bold rounded-full transition-colors ${
+                    mode === id ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#111827]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
+            {/* Persona switcher — scripted demo only (live mode uses the real session user) */}
+            {!isLive && (
+              <div className="relative">
+                <select
+                  value={persona.id}
+                  onChange={(e) => switchPersona(e.target.value)}
+                  className="appearance-none text-[11px] font-bold text-[#374151] bg-[#F3F4F6] border border-[#E5E7EB] rounded-full pl-3 pr-7 py-1.5 cursor-pointer outline-none max-w-[150px] truncate"
+                  aria-label="Demo persona (scripted mode only)"
+                  title="Persona switcher — affects the scripted demo only"
+                >
+                  {PERSONAS.map((p) => <option key={p.id} value={p.id}>{p.short}</option>)}
+                </select>
+                <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#9CA3AF] pointer-events-none" />
+              </div>
+            )}
           </div>
 
           {/* Context contract chip */}
@@ -173,41 +237,62 @@ export default function NavigatorV2Chat() {
           >
             <BadgeCheck size={12} className="shrink-0" style={{ color: TEAL }} />
             <span className="text-[11px] text-[#067A6E] font-semibold truncate">
-              Answering as: {persona.contractLine}
+              {isLive
+                ? (liveReady
+                    ? `Answering as: ${[liveUser?.displayName || liveUser?.name || liveUser?.email, liveUser?.department, liveUser?.title].filter(Boolean).join(' · ')}`
+                    : live.session.status === 'checking' ? 'Connecting to your workspace…' : 'Live mode — sign in below')
+                : `Answering as: ${persona.contractLine}`}
             </span>
             {contractOpen ? <ChevronUp size={12} className="ml-auto text-[#9CA3AF] shrink-0" /> : <ChevronDown size={12} className="ml-auto text-[#9CA3AF] shrink-0" />}
           </button>
-          {contractOpen && <ContractPanel persona={persona} />}
+          {contractOpen && (isLive
+            ? <LiveContractPanel user={liveUser} />
+            : <ContractPanel persona={persona} />)}
         </header>
 
         {/* ── Messages ── */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-3.5 py-4 space-y-4 bg-[#FAFAFA]">
-          {messages.map((m) => (
+          {isLive && live.session.status === 'signed-out' && (
+            <LiveSignInCard onSignIn={live.signIn} onFallback={() => setModeOverride('scripted')} />
+          )}
+          {isLive && liveReady && shownMessages.length === 0 && (
+            <MessageBubble
+              message={{ id: 'live-greeting', role: 'assistant', parts: [
+                { partId: 'live-greeting-text', type: 'text', text: `Hi${liveUser?.displayName ? ` ${String(liveUser.displayName).split(' ')[0]}` : ''} — this is the live Navigator. I answer from your workspace's connected sources with citations, and I always show you exactly what I'd do before doing it.` },
+                { partId: 'live-greeting-note', type: 'note', text: 'Live mode: real orchestrator, real tools, V2 trust moments.' },
+              ] }}
+              persona={persona} trust={live.trust} setTrust={live.setTrust}
+              onApprove={() => {}} onCancel={() => {}} onUndo={() => {}}
+              onSend={send} onReview={() => setReviewOpen(true)} updatePart={() => {}}
+            />
+          )}
+          {shownMessages.map((m) => (
             <MessageBubble
               key={m.id}
               message={m}
               persona={persona}
-              trust={trust}
-              setTrust={setTrust}
+              trust={isLive ? live.trust : trust}
+              setTrust={isLive ? live.setTrust : setTrust}
               onApprove={(part) => handleApprove(m.id, part)}
               onCancel={(part) => handleCancel(m.id, part)}
               onUndo={(part) => handleUndo(m.id, part)}
               onSend={send}
               onReview={() => setReviewOpen(true)}
+              onFlowInput={isLive ? (payload) => live.submitFlowInput(m.id, payload) : undefined}
               updatePart={(partId, patch) => updatePart(m.id, partId, patch)}
             />
           ))}
-          {busy && <TypingDots />}
+          {shownBusy && <TypingDots />}
         </div>
 
         {/* ── Composer ── */}
         <div className="shrink-0 border-t border-[#E5E7EB] bg-white px-3 pt-2 pb-3" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
           <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
-            {persona.chips.map((c) => (
+            {chips.map((c) => (
               <button
                 key={c}
                 onClick={() => send(c)}
-                disabled={busy}
+                disabled={composerDisabled}
                 className="shrink-0 text-[11.5px] font-semibold text-[#067A6E] bg-[#E6FBF8] hover:bg-[#D2F7F1] px-3 py-1.5 rounded-full transition-colors disabled:opacity-50"
               >
                 {c}
@@ -221,12 +306,12 @@ export default function NavigatorV2Chat() {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask Navigator anything…"
+              placeholder={isLive && !liveReady ? 'Sign in to use live mode…' : 'Ask Navigator anything…'}
               className="flex-1 text-[13.5px] px-3.5 py-2.5 bg-[#F3F4F6] rounded-full outline-none focus:ring-2 focus:ring-[#00C7B2]/40 text-[#111827]"
             />
             <button
               type="submit"
-              disabled={busy || !input.trim()}
+              disabled={composerDisabled || !input.trim()}
               className="w-10 h-10 rounded-full flex items-center justify-center text-white shrink-0 disabled:opacity-40 transition-opacity"
               style={{ background: TEAL }}
               aria-label="Send"
@@ -240,7 +325,7 @@ export default function NavigatorV2Chat() {
       {reviewOpen && (
         <AutoApprovalsModal
           rules={trustRules}
-          onRemove={(key) => setTrust(key, false)}
+          onRemove={(key) => (isLive ? live.setTrust(key, false) : setTrust(key, false))}
           onClose={() => setReviewOpen(false)}
         />
       )}
@@ -299,7 +384,7 @@ function ContractPanel({ persona }) {
 
 // ── Message + part renderers ─────────────────────────────────────────────────
 
-function MessageBubble({ message, persona, trust, setTrust, onApprove, onCancel, onUndo, onSend, onReview, updatePart }) {
+function MessageBubble({ message, persona, trust, setTrust, onApprove, onCancel, onUndo, onSend, onReview, onFlowInput, updatePart }) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -328,6 +413,7 @@ function MessageBubble({ message, persona, trust, setTrust, onApprove, onCancel,
             onUndo={() => onUndo(part)}
             onSend={onSend}
             onReview={onReview}
+            onFlowInput={onFlowInput}
             updatePart={updatePart}
           />
         ))}
@@ -359,6 +445,11 @@ function Part(props) {
     case 'agentText':     return <AgentTextPart part={part} />
     case 'offers':        return <Offers part={part} onSend={props.onSend} />
     case 'engineRoom':    return <EngineRoom part={part} />
+    // Live-mode parts (real orchestrator stream via src/ui/chat-adapter.js)
+    case 'connect':       return <ConnectCard part={part} />
+    case 'liveForm':      return <LiveFormCard part={part} onFlowInput={props.onFlowInput} updatePart={props.updatePart} />
+    case 'liveConfirm':   return <LiveConfirmCard part={part} onFlowInput={props.onFlowInput} updatePart={props.updatePart} />
+    case 'prepared':      return <PreparedCard part={part} />
     default:              return null
   }
 }
@@ -679,8 +770,246 @@ function TypingDots() {
   )
 }
 
+// ── Live-mode components ─────────────────────────────────────────────────────
+
+/** Context contract from the real session user — same panel, live facts. */
+function LiveContractPanel({ user }) {
+  const rows = [
+    { label: 'Name', value: user?.displayName || user?.name || '—', source: 'Staffbase profile' },
+    { label: 'Email', value: user?.email || '—', source: 'Staffbase profile' },
+    { label: 'Role', value: user?.title || '—', source: 'Staffbase profile' },
+    { label: 'Team', value: user?.department || '—', source: 'Staffbase profile' },
+  ]
+  return (
+    <div className="px-4 py-3 bg-[#F7FEFC] border-t border-[#E6FBF8]">
+      <div className="text-[10px] font-bold uppercase tracking-widest text-[#067A6E] mb-2">
+        What Navigator knows about you (live session)
+      </div>
+      <div className="space-y-1.5">
+        {rows.map((c, i) => (
+          <div key={i} className="flex items-baseline gap-2 text-[12px]">
+            <span className="w-[68px] shrink-0 font-bold text-[#374151]">{c.label}</span>
+            <span className="text-[#111827]">{c.value}</span>
+            <span className="ml-auto text-[10px] text-[#9CA3AF] text-right">{c.source}</span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2.5 pt-2.5 border-t border-[#E6FBF8] text-[10.5px] text-[#6B7280] leading-snug">
+        These fields come from your real workspace session and parameterize what Navigator retrieves and does.
+      </p>
+    </div>
+  )
+}
+
+/** Email sign-in for live mode — same auth path the V1 Companion uses. */
+function LiveSignInCard({ onSignIn, onFallback }) {
+  const [email, setEmail] = useState('')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState(null)
+  async function submit(e) {
+    e.preventDefault()
+    if (!email.trim() || pending) return
+    setPending(true); setError(null)
+    try { await onSignIn(email.trim()) }
+    catch (err) { setError(err.detail || err.message || 'Sign-in failed') }
+    finally { setPending(false) }
+  }
+  return (
+    <div className="bg-white border border-[#E5E7EB] rounded-2xl shadow-sm px-4 py-4 max-w-[360px] mx-auto">
+      <div className="flex items-center gap-2 mb-2">
+        <User size={14} style={{ color: TEAL }} />
+        <span className="text-[13px] font-bold text-[#111827]">Sign in for live mode</span>
+      </div>
+      <p className="text-[11.5px] text-[#6B7280] leading-snug mb-3">
+        Live mode streams real orchestrator turns against your workspace. Sign in with your Staffbase directory email.
+      </p>
+      <form onSubmit={submit} className="flex items-center gap-2">
+        <input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@company.com"
+          type="email"
+          className="flex-1 text-[12.5px] px-3 py-2 bg-[#F3F4F6] rounded-lg outline-none focus:ring-2 focus:ring-[#00C7B2]/40"
+        />
+        <button type="submit" disabled={pending || !email.trim()} className="px-3 py-2 rounded-lg text-[12px] font-bold text-white disabled:opacity-40" style={{ background: TEAL }}>
+          {pending ? '…' : 'Sign in'}
+        </button>
+      </form>
+      {error && <p className="text-[11px] text-[#B91C1C] mt-2">{error}</p>}
+      <button onClick={onFallback} className="mt-2.5 text-[11px] font-semibold text-[#6B7280] hover:underline">
+        Server unreachable? Switch to the scripted demo →
+      </button>
+    </div>
+  )
+}
+
+/** JIT connection affordance — replaces a raw auth error / needs_connection. */
+function ConnectCard({ part }) {
+  return (
+    <div className="space-y-2">
+      {(part.connectors || []).map((c) => (
+        <div key={c.provider || c.id} className="bg-white border border-[#99E8DE] rounded-2xl shadow-sm overflow-hidden">
+          <div className="px-3.5 py-2.5 bg-[#F7FEFC] flex items-center gap-2">
+            <Plug size={13} style={{ color: TEAL }} />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[#067A6E]">Connection needed</span>
+          </div>
+          <div className="px-3.5 py-3">
+            <div className="text-[13px] font-bold text-[#111827]">{c.name}</div>
+            {c.description && <p className="text-[11.5px] text-[#6B7280] leading-snug mt-0.5">{c.description}</p>}
+            <a
+              href={c.connectUrl}
+              className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-bold text-white"
+              style={{ background: TEAL }}
+            >
+              <Plug size={12} /> Connect {c.name}
+            </a>
+            <p className="text-[10.5px] text-[#9CA3AF] mt-2">One tap — Navigator acts under your own {c.name} permissions afterwards.</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Inline form for a paused flow step (live mode). */
+function LiveFormCard({ part, onFlowInput, updatePart }) {
+  const spec = part.spec || {}
+  const [values, setValues] = useState(() => ({ ...(part.initialValues || {}) }))
+  const submitted = part.submitted
+  function setField(id, v) { setValues((prev) => ({ ...prev, [id]: v })) }
+  function submit(e) {
+    e.preventDefault()
+    if (submitted || !onFlowInput) return
+    updatePart?.(part.partId, { submitted: true, values })
+    onFlowInput({ formSubmission: { flowId: part.flowId, stepId: part.stepId, values } })
+  }
+  return (
+    <form onSubmit={submit} className={`bg-white border border-[#99E8DE] rounded-2xl shadow-sm overflow-hidden ${submitted ? 'opacity-60' : ''}`}>
+      <div className="px-3.5 py-2.5 bg-[#F7FEFC] flex items-center gap-2">
+        <FileText size={13} style={{ color: TEAL }} />
+        <span className="text-[10px] font-bold uppercase tracking-widest text-[#067A6E]">{spec.title || 'A few details'}</span>
+      </div>
+      <div className="px-3.5 py-3 space-y-2.5">
+        {spec.description && <p className="text-[11.5px] text-[#6B7280] leading-snug">{spec.description}</p>}
+        {(spec.fields || []).map((f) => (
+          <label key={f.id} className="block">
+            <span className="block text-[11px] font-bold text-[#374151] mb-1">{f.label}{f.required && ' *'}</span>
+            {f.type === 'textarea' ? (
+              <textarea
+                value={values[f.id] ?? ''}
+                onChange={(e) => setField(f.id, e.target.value)}
+                disabled={submitted}
+                rows={2}
+                className="w-full text-[12.5px] px-2.5 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg outline-none focus:border-[#00A593]"
+              />
+            ) : (f.type === 'select' || f.type === 'radio') && Array.isArray(f.options) ? (
+              <select
+                value={values[f.id] ?? ''}
+                onChange={(e) => setField(f.id, e.target.value)}
+                disabled={submitted}
+                className="w-full text-[12.5px] px-2.5 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg outline-none focus:border-[#00A593]"
+              >
+                <option value="">Choose…</option>
+                {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            ) : (
+              <input
+                type={f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : f.type === 'email' ? 'email' : 'text'}
+                value={values[f.id] ?? ''}
+                onChange={(e) => setField(f.id, e.target.value)}
+                disabled={submitted}
+                placeholder={f.placeholder || ''}
+                className="w-full text-[12.5px] px-2.5 py-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg outline-none focus:border-[#00A593]"
+              />
+            )}
+          </label>
+        ))}
+        {!submitted ? (
+          <button type="submit" className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-bold text-white" style={{ background: TEAL }}>
+            {spec.submitLabel || 'Submit'}
+          </button>
+        ) : (
+          <div className="text-[11px] font-bold text-[#166534] flex items-center gap-1.5"><CircleCheck size={12} /> Sent</div>
+        )}
+      </div>
+    </form>
+  )
+}
+
+/** Inline confirm step for a paused flow (live mode). */
+function LiveConfirmCard({ part, onFlowInput, updatePart }) {
+  const summary = part.summary || {}
+  const decided = part.decided
+  function decide(accepted) {
+    if (decided || !onFlowInput) return
+    updatePart?.(part.partId, { decided: accepted ? 'confirmed' : 'cancelled' })
+    onFlowInput({ confirmResponse: { flowId: part.flowId, stepId: part.stepId, accepted, cancelTo: summary.cancelTo } })
+  }
+  return (
+    <div className={`bg-white border border-[#99E8DE] rounded-2xl shadow-sm overflow-hidden ${decided === 'cancelled' ? 'opacity-60' : ''}`}>
+      <div className="px-3.5 py-2.5 bg-[#F7FEFC] flex items-center gap-2">
+        <ShieldCheck size={13} style={{ color: TEAL }} />
+        <span className="text-[10px] font-bold uppercase tracking-widest text-[#067A6E]">{summary.title || 'Confirm'}</span>
+      </div>
+      <div className="px-3.5 py-3">
+        {summary.description && <p className="text-[11.5px] text-[#6B7280] leading-snug mb-2">{summary.description}</p>}
+        <div className="space-y-1.5">
+          {(summary.rows || []).map((r, i) => (
+            <div key={i} className="flex items-center gap-2 text-[12px]">
+              <span className="w-[96px] shrink-0 text-[#9CA3AF] font-semibold">{r.label}</span>
+              <span className="text-[#111827] font-semibold">{r.value}</span>
+            </div>
+          ))}
+        </div>
+        {!decided ? (
+          <div className="flex items-center gap-2 mt-3">
+            <button onClick={() => decide(true)} className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-bold text-white" style={{ background: TEAL }}>
+              <Check size={13} /> {summary.confirmLabel || 'Confirm'}
+            </button>
+            <button onClick={() => decide(false)} className="px-3 py-2 rounded-lg border border-[#E5E7EB] text-[12px] font-semibold text-[#6B7280] hover:text-[#B91C1C] hover:border-[#FECACA]">
+              {summary.cancelLabel || 'Cancel'}
+            </button>
+          </div>
+        ) : (
+          <div className={`mt-3 text-[11px] font-bold flex items-center gap-1.5 ${decided === 'confirmed' ? 'text-[#166534]' : 'text-[#9CA3AF]'}`}>
+            {decided === 'confirmed' ? <><CircleCheck size={12} /> Confirmed</> : <><X size={12} /> Cancelled</>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Trigger-tier outcome — the prepared payload, handed off, NOT executed. */
+function PreparedCard({ part }) {
+  return (
+    <div className="bg-white border border-[#C7D2FE] rounded-2xl shadow-sm overflow-hidden">
+      <div className="px-3.5 py-2.5 bg-[#EEF2FF] flex items-center gap-2">
+        <FileText size={13} className="text-[#4338CA]" />
+        <span className="text-[10px] font-bold uppercase tracking-widest text-[#4338CA]">Prepared — not executed · {part.system}</span>
+      </div>
+      <div className="px-3.5 py-3">
+        <div className="text-[13px] font-bold text-[#111827] mb-1.5">{part.name}</div>
+        <div className="space-y-1">
+          {Object.entries(part.payload || {}).map(([k, v]) => (
+            <div key={k} className="flex items-baseline gap-2 text-[12px]">
+              <span className="w-[96px] shrink-0 text-[#9CA3AF] font-semibold">{k.replace(/[_-]/g, ' ')}</span>
+              <span className="text-[#374151] break-all">{typeof v === 'string' ? v : JSON.stringify(v)}</span>
+            </div>
+          ))}
+        </div>
+        <p className="text-[10.5px] text-[#6B7280] leading-snug mt-2.5">
+          Trigger-tier action: Navigator drafted this, but a human submits it in {part.system}. Nothing has been written anywhere.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function AutoApprovalsModal({ rules, onRemove, onClose }) {
   const LABELS = { timeOffUnder3: 'Time-off requests (under 3 days) — submit without asking' }
+  const pretty = (key) => LABELS[key]
+    || `${key.split('__').pop().replace(/[_-]/g, ' ')}${key.includes('__') ? ` (${key.split('__')[0].replace(/^v2-/, '')})` : ''} — run without asking`
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
@@ -697,7 +1026,7 @@ function AutoApprovalsModal({ rules, onRemove, onClose }) {
             <div className="space-y-2">
               {rules.map(([key]) => (
                 <div key={key} className="flex items-center gap-2 bg-[#F9FAFB] border border-[#E5E7EB] rounded-lg px-3 py-2.5">
-                  <span className="text-[12px] text-[#374151] flex-1">{LABELS[key] || key}</span>
+                  <span className="text-[12px] text-[#374151] flex-1">{pretty(key)}</span>
                   <button onClick={() => onRemove(key)} className="text-[11px] font-bold text-[#B91C1C] hover:underline shrink-0">Revoke</button>
                 </div>
               ))}

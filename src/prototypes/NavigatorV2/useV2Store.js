@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { compileV2, mergeCompiledConfig, mergeCompiledExperts } from '../../../lib/v2-compiler.mjs'
+import { useActiveTenant } from '../AIAssistant/useActiveTenant.js'
 
 /**
  * useV2Store — state for the Navigator V2 target-concept prototypes
@@ -18,19 +20,131 @@ import { useCallback, useEffect, useState } from 'react'
  * Rendered as the Setup health strip on the Overview tab; each finding
  * carries either a one-click fix descriptor or a deep-link.
  *
- * Server seam: `fetchServerV2` / `pushServerV2` are intentional no-op
- * stubs. When a `/api/navigator-v2-config` endpoint exists, implement the
- * two transports below and the rest of the hook works unchanged.
+ * Server seam (LIVE): V2 state persists per tenant inside the existing
+ * navigator_config blob, under `tenantOverrides.v2`, via the same
+ * `/api/navigator-config?action=load|save` endpoint + revision CAS that
+ * useConfigStore uses. On every push, lib/v2-compiler.mjs ALSO emits the V1
+ * runtime entities (connections / workflows / experts, all tagged
+ * origin:'v2') so the live orchestrator obeys V2 edits. localStorage stays
+ * as the offline cache — Vite-only dev keeps working scripted/seeded.
  */
 
 export const V2_STORAGE_KEY = 'navigatorV2Config'
 export const V2_VERSION = 5
 
-// ── Server seam (intentionally inert) ───────────────────────────────────────
-// GET  /api/navigator-v2-config?action=load   → { config, revision }
-// POST /api/navigator-v2-config?action=save   ← { config, baseRevision }
-async function fetchServerV2() { return null }
-async function pushServerV2(_payload) { return null }
+// ── Server transports ───────────────────────────────────────────────────────
+// Same conventions as useConfigStore: tolerate Vite-only dev (HTML responses),
+// thread ?branch=, surface 409 as a typed error for the CAS retry.
+
+const CONFIG_ENDPOINT = '/api/navigator-config'
+const EXPERT_ENDPOINT = '/api/navigator-assistant'
+
+async function safeJson(resp) {
+  const ct = resp.headers.get('content-type') || ''
+  if (!ct.toLowerCase().includes('application/json')) return null
+  try { return await resp.json() } catch { return null }
+}
+
+function withBranch(url, branchId) {
+  if (!branchId) return url
+  return `${url}${url.includes('?') ? '&' : '?'}branch=${encodeURIComponent(branchId)}`
+}
+
+async function fetchServerV2(branchId) {
+  let resp
+  try {
+    resp = await fetch(withBranch(`${CONFIG_ENDPOINT}?action=load`, branchId), {
+      credentials: 'include',
+      headers: { 'Cache-Control': 'no-cache' },
+    })
+  } catch { return null }
+  if (!resp.ok) return null
+  return safeJson(resp)
+}
+
+async function pushServerV2(payload, branchId) {
+  let resp
+  try {
+    resp = await fetch(withBranch(`${CONFIG_ENDPOINT}?action=save`, branchId), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  } catch { return null }
+  if (resp.status === 409) {
+    const body = (await safeJson(resp)) || {}
+    const err = new Error('revision_conflict')
+    err.code = 'revision_conflict'
+    err.currentRevision = body.currentRevision
+    throw err
+  }
+  if (!resp.ok) return null
+  return safeJson(resp)
+}
+
+async function fetchServerExpertsV2(branchId) {
+  let resp
+  try {
+    resp = await fetch(withBranch(`${EXPERT_ENDPOINT}?action=list`, branchId), { credentials: 'include' })
+  } catch { return null }
+  if (!resp.ok) return null
+  const data = await safeJson(resp)
+  return Array.isArray(data?.experts) ? data.experts : null
+}
+
+async function pushServerExpertsV2(experts, branchId) {
+  let resp
+  try {
+    resp = await fetch(withBranch(`${EXPERT_ENDPOINT}?action=bulk-save`, branchId), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ experts }),
+    })
+  } catch { return null }
+  if (!resp.ok) return null
+  const data = await safeJson(resp)
+  return Array.isArray(data?.experts) ? data.experts : null
+}
+
+// Active tenant, readable outside React (recordChatEscalation). Mirrors
+// useActiveTenant's URL-param + cookie convention.
+export function activeBranchIdSync() {
+  if (typeof window === 'undefined') return null
+  const fromUrl = new URLSearchParams(window.location.search).get('tenant')
+  if (fromUrl) return fromUrl
+  const m = document.cookie.match(/(?:^|;\s*)sb_active_tenant=([^;]+)/)
+  return m ? decodeURIComponent(m[1]) : null
+}
+
+export function v2KeyForBranch(branchId) {
+  return branchId ? `${V2_STORAGE_KEY}:${branchId}` : V2_STORAGE_KEY
+}
+
+// Overlay live connection health from the server config onto V2 sources.
+// Real health when the server is reachable; the seeded value survives as the
+// fallback (Vite-only dev / offline demo).
+export function overlayServerHealth(state, serverConfig) {
+  const connections = Array.isArray(serverConfig?.connections) ? serverConfig.connections : []
+  const byV2Source = new Map(connections.filter((c) => c?.v2SourceId).map((c) => [c.v2SourceId, c]))
+  if (!byV2Source.size || !Array.isArray(state?.sources)) return state
+  const STATUS_TO_HEALTH = { connected: 'connected', degraded: 'degraded', disconnected: 'disconnected' }
+  return {
+    ...state,
+    sources: state.sources.map((s) => {
+      const conn = byV2Source.get(s.id)
+      if (!conn) return s
+      const health = STATUS_TO_HEALTH[conn.status]
+      if (!health || health === s.health) return s
+      return {
+        ...s,
+        health,
+        healthNote: health === 'connected' ? undefined : (s.healthNote || `${s.name} is ${health} (live status from the workspace config).`),
+      }
+    }),
+  }
+}
 
 // ── Shared vocabulary ────────────────────────────────────────────────────────
 
@@ -687,10 +801,13 @@ export function deriveTuneChecks(config) {
 
 // ── localStorage adapters ────────────────────────────────────────────────────
 
-export function loadV2Config() {
+export function loadV2Config(branchId = activeBranchIdSync()) {
   if (typeof window === 'undefined') return null
   try {
-    const raw = window.localStorage.getItem(V2_STORAGE_KEY)
+    // Branch-keyed snapshot first; the legacy un-keyed key is the migration
+    // fallback so pre-tenant demo state survives.
+    const raw = window.localStorage.getItem(v2KeyForBranch(branchId))
+      || window.localStorage.getItem(V2_STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (!parsed || parsed.version !== V2_VERSION) return null // hard cutover, prototype-only
@@ -700,16 +817,19 @@ export function loadV2Config() {
   }
 }
 
-export function saveV2Config(config) {
+export function saveV2Config(config, branchId = activeBranchIdSync()) {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.setItem(V2_STORAGE_KEY, JSON.stringify(config))
+    window.localStorage.setItem(v2KeyForBranch(branchId), JSON.stringify(config))
   } catch { /* quota / private mode — non-fatal for a demo */ }
 }
 
-export function clearV2Config() {
+export function clearV2Config(branchId = activeBranchIdSync()) {
   if (typeof window === 'undefined') return
-  try { window.localStorage.removeItem(V2_STORAGE_KEY) } catch { /* noop */ }
+  try {
+    window.localStorage.removeItem(v2KeyForBranch(branchId))
+    window.localStorage.removeItem(V2_STORAGE_KEY)
+  } catch { /* noop */ }
 }
 
 /**
@@ -819,47 +939,146 @@ function applyPackUninstall(prev, pack) {
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useV2Store() {
+  const { branchId } = useActiveTenant()
+  const branchIdRef = useRef(branchId)
+  useEffect(() => { branchIdRef.current = branchId }, [branchId])
+
   const [config, setConfigState] = useState(() => {
-    const loaded = loadV2Config()
+    const loaded = loadV2Config(branchId)
     if (loaded) return loaded
     const seeded = buildV2Seed()
-    saveV2Config(seeded)
+    saveV2Config(seeded, branchId)
     return seeded
   })
 
-  // Write-through persistence.
-  useEffect(() => { saveV2Config(config) }, [config])
+  // Server snapshot — the full navigator_config blob + revision the CAS save
+  // is based on. `loaded` distinguishes "offline / Vite-only dev" (never
+  // push) from "server reachable" (write through on every change).
+  const serverRef = useRef({ revision: 0, config: null, experts: null, loaded: false })
+  const lastPushedSigRef = useRef(null)
+  const pushTimerRef = useRef(null)
+  const latestConfigRef = useRef(config)
+  useEffect(() => { latestConfigRef.current = config }, [config])
+
+  // Write-through persistence (offline cache, branch-keyed).
+  useEffect(() => { saveV2Config(config, branchId) }, [config, branchId])
 
   // Cross-tab sync (Studio + Chat open side by side).
   useEffect(() => {
     if (typeof window === 'undefined') return
+    const watched = v2KeyForBranch(branchId)
     function onStorage(e) {
-      if (e.key !== V2_STORAGE_KEY) return
-      const next = loadV2Config()
+      if (e.key !== watched && e.key !== V2_STORAGE_KEY) return
+      const next = loadV2Config(branchId)
       if (next) setConfigState(next)
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
+  }, [branchId])
+
+  // Tenant switch — re-hydrate from the new branch's offline cache while the
+  // server fetch below re-runs.
+  const lastBranchRef = useRef(branchId)
+  useEffect(() => {
+    if (lastBranchRef.current === branchId) return
+    lastBranchRef.current = branchId
+    serverRef.current = { revision: 0, config: null, experts: null, loaded: false }
+    lastPushedSigRef.current = null
+    const loaded = loadV2Config(branchId)
+    if (loaded) setConfigState(loaded)
+    else {
+      const seeded = buildV2Seed()
+      saveV2Config(seeded, branchId)
+      setConfigState(seeded)
+    }
+  }, [branchId])
+
+  // Debounced compile-and-push. One push writes BOTH halves of the runtime
+  // contract: (1) the navigator_config blob — V1 entities compiled from V2
+  // state (origin:'v2') merged over the server's hand-made entities, plus the
+  // raw V2 state under tenantOverrides.v2 — with revision CAS, and (2) the
+  // compiled capability-bundle experts via the experts bulk-save.
+  const schedulePush = useCallback(() => {
+    if (typeof window === 'undefined') return
+    if (pushTimerRef.current) clearTimeout(pushTimerRef.current)
+    pushTimerRef.current = setTimeout(async () => {
+      pushTimerRef.current = null
+      const srv = serverRef.current
+      if (!srv.loaded) return // server unreachable — stay localStorage-only
+      const state = latestConfigRef.current
+      const sig = JSON.stringify(state)
+      if (sig === lastPushedSigRef.current) return
+      const compiled = compileV2(state)
+      const doSave = async () => pushServerV2({
+        config: mergeCompiledConfig(serverRef.current.config, state, compiled),
+        baseRevision: serverRef.current.revision,
+      }, branchIdRef.current)
+      try {
+        let saved
+        try {
+          saved = await doSave()
+        } catch (err) {
+          if (err.code !== 'revision_conflict') throw err
+          // Someone else (V1 Studio, another tab) saved meanwhile — refetch
+          // the latest blob and re-merge our compiled output once.
+          const fresh = await fetchServerV2(branchIdRef.current)
+          if (!fresh) return
+          serverRef.current = { ...serverRef.current, revision: fresh.revision || 0, config: fresh.config || null, loaded: true }
+          saved = await doSave()
+        }
+        if (saved) {
+          serverRef.current = { ...serverRef.current, revision: saved.revision || serverRef.current.revision, config: saved.config || serverRef.current.config }
+          lastPushedSigRef.current = sig
+        }
+      } catch (err) {
+        console.warn('[useV2Store] save failed:', err.message)
+        return
+      }
+      // Experts: replace only source:'v2' rows, keep hand-made V1 experts.
+      const expertsPayload = mergeCompiledExperts(serverRef.current.experts || [], compiled.experts)
+      const pushed = await pushServerExpertsV2(expertsPayload, branchIdRef.current).catch(() => null)
+      if (Array.isArray(pushed)) serverRef.current.experts = pushed
+    }, 600)
   }, [])
 
-  // Server seam: background fetch on mount + debounced push on change.
-  // Both transports are no-op stubs today (see top of file).
+  // First-mount / branch-change server hydrate.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const payload = await fetchServerV2().catch(() => null)
-      if (!cancelled && payload?.config) setConfigState(payload.config)
+      const [payload, experts] = await Promise.all([
+        fetchServerV2(branchId).catch(() => null),
+        fetchServerExpertsV2(branchId).catch(() => null),
+      ])
+      if (cancelled) return
+      if (!payload) return // offline — seeded/local state stands
+      serverRef.current = {
+        revision: payload.revision || 0,
+        config: payload.config || { connections: [], workflows: [], tenantOverrides: {} },
+        experts: Array.isArray(experts) ? experts : [],
+        loaded: true,
+      }
+      const v2 = payload.config?.tenantOverrides?.v2
+      if (v2?.state && v2.state.version === V2_VERSION) {
+        // Server is canonical. Overlay live connection health onto sources.
+        const next = overlayServerHealth(v2.state, payload.config)
+        lastPushedSigRef.current = JSON.stringify(v2.state)
+        setConfigState(next)
+      } else {
+        // Server has no (compatible) v2 section yet — push the local state
+        // up once so live chat immediately sees compiled entities.
+        schedulePush()
+      }
     })()
     return () => { cancelled = true }
-  }, [])
-  useEffect(() => {
-    const t = setTimeout(() => { pushServerV2({ config }) }, 400)
-    return () => clearTimeout(t)
-  }, [config])
+  }, [branchId, schedulePush])
 
   const update = useCallback((updater) => {
-    setConfigState((prev) => (typeof updater === 'function' ? updater(prev) : updater))
-  }, [])
+    setConfigState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      schedulePush()
+      return next
+    })
+  }, [schedulePush])
 
   // ── Day-0 onboarding ───────────────────────────────────────────────────
   /** The one decision: connect the intranet. Everything after is iteration. */
@@ -1138,13 +1357,15 @@ export function useV2Store() {
     }
   }, [reconnectSource, setCapabilityTier, removeTerminology, setEscalationRoute, setAnswerPolicy, applySuggestion])
 
-  /** Two reset modes: 'demo' (full seeded data) or 'day0' (fresh tenant). */
+  /** Two reset modes: 'demo' (full seeded data) or 'day0' (fresh tenant).
+   * Write-through like every other mutation, so the live runtime follows. */
   const resetV2 = useCallback((mode = 'demo') => {
-    clearV2Config()
+    clearV2Config(branchIdRef.current)
     const seeded = mode === 'day0' ? buildDay0Seed() : buildV2Seed()
-    saveV2Config(seeded)
+    saveV2Config(seeded, branchIdRef.current)
     setConfigState(seeded)
-  }, [])
+    schedulePush()
+  }, [schedulePush])
 
   return {
     config,

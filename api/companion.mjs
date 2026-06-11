@@ -526,8 +526,26 @@ async function confirm(req, res) {
         studioConnectors.find((c) => c.id === tc.connector)
         || CONNECTORS.find((c) => c.id === (tc.connector || 'atlassian'));
       const endpoint = connector?.endpoint;
+      // V2 risk tier — stamped on the pending call by the orchestrator when
+      // the tenant has a compiled v2 section (lib/v2-compiler.mjs). Absent
+      // (legacy/V1) → null → exactly the current confirm→execute behavior.
+      const tier = tc.tier === 'trigger' || tc.tier === 'execute' ? tc.tier : null;
       let result;
-      if (decision === 'confirm') {
+      if (decision === 'confirm' && tier === 'trigger') {
+        // Trigger tier: the approval yields a PREPARED payload — Navigator
+        // drafts, a human (or the owning system) submits. Nothing executes.
+        emit({ type: 'tool_start', toolCallId: tc.id, name: tc.name, connector: connector?.id, args: tc.args, confirmed: true, prepared: true });
+        result = {
+          prepared: true,
+          status: 'prepared_not_executed',
+          system: connector?.name || tc.connector,
+          tool: tc.name,
+          payload: tc.args,
+          preparedAt: new Date().toISOString(),
+          note: 'Trigger-tier action: Navigator prepared this payload but did NOT execute it. A human submits it in the owning system.',
+        };
+        emit({ type: 'tool_prepared', toolCallId: tc.id, name: tc.name, connector: connector?.id, connectorName: connector?.name, payload: tc.args, preparedAt: result.preparedAt });
+      } else if (decision === 'confirm') {
         emit({ type: 'tool_start', toolCallId: tc.id, name: tc.name, connector: connector?.id, args: tc.args, confirmed: true });
         try {
           result = await rpc(base, endpoint, 'tools/call', { name: tc.name, arguments: tc.args }, session.userId, branchId);
@@ -537,6 +555,20 @@ async function confirm(req, res) {
           }
         } catch (err) {
           result = { error: err.message || String(err) };
+        }
+        // Execute tier: after a real execution, emit a receipt so the chat
+        // can render a distinct "what was done, where, reference" card.
+        if (tier === 'execute' && !(result && typeof result === 'object' && result.error)) {
+          emit({
+            type: 'receipt',
+            toolCallId: tc.id,
+            name: tc.name,
+            connector: connector?.id,
+            connectorName: connector?.name || tc.connector,
+            summary: receiptSummary(tc, result),
+            referenceId: extractReferenceId(result),
+            ts: new Date().toISOString(),
+          });
         }
       } else {
         result = { cancelled: true, reason: 'User declined to run this write action.' };
@@ -680,6 +712,31 @@ async function hero(req, res) {
     studioEmpty: false,
     defaultLang,
   });
+}
+
+// Best-effort reference id for execute-tier receipts: common id-ish fields
+// across the demo MCP tool results (ticket ids, Jira keys, request ids, URLs).
+function extractReferenceId(result) {
+  if (!result || typeof result !== 'object') return null;
+  const candidates = [
+    result.referenceId, result.reference, result.ticketId, result.ticket_id,
+    result.requestId, result.request_id, result.key, result.id,
+    result.ticket?.id, result.issue?.key, result.request?.id, result.url,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c) return c;
+    if (typeof c === 'number') return String(c);
+  }
+  return null;
+}
+
+function receiptSummary(tc, result) {
+  const action = String(tc.name || 'action').replace(/[_-]/g, ' ');
+  if (result && typeof result === 'object') {
+    const msg = result.message || result.summary || result.status;
+    if (typeof msg === 'string' && msg) return `${action} — ${msg.slice(0, 140)}`;
+  }
+  return `${action} completed`;
 }
 
 async function rpc(baseUrl, endpoint, method, params, userId, branchId) {

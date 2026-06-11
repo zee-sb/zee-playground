@@ -250,14 +250,22 @@ function buildServerPayload(config) {
   // Extract just the slice the navigator_config table cares about. Assistants
   // are excluded — they live in navigator_experts and sync separately.
   const tenant = config.tenant || {};
+  const tenantOverrides = {
+    name: tenant.name,
+    brandColor: tenant.brandColor,
+    workspaceUrl: tenant.workspace,
+  };
+  // Pass-through keys other writers own — without these, every V1 Studio
+  // save would wipe them from tenant_overrides:
+  //   seedVersion — the auto-reseed marker (lib/seed.mjs)
+  //   v2          — the NavigatorV2 section (lib/v2-compiler.mjs)
+  // Both land in `config.tenant` via mergeServerConfig's spread on load.
+  if (tenant.seedVersion !== undefined) tenantOverrides.seedVersion = tenant.seedVersion;
+  if (tenant.v2 !== undefined) tenantOverrides.v2 = tenant.v2;
   return {
     connections:    config.connections || [],
     workflows:      config.workflows   || [],
-    tenantOverrides: {
-      name: tenant.name,
-      brandColor: tenant.brandColor,
-      workspaceUrl: tenant.workspace,
-    },
+    tenantOverrides,
   };
 }
 

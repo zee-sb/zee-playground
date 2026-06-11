@@ -43,6 +43,11 @@ export const KINDS = Object.freeze({
   NEEDS_CONNECTION: 'needs-connection',     // one-tap connect card
   AGENT_HANDOFF: 'agent-handoff',           // A2A delegation handoff
   TRIVIA_QUESTION: 'trivia-question',       // hackathon trivia round
+  // Additive (Navigator V2 live chat) — stable once shipped, like the rest.
+  TOOL_PENDING: 'tool-pending',             // write-tool confirmation request
+  PREPARED: 'prepared-payload',             // trigger-tier approval → draft payload
+  RECEIPT: 'receipt',                       // execute-tier post-execution receipt
+  CITATION: 'citation',                     // KB source_citation chip
   ERROR: 'error',
 });
 
@@ -126,6 +131,66 @@ export function adaptEvent(event, _ctx = {}) {
           hint: event.type === 'card'
             ? { kind: event.card?.type, props: event.card }
             : { kind: 'chart', props: event.chart },
+        },
+      }];
+
+    case 'tool_call_pending':
+      // One item per pending write call — confirmation UI renders per call,
+      // and the per-call `tier` (when a V2 section gates the tenant) decides
+      // the approval semantics: trigger → prepare, execute → run + receipt.
+      return (event.toolCalls || []).map((tc) => ({
+        kind: KINDS.TOOL_PENDING,
+        id: tc.id,
+        props: {
+          toolCallId: tc.id,
+          name: tc.name,
+          namespacedName: tc.namespacedName,
+          connector: tc.connector,
+          connectorName: tc.connectorName || tc.connector,
+          args: tc.args,
+          tier: tc.tier || null,
+        },
+      }));
+
+    case 'tool_prepared':
+      return [{
+        kind: KINDS.PREPARED,
+        id: `prepared:${event.toolCallId}`,
+        props: {
+          toolCallId: event.toolCallId,
+          name: event.name,
+          connector: event.connector,
+          connectorName: event.connectorName || event.connector,
+          payload: event.payload,
+          preparedAt: event.preparedAt,
+        },
+      }];
+
+    case 'receipt':
+      return [{
+        kind: KINDS.RECEIPT,
+        id: `receipt:${event.toolCallId}`,
+        props: {
+          toolCallId: event.toolCallId,
+          name: event.name,
+          connector: event.connector,
+          connectorName: event.connectorName || event.connector,
+          summary: event.summary,
+          referenceId: event.referenceId || null,
+          ts: event.ts,
+        },
+      }];
+
+    case 'source_citation':
+      return [{
+        kind: KINDS.CITATION,
+        props: {
+          kbId: event.kbId,
+          name: event.name,
+          source: event.source || null,
+          docTitle: event.docTitle || null,
+          docId: event.docId || null,
+          toolCallId: event.toolCallId || null,
         },
       }];
 
