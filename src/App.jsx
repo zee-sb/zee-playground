@@ -1,7 +1,9 @@
 import React from 'react'
 import { Routes, Route, useParams, useNavigate, Link } from 'react-router-dom'
-import { Sparkles, MessageCircle } from 'lucide-react'
+import { Sparkles, MessageCircle, Inbox, MessagesSquare } from 'lucide-react'
 import NavigatorStudio from './prototypes/Navigator/NavigatorStudio'
+import NavigatorV2Studio from './prototypes/NavigatorV2/NavigatorV2Studio'
+import NavigatorV2Chat from './prototypes/NavigatorV2Chat/NavigatorV2Chat'
 import NavigatorSetupStudio from './prototypes/NavigatorSetup/NavigatorSetupStudio'
 import StaffbaseCompanion from './prototypes/StaffbaseCompanion'
 import MCPDemoStudio from './prototypes/MCPDemo/MCPDemoStudio'
@@ -41,6 +43,28 @@ const PROTOTYPES = [
     status: "live",
     icon: MessageCircle,
     component: StaffbaseCompanion
+  },
+  // ── Navigator V2 — the target concept (docs/navigator-concept.md) ──
+  // Built as a separate pair so stakeholders can A/B the current approach
+  // (cards above) against the new model in one deployment. Client-side
+  // only: state lives in localStorage via useV2Store (server seam stubbed).
+  {
+    id: "navigator-v2-studio",
+    title: "Navigator Studio V2 (Target Concept)",
+    description: "The admin surface inverted: home is the Question Log — clustered real demand, gaps, and Navigator's own proposals to approve, edit, or dismiss. Sources & Actions with risk tiers and inherited permissions, Behaviors as structured policy (no prompt textbox), processes described not built, and installable Packs.",
+    epic: "Navigator 2.0",
+    status: "concept",
+    icon: Inbox,
+    component: NavigatorV2Studio
+  },
+  {
+    id: "navigator-v2-chat",
+    title: "Navigator V2 — Employee Chat (Target Concept)",
+    description: "One Navigator, no expert picker. Scripted trust moments end-to-end: inspectable context contract, citations with freshness, action preview → receipt → undo, trust ladder with auto-approvals, plain-language progress narrative, honest limits with escalation, and a strict cite-or-refuse domain. Built mobile-first (390px).",
+    epic: "Navigator 2.0",
+    status: "concept",
+    icon: MessagesSquare,
+    component: NavigatorV2Chat
   }
 ];
 
