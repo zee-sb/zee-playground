@@ -30,6 +30,8 @@ function friendlyName(name) {
     search_issues: 'Searching issues',
     get_issue: 'Reading issue',
     add_issue_comment: 'Adding issue comment',
+    // Legacy in-process Staffbase MCP names — kept for backwards compat
+    // with any persisted tool-call logs that pre-date the proxy migration.
     list_recent_posts: 'Listing recent posts',
     search_posts: 'Searching posts',
     get_post: 'Reading post',
@@ -40,6 +42,30 @@ function friendlyName(name) {
     get_employee: 'Reading employee',
     list_tickets: 'Listing tickets',
     invoke: 'Handing off',
+    // Current Staffbase MCP-proxy names (auto-generated from OpenAPI specs).
+    // Add new entries here as the proxy team adds OpenAPI surfaces.
+    GetPosts: 'Listing posts',
+    SearchPosts: 'Searching posts',
+    GetPost: 'Reading post',
+    GetChannels: 'Listing channels',
+    GetBranchChannels: 'Listing channels',
+    GetChannelPosts: 'Listing channel posts',
+    GetClientChannelPosts: 'Listing channel posts',
+    GetClientNewsPagePosts: 'Listing news-page posts',
+    GetClientNewsPageChannels: 'Listing news-page channels',
+    GetPages: 'Listing pages',
+    GetPage: 'Reading page',
+    CreatePage: 'Creating page',
+    UpdatePage: 'Updating page',
+    DeletePage: 'Deleting page',
+    SearchUpdates: 'Searching recent page updates',
+    searchProfiles: 'Searching people',
+    getProfile: 'Reading profile',
+    getPublicProfile: 'Reading profile',
+    getProfiles: 'Reading profiles',
+    'reporters-org-chart': 'Reading reports',
+    searchMedia: 'Searching media',
+    getMediumInfoById: 'Reading media item',
   };
   return map[name] || name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -47,7 +73,10 @@ function friendlyName(name) {
 export default function ToolCallCard({
   name, args, result, status, connector,
   connectorName, connectorColor, degraded, citations,
+  hasCard = false,
 }) {
+  // When a structured card has rendered for this tool, the JSON dump panel is
+  // redundant — keep the tool row as a one-line audit trail until expanded.
   const [open, setOpen] = useState(false);
   let StatusIcon, statusColor, statusLabel;
   if (status === 'running') { StatusIcon = Loader2; statusColor = '#7C3AED'; statusLabel = 'Running'; }
@@ -65,21 +94,26 @@ export default function ToolCallCard({
   const connectorLabelText = connectorName || (connector ? (CONNECTOR_LABEL[connector] || connector) : null);
   const verb = friendlyName(name);
 
+  // Mute styling when a structured card already shows the data — the tool
+  // row becomes an audit-trail affordance, not a primary surface.
+  const muted = hasCard && status === 'done';
+
   return (
     <div style={{
-      margin: '3px 0',
-      border: '1px solid #F1F5F9',
+      margin: muted ? '1px 0' : '3px 0',
+      border: muted ? '1px solid #F8FAFC' : '1px solid #F1F5F9',
       borderRadius: 10,
-      background: 'white',
-      fontSize: 12,
+      background: muted ? 'transparent' : 'white',
+      fontSize: muted ? 11 : 12,
       overflow: 'hidden',
+      opacity: muted ? 0.75 : 1,
     }}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         style={{
           width: '100%', display: 'flex', alignItems: 'center', gap: 8,
-          padding: '7px 10px', textAlign: 'left',
+          padding: muted ? '4px 10px' : '7px 10px', textAlign: 'left',
           background: 'transparent', border: 'none', cursor: 'pointer',
           color: '#18181B',
           minWidth: 0,

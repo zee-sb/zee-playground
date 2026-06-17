@@ -59,6 +59,7 @@ export default function NavigatorStudio() {
     setConnections,
     setExperts,
     setWorkflows,
+    setConnectorSettings,
     resetConfig,
     reseed,
     saveMainInstructions,
@@ -360,6 +361,8 @@ export default function NavigatorStudio() {
                 connections={config.connections || []}
                 experts={config.experts || []}
                 onConnectionsChange={setConnections}
+                connectorSettings={config.tenant?.connectorSettings || {}}
+                onConnectorSettingsChange={setConnectorSettings}
               />
             )}
             {activeTabId === 'workflows' && !detailWorkflow && (

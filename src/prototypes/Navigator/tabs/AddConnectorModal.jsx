@@ -250,6 +250,11 @@ function CustomMcpView({ onClose, onAdd, existingIds }) {
   const [authToken, setAuthToken] = useState('')
   const [headerName, setHeaderName] = useState('')
   const [headerValue, setHeaderValue] = useState('')
+  // Routing hints — surfaced to the orchestrator's Tier-1 router. Optional
+  // here; the admin can also edit them later from the connector's expanded
+  // row in ConnectorsList.
+  const [useWhen, setUseWhen] = useState('')
+  const [dontUseFor, setDontUseFor] = useState('')
 
   // Discovery state: tools fetched from the endpoint.
   const [busy, setBusy] = useState(false)
@@ -332,6 +337,10 @@ function CustomMcpView({ onClose, onAdd, existingIds }) {
       })),
       custom: true,
     }
+    const useWhenTrim = useWhen.trim()
+    const dontUseForTrim = dontUseFor.trim()
+    if (useWhenTrim) connection.useWhen = useWhenTrim.slice(0, 200)
+    if (dontUseForTrim) connection.dontUseFor = dontUseForTrim.slice(0, 160)
     onAdd(connection)
     onClose?.()
   }
@@ -427,6 +436,35 @@ function CustomMcpView({ onClose, onAdd, existingIds }) {
             <AlertCircle size={14} className="shrink-0 mt-0.5" />
             <span className="break-words">{error}</span>
           </div>
+        )}
+
+        {discovered && (
+          <>
+            <Field
+              label="Use when (optional)"
+              hint="Plain-English rule the router reads to pick this connector over overlapping ones. Editable later from the Connections list."
+            >
+              <textarea
+                value={useWhen}
+                onChange={(e) => setUseWhen(e.target.value.slice(0, 200))}
+                rows={2}
+                placeholder="Travel bookings only — flights, hotels, per-diem questions."
+                className="w-full px-3 py-2 rounded-lg border border-[#E5E7EB] text-[12.5px] outline-none focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/20 resize-y"
+              />
+            </Field>
+            <Field
+              label="Don't use for (optional)"
+              hint="What this connector should NOT handle, even if the words look similar."
+            >
+              <textarea
+                value={dontUseFor}
+                onChange={(e) => setDontUseFor(e.target.value.slice(0, 160))}
+                rows={2}
+                placeholder="Internal IT tickets — use Staffbase IT Helpdesk."
+                className="w-full px-3 py-2 rounded-lg border border-[#E5E7EB] text-[12.5px] outline-none focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/20 resize-y"
+              />
+            </Field>
+          </>
         )}
 
         {discovered && (

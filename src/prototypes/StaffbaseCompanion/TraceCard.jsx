@@ -31,21 +31,28 @@ export default function TraceCard({ route, intent, connectors }) {
       if (mcps.length > 1) return `${mcps[0].name} +${mcps.length - 1}`;
       return cs[0]?.name || null;
     })();
+    const clarifyOptions = Array.isArray(tier1?.clarifyOptions) ? tier1.clarifyOptions : [];
+    const clarifyLabel = clarifyOptions.length
+      ? `Clarify · ${clarifyOptions.slice(0, 2).map((o) => o.label.split(':')[0].trim()).join(' vs ')}`
+      : 'Clarify';
     const t1Label = tier1?.kind === 'flow'
       ? `Flow · ${tier1.name || tier1.id}`
       : tier1?.kind === 'assistants'
         ? `Assistant · ${tier1.name || tier1.id}`
-        : tier1?.kind === 'general_chat'
-          ? (hasRouting
-              ? (directConnectorName ? `Tools · ${directConnectorName}` : 'Direct tools')
-              : 'General chat')
-          : tier1?.kind === 'out_of_scope'
-            ? 'Out of scope'
-            : hasRouting
-              ? (directConnectorName ? `Tools · ${directConnectorName}` : 'Direct tools')
-              : 'Out of scope';
+        : tier1?.kind === 'clarify'
+          ? clarifyLabel
+          : tier1?.kind === 'general_chat'
+            ? (hasRouting
+                ? (directConnectorName ? `Tools · ${directConnectorName}` : 'Direct tools')
+                : 'General chat')
+            : tier1?.kind === 'out_of_scope'
+              ? 'Out of scope'
+              : hasRouting
+                ? (directConnectorName ? `Tools · ${directConnectorName}` : 'Direct tools')
+                : 'Out of scope';
     const Icon = tier1?.kind === 'flow' ? Workflow
       : tier1?.kind === 'assistants' ? Sparkles
+      : tier1?.kind === 'clarify' ? AlertTriangle
       : Brain;
     const toolCount = tier2?.toolPool?.length || 0;
     const cs = tier2?.connectors || [];
