@@ -521,6 +521,10 @@ async function passAWorkspace({ channels, topPosts, deepPosts, orgSignals, langu
   const response = await client.chat.completions.create({
     model: 'gpt-4o-mini',
     temperature: 0.25,
+    // Pass A emits a 400-650 word mainInstructions plus company context,
+    // glossary, facts, and question types. On a rich workspace this overflows
+    // the client's default cap, truncating the JSON; pin a generous ceiling.
+    max_tokens: 8192,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: system },
@@ -670,6 +674,11 @@ async function passBAssistants({ channels, topPosts, deepPosts, orgSignals, lang
   const response = await client.chat.completions.create({
     model: 'gpt-4o-mini',
     temperature: 0.3,
+    // Pass B emits up to 9 Assistants, each with a full system-prompt snippet
+    // and knowledge sources — measured ~4.3k completion tokens on Campsite's
+    // 36 channels. The old 4096 default cut this off mid-JSON, dropping the
+    // whole pass into the one-Assistant-per-channel fallback. Pin headroom.
+    max_tokens: 8192,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: system },
@@ -921,6 +930,9 @@ async function handleOptimizeMainInstructions(req, res) {
   const response = await client.chat.completions.create({
     model: 'gpt-4o-mini',
     temperature: 0.2,
+    // The optimized mainInstructions can run long; keep it off the default cap
+    // so the rewrite isn't truncated mid-section.
+    max_tokens: 8192,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: system },
