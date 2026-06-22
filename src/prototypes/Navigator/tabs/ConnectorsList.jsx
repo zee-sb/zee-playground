@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Wrench, Bot, BookOpen, ChevronRight, ChevronDown, X, Plus, Power, AlertTriangle, Compass, ExternalLink, Sparkles } from 'lucide-react'
+import { Wrench, Bot, BookOpen, ChevronRight, ChevronDown, X, Plus, Power, AlertTriangle, Compass, ExternalLink, Sparkles, KeyRound } from 'lucide-react'
 import { LogoChip } from '../components/Catalog'
 import AddConnectorModal from './AddConnectorModal'
 
@@ -202,7 +202,7 @@ export default function ConnectorsList({ connections = [], experts = [], onConne
                     {expanded && (
                       <tr className="border-t border-[#F1F5F9] bg-[#FAFAFA]">
                         <td colSpan={6} className="px-5 py-3">
-                          <ExpandedRow connection={c} />
+                          <ExpandedRow connection={c} onConnectionsChange={onConnectionsChange} />
                         </td>
                       </tr>
                     )}
@@ -289,7 +289,153 @@ function StatusPill({ status }) {
   )
 }
 
-function ExpandedRow({ connection }) {
+// Microsoft 365 Copilot Retrieval — connector-specific config surfaced in the
+// expanded row: the per-user OAuth connect affordance, the requested Graph
+// scopes, and the admin path allowlist that compiles into the retrieval
+// `filterExpression` (KQL). Path edits write through `onConnectionsChange`.
+function MicrosoftConnectorPanel({ connection, onConnectionsChange }) {
+  const [path, setPath] = useState('')
+  const paths = connection.pathScopes || []
+  const connected = connection.status === 'connected'
+  const connectUrl = connection.connectEndpoint || '/api/connections/microsoft/connect'
+
+  function updatePaths(next) {
+    onConnectionsChange?.((prev) =>
+      prev.map((c) => (c.id === connection.id ? { ...c, pathScopes: next } : c)))
+  }
+  function addPath() {
+    const p = path.trim()
+    if (!p || paths.includes(p)) { setPath(''); return }
+    updatePaths([...paths, p])
+    setPath('')
+  }
+  function removePath(p) {
+    updatePaths(paths.filter((x) => x !== p))
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-[#DBEAFE] bg-[#F8FBFF] p-3">
+      {/* OAuth grant */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-[#1D4ED8] flex items-center gap-1.5">
+            <KeyRound size={11} /> Microsoft account
+          </div>
+          <div className="text-[12px] text-[#374151] mt-1">
+            {connected
+              ? <>Linked{connection.externalEmail ? <> as <span className="font-mono">{connection.externalEmail}</span></> : ''}. Retrieval runs on each user's own delegated token — Microsoft enforces their permissions.</>
+              : <>Each employee grants a one-time OAuth consent. Until then this source returns no results.</>}
+          </div>
+          <div className="text-[11px] text-[#64748B] mt-1.5">
+            Scopes: {(connection.scopes || []).map((s) => <span key={s} className="font-mono mr-1.5">{s}</span>)}
+          </div>
+        </div>
+        {!connected && (
+          <a
+            href={connectUrl}
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-[12px] font-semibold"
+          >
+            <KeyRound size={12} /> Connect Microsoft account
+          </a>
+        )}
+      </div>
+
+      {/* Path scoping → KQL filterExpression */}
+      <div className="mt-3 pt-3 border-t border-[#DBEAFE]">
+        <div className="text-[11px] font-bold uppercase tracking-wider text-[#1D4ED8]">SharePoint scope</div>
+        <div className="text-[11.5px] text-[#64748B] mt-0.5 mb-2">
+          Allowlist of site / library / folder paths to search. Empty = enabled but searches nothing. Compiled into the retrieval <span className="font-mono">filterExpression</span>.
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPath() } }}
+            placeholder="https://contoso.sharepoint.com/sites/HR"
+            spellCheck={false}
+            className="flex-1 px-3 py-1.5 rounded-lg border border-[#E5E7EB] text-[12px] font-mono outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20"
+          />
+          <button
+            type="button"
+            onClick={addPath}
+            disabled={!path.trim()}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#2563EB] bg-[#EFF6FF] text-[#1D4ED8] text-[12px] font-semibold hover:bg-[#DBEAFE] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Plus size={12} /> Add path
+          </button>
+        </div>
+        {paths.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {paths.map((p) => (
+              <div key={p} className="flex items-center gap-2 px-2 py-1 rounded bg-white border border-[#DBEAFE] text-[11.5px]">
+                <span className="font-mono text-[#111827] truncate flex-1">{p}</span>
+                <button
+                  type="button"
+                  onClick={() => removePath(p)}
+                  className="text-[#94A3B8] hover:text-[#B91C1C] shrink-0"
+                  aria-label={`Remove ${p}`}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ServiceNow ITSM — connector-specific config surfaced in the expanded row:
+// the per-user OAuth connect affordance and the write tools that prompt for
+// confirmation before they run. ServiceNow enforces the user's own roles/ACLs.
+function ServiceNowConnectorPanel({ connection }) {
+  const connected = connection.status === 'connected'
+  const connectUrl = connection.connectEndpoint || '/api/connections/servicenow/connect'
+  const writeTools = connection.writeTools || []
+
+  return (
+    <div className="mt-3 rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] p-3">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-[#15803D] flex items-center gap-1.5">
+            <KeyRound size={11} /> ServiceNow account
+          </div>
+          <div className="text-[12px] text-[#374151] mt-1">
+            {connected
+              ? <>Linked{connection.externalEmail ? <> as <span className="font-mono">{connection.externalEmail}</span></> : ''}. Every tool call runs on the user's own token — ServiceNow enforces their roles and ACLs.</>
+              : <>Each employee grants a one-time OAuth consent on the ServiceNow instance. Until then this connector returns no results.</>}
+          </div>
+        </div>
+        {!connected && (
+          <a
+            href={connectUrl}
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#16A34A] hover:bg-[#15803D] text-white text-[12px] font-semibold"
+          >
+            <KeyRound size={12} /> Connect ServiceNow account
+          </a>
+        )}
+      </div>
+
+      {writeTools.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-[#BBF7D0]">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-[#15803D] flex items-center gap-1.5">
+            <AlertTriangle size={11} /> Write actions
+          </div>
+          <div className="text-[11.5px] text-[#64748B] mt-0.5">
+            {writeTools.map((t) => <span key={t} className="font-mono mr-1.5">{t}</span>)}
+          </div>
+          <div className="text-[11.5px] text-[#64748B] mt-1">
+            These change ServiceNow records and require explicit user confirmation in chat before they run.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ExpandedRow({ connection, onConnectionsChange }) {
   const tools = connection.tools || []
   return (
     <div>
@@ -302,8 +448,16 @@ function ExpandedRow({ connection }) {
         {connection.kind === 'search' && <Field label="Source" value={connection.source || '—'} />}
         {connection.kind === 'handoff' && <Field label="Protocol" value={connection.protocol || 'native'} />}
         {connection.provider && <Field label="OAuth provider" value={connection.provider} />}
+        {connection.requiresLicense && <Field label="Requires" value={connection.requiresLicense} />}
         {connection.writeTools?.length > 0 && <Field label="Write tools" value={connection.writeTools.join(', ')} />}
       </div>
+
+      {connection.provider === 'microsoft' && (
+        <MicrosoftConnectorPanel connection={connection} onConnectionsChange={onConnectionsChange} />
+      )}
+      {connection.provider === 'servicenow' && (
+        <ServiceNowConnectorPanel connection={connection} />
+      )}
       {tools.length > 0 && (
         <div className="mt-3">
           <div className="text-[10.5px] font-bold uppercase tracking-wider text-[#94A3B8] mb-1.5">Tools ({tools.length})</div>
