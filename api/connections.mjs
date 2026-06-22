@@ -15,6 +15,13 @@ import {
   ATLASSIAN_SCOPES,
 } from '../lib/atlassian.mjs';
 import {
+  buildAuthorizeUrl as buildServiceNowAuthorizeUrl,
+  exchangeCode as exchangeServiceNowCode,
+  getMe as getServiceNowMe,
+  saveServiceNowConnection,
+  SERVICENOW_SCOPES,
+} from '../lib/servicenow.mjs';
+import {
   parseCookies,
   verifyStateJwt,
   issueStateJwt,
@@ -44,6 +51,8 @@ export default async function handler(req, res) {
     if (path === '/api/connections/atlassian/connect')  return await atlassianConnect(req, res);
     if (path === '/api/connections/atlassian/callback') return await atlassianCallback(req, res);
     if (path === '/api/connections/campsite/connect')   return await campsiteConnect(req, res);
+    if (path === '/api/connections/servicenow/connect')  return await serviceNowConnect(req, res);
+    if (path === '/api/connections/servicenow/callback') return await serviceNowCallback(req, res);
     if (path === '/api/connections/disconnect')         return await disconnect(req, res);
     res.status(404).json({ error: 'not_found', path });
   } catch (err) {
@@ -195,6 +204,96 @@ async function campsiteConnect(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   res.writeHead(302, { Location: ssoUrl });
   res.end();
+}
+
+// ── GET /api/connections/servicenow/connect ────────────────────────────
+// Per-user OAuth 2.0 (authorization_code) against the configured ServiceNow
+// instance. Mirrors atlassianConnect — the only differences are the provider
+// name and that the authorize URL points at the instance's /oauth_auth.do.
+async function serviceNowConnect(req, res) {
+  if (req.method !== 'GET') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+  const session = await getUserFromReq(req);
+  if (!session) {
+    res.status(401).json({ error: 'not_signed_in' });
+    return;
+  }
+  const clientId = process.env.SERVICENOW_CLIENT_ID;
+  if (!clientId || !process.env.SERVICENOW_INSTANCE_URL) {
+    res.status(500).json({ error: 'servicenow_not_configured' });
+    return;
+  }
+  const base = appUrl(req);
+  const redirectUri = `${base}/api/connections/servicenow/callback`;
+  const nonce = randomBytes(16).toString('hex');
+  const state = `${nonce}.${session.userId}`;
+  const stateJwt = await issueStateJwt(state);
+  let url;
+  try {
+    url = buildServiceNowAuthorizeUrl({ clientId, redirectUri, state });
+  } catch (err) {
+    console.error('[connections/servicenow/connect]', err);
+    res.status(500).json({ error: err.code || 'servicenow_config_error' });
+    return;
+  }
+  res.setHeader('Set-Cookie', stateCookieHeader(stateJwt));
+  res.setHeader('Cache-Control', 'no-store');
+  res.writeHead(302, { Location: url });
+  res.end();
+}
+
+// ── GET /api/connections/servicenow/callback ───────────────────────────
+async function serviceNowCallback(req, res) {
+  if (req.method !== 'GET') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+  const base = appUrl(req);
+  const bounce = (code) => {
+    const params = code ? `?connect_error=${encodeURIComponent(code)}` : '';
+    res.setHeader('Set-Cookie', clearStateCookieHeader());
+    res.writeHead(302, { Location: `${base}/prototypes/staffbase-companion${params}` });
+    res.end();
+  };
+  if (!dbConfigured()) return bounce('db_not_configured');
+
+  const session = await getUserFromReq(req);
+  if (!session) return bounce('not_signed_in');
+
+  const url = new URL(req.url, base);
+  const code = url.searchParams.get('code');
+  const state = url.searchParams.get('state');
+  const errorParam = url.searchParams.get('error');
+  if (errorParam) return bounce(errorParam);
+  if (!code || !state) return bounce('missing_code');
+
+  const cookies = parseCookies(req.headers.cookie || '');
+  const stateInCookie = await verifyStateJwt(cookies[COOKIE_NAMES.state]);
+  if (!stateInCookie || stateInCookie !== state) return bounce('state_mismatch');
+  const [, signedUserId] = state.split('.');
+  if (signedUserId !== session.userId) return bounce('state_user_mismatch');
+
+  const redirectUri = `${base}/api/connections/servicenow/callback`;
+  try {
+    const tokens = await exchangeServiceNowCode({ code, redirectUri });
+    if (!tokens.refresh_token) return bounce('no_refresh_token');
+    const me = await getServiceNowMe(tokens.access_token);
+    await saveServiceNowConnection({
+      userId: session.userId,
+      me,
+      tokens,
+      scopeStr: tokens.scope || SERVICENOW_SCOPES,
+    });
+    res.setHeader('Set-Cookie', clearStateCookieHeader());
+    res.setHeader('Cache-Control', 'no-store');
+    res.writeHead(302, { Location: `${base}/prototypes/staffbase-companion?connected=servicenow` });
+    res.end();
+  } catch (err) {
+    console.error('[connections/servicenow/callback]', err);
+    return bounce('callback_failed');
+  }
 }
 
 // ── POST /api/connections/disconnect ───────────────────────────────────

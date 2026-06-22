@@ -1,8 +1,77 @@
 import React, { useMemo, useState } from 'react'
 import {
   X, Search, ArrowLeft, Plus, Loader2, CheckCircle, AlertCircle, Sparkles,
-  Wrench, ExternalLink,
+  Wrench, ExternalLink, BookOpen,
 } from 'lucide-react'
+
+// Canonical record for the Microsoft 365 Copilot Retrieval connector. This is
+// a real, installable `kind: 'search'` source (not a "coming soon" tile): it
+// grounds answers in SharePoint / OneDrive / Copilot-connector content via the
+// M365 Copilot Retrieval API, with per-user delegated OAuth so each employee's
+// own permissions are enforced by Microsoft at retrieval time.
+export const MICROSOFT_COPILOT_CONNECTOR = {
+  id: 'microsoft-copilot-retrieval',
+  kind: 'search',
+  catalogId: 'microsoft_copilot_retrieval',
+  name: 'Microsoft 365 Copilot Retrieval',
+  description:
+    'Grounded retrieval from SharePoint, OneDrive, and Copilot connectors via the Microsoft 365 Copilot Retrieval API. Returns permission-trimmed text extracts ranked by relevance. Per-user OAuth — each employee links their own Microsoft account.',
+  endpoint: '/api/mcp-microsoft',
+  provider: 'microsoft',
+  needsUserContext: true,
+  authMethod: 'OAuth 2.0 (per user)',
+  // Where the connector row's "Connect Microsoft account" affordance points.
+  connectEndpoint: '/api/connections/microsoft/connect',
+  // Starts disconnected — installing the connector adds it to the workspace,
+  // but each user must still grant the delegated OAuth consent.
+  status: 'disconnected',
+  source: 'SharePoint · OneDrive · Copilot connectors',
+  domains: ['sharepoint', 'onedrive', 'm365', 'microsoft', 'copilot', 'policy', 'document', 'file', 'handbook'],
+  writeTools: [],
+  // Delegated Graph scopes the OAuth grant requests.
+  scopes: ['Files.Read.All', 'Sites.Read.All', 'ExternalItem.Read.All', 'offline_access'],
+  // The Retrieval API requires the calling user to hold this license.
+  requiresLicense: 'Microsoft 365 Copilot',
+  // Admin-configured KQL scoping: allowlist of SharePoint site/library/folder
+  // paths compiled into the `filterExpression` on each retrieval call.
+  pathScopes: [],
+  tools: [
+    { id: 'copilot_retrieval', name: 'copilot_retrieval', description: 'Retrieve ranked text extracts from SharePoint, OneDrive, or Copilot connectors for a natural-language query (permission-trimmed).' },
+  ],
+}
+
+// Canonical record for the ServiceNow ITSM connector. A real, installable
+// multi-tool toolkit backed by the ServiceNow REST API at `/api/mcp-servicenow`,
+// with per-user delegated OAuth so each employee links their own ServiceNow
+// account and the instance enforces their roles/ACLs on every call.
+export const SERVICENOW_CONNECTOR = {
+  id: 'servicenow',
+  kind: 'toolkit',
+  catalogId: 'servicenow',
+  name: 'ServiceNow',
+  description:
+    'ServiceNow ITSM — search the knowledge base and view, create, and update incidents. Per-user OAuth; ServiceNow enforces each employee\'s own roles and ACLs on every call.',
+  endpoint: '/api/mcp-servicenow',
+  provider: 'servicenow',
+  needsUserContext: true,
+  authMethod: 'OAuth 2.0 (per user)',
+  // Where the connector row's "Connect ServiceNow account" affordance points.
+  connectEndpoint: '/api/connections/servicenow/connect',
+  // Starts disconnected — installing adds it to the workspace, but each user
+  // must still grant the OAuth consent on the instance.
+  status: 'disconnected',
+  source: 'ServiceNow ITSM',
+  domains: ['servicenow', 'service now', 'itsm', 'incident', 'ticket', 'knowledge base', 'kb article', 'change record', 'it request'],
+  writeTools: ['servicenow_create_incident', 'servicenow_update_incident', 'servicenow_add_comment'],
+  tools: [
+    { id: 'servicenow_search_kb', name: 'servicenow_search_kb', description: 'Search the ServiceNow knowledge base for help articles.' },
+    { id: 'servicenow_list_incidents', name: 'servicenow_list_incidents', description: 'List the signed-in user\'s incidents, newest first.' },
+    { id: 'servicenow_get_incident', name: 'servicenow_get_incident', description: 'Fetch full details of one incident by number or sys_id.' },
+    { id: 'servicenow_create_incident', name: 'servicenow_create_incident', description: 'Create a new incident on behalf of the user (requires confirmation).' },
+    { id: 'servicenow_update_incident', name: 'servicenow_update_incident', description: 'Update fields on an incident (requires confirmation).' },
+    { id: 'servicenow_add_comment', name: 'servicenow_add_comment', description: 'Add a comment or work note to an incident (requires confirmation).' },
+  ],
+}
 
 // Catalog of third-party MCP integrations. All marked "coming soon" — they
 // render with realistic branding (initials + brand color) and a disabled card.
@@ -24,7 +93,6 @@ const MARKETPLACE = [
   { id: 'salesforce',  name: 'Salesforce',        category: 'CRM',            color: '#00A1E0', desc: 'Accounts, opportunities, contacts.' },
   { id: 'hubspot',     name: 'HubSpot',           category: 'CRM',            color: '#FF7A59', desc: 'Contacts, deals, marketing emails.' },
   { id: 'zendesk',     name: 'Zendesk',           category: 'Support',        color: '#03363D', desc: 'Tickets, organizations, search.' },
-  { id: 'servicenow',  name: 'ServiceNow',        category: 'ITSM',           color: '#62D84E', desc: 'Incidents, requests, change records.' },
   { id: 'workday',     name: 'Workday',           category: 'HR',             color: '#F38B00', desc: 'HRIS profile, time off, org chart.' },
   { id: 'bamboohr',    name: 'BambooHR',          category: 'HR',             color: '#73C41D', desc: 'Employees, leave, time-tracking.' },
   { id: 'gdrive',      name: 'Google Drive',      category: 'Files',          color: '#1FA463', desc: 'Search files, read docs, share.' },
@@ -99,6 +167,27 @@ export default function AddConnectorModal({ onClose, onAdd, existingIds = [] }) 
     )
   }, [query])
 
+  const microsoftAdded = existingIds.includes(MICROSOFT_COPILOT_CONNECTOR.id)
+  const serviceNowAdded = existingIds.includes(SERVICENOW_CONNECTOR.id)
+
+  function handleAddMicrosoft() {
+    if (microsoftAdded) return
+    onAdd({
+      ...MICROSOFT_COPILOT_CONNECTOR,
+      addedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    })
+    onClose?.()
+  }
+
+  function handleAddServiceNow() {
+    if (serviceNowAdded) return
+    onAdd({
+      ...SERVICENOW_CONNECTOR,
+      addedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    })
+    onClose?.()
+  }
+
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6">
       <div className="bg-white w-full max-w-4xl max-h-[88vh] rounded-2xl shadow-2xl flex flex-col">
@@ -134,6 +223,10 @@ export default function AddConnectorModal({ onClose, onAdd, existingIds = [] }) 
             setQuery={setQuery}
             items={filtered}
             onPickCustom={() => setView('custom')}
+            onAddMicrosoft={handleAddMicrosoft}
+            microsoftAdded={microsoftAdded}
+            onAddServiceNow={handleAddServiceNow}
+            serviceNowAdded={serviceNowAdded}
           />
         ) : (
           <CustomMcpView
@@ -149,7 +242,7 @@ export default function AddConnectorModal({ onClose, onAdd, existingIds = [] }) 
 
 // ── Marketplace view ────────────────────────────────────────────────────────
 
-function MarketplaceView({ query, setQuery, items, onPickCustom }) {
+function MarketplaceView({ query, setQuery, items, onPickCustom, onAddMicrosoft, microsoftAdded, onAddServiceNow, serviceNowAdded }) {
   return (
     <>
       <div className="px-6 pt-5 pb-3 border-b border-[#F1F5F9]">
@@ -185,6 +278,72 @@ function MarketplaceView({ query, setQuery, items, onPickCustom }) {
             </div>
           </div>
           <Plus size={16} className="text-[#7C3AED] shrink-0 mt-1" />
+        </button>
+
+        {/* Microsoft 365 Copilot Retrieval — featured, installable search source */}
+        <button
+          type="button"
+          onClick={onAddMicrosoft}
+          disabled={microsoftAdded}
+          className={`w-full mb-5 flex items-start gap-3 px-4 py-4 border rounded-xl text-left transition-colors group ${
+            microsoftAdded
+              ? 'bg-[#F8FAFC] border-[#E5E7EB] opacity-70 cursor-default'
+              : 'bg-gradient-to-r from-[#EFF6FF] to-[#F0FDFA] border-[#BFDBFE] hover:border-[#2563EB]'
+          }`}
+        >
+          <div className="w-10 h-10 rounded-lg grid place-items-center shrink-0" style={{ background: '#2563EB' }}>
+            <BookOpen size={20} className="text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="text-[14px] font-bold text-[#111827]">Microsoft 365 Copilot Retrieval</div>
+              <span className="text-[9.5px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-[#DBEAFE] text-[#1D4ED8]">Search</span>
+              {microsoftAdded ? (
+                <span className="text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-[#DCFCE7] text-[#15803D] inline-flex items-center gap-1"><CheckCircle size={10} /> Added</span>
+              ) : (
+                <span className="text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-[#DCFCE7] text-[#15803D]">Available</span>
+              )}
+            </div>
+            <div className="text-[12.5px] text-[#52525B] mt-0.5">
+              Ground answers in SharePoint, OneDrive & Copilot connectors. Per-user OAuth — Microsoft enforces each employee's own permissions. Requires a Microsoft 365 Copilot license.
+            </div>
+          </div>
+          {microsoftAdded
+            ? <CheckCircle size={16} className="text-[#15803D] shrink-0 mt-1" />
+            : <Plus size={16} className="text-[#2563EB] shrink-0 mt-1" />}
+        </button>
+
+        {/* ServiceNow ITSM — featured, installable toolkit */}
+        <button
+          type="button"
+          onClick={onAddServiceNow}
+          disabled={serviceNowAdded}
+          className={`w-full mb-5 flex items-start gap-3 px-4 py-4 border rounded-xl text-left transition-colors group ${
+            serviceNowAdded
+              ? 'bg-[#F8FAFC] border-[#E5E7EB] opacity-70 cursor-default'
+              : 'bg-gradient-to-r from-[#F0FDF4] to-[#ECFEFF] border-[#BBF7D0] hover:border-[#16A34A]'
+          }`}
+        >
+          <div className="w-10 h-10 rounded-lg grid place-items-center shrink-0" style={{ background: '#62D84E' }}>
+            <Wrench size={20} className="text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="text-[14px] font-bold text-[#111827]">ServiceNow</div>
+              <span className="text-[9.5px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-[#DCFCE7] text-[#15803D]">Toolkit</span>
+              {serviceNowAdded ? (
+                <span className="text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-[#DCFCE7] text-[#15803D] inline-flex items-center gap-1"><CheckCircle size={10} /> Added</span>
+              ) : (
+                <span className="text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-[#DCFCE7] text-[#15803D]">Available</span>
+              )}
+            </div>
+            <div className="text-[12.5px] text-[#52525B] mt-0.5">
+              Search the knowledge base and view, create & update incidents. Per-user OAuth — ServiceNow enforces each employee's own roles on every call.
+            </div>
+          </div>
+          {serviceNowAdded
+            ? <CheckCircle size={16} className="text-[#15803D] shrink-0 mt-1" />
+            : <Plus size={16} className="text-[#16A34A] shrink-0 mt-1" />}
         </button>
 
         <div className="text-[10.5px] font-bold uppercase tracking-widest text-[#94A3B8] mb-3">
