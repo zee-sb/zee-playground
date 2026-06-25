@@ -1230,6 +1230,19 @@ function Hero({ user, atlassianLinked, heroData, onPick, onConnect }) {
   } else {
     chips = (atlassianAvailable ? FULL_SAMPLES : MOCKED_ONLY_SAMPLES).map((l) => ({ label: l, prompt: l }));
   }
+  // When ServiceNow is wired into this workspace, lead with ServiceNow
+  // starters so trying it is obvious on mobile too.
+  const serviceNowInScope = !!(heroData?.connections || heroData?.connectors || []).find((c) => c.id === 'servicenow' || c.provider === 'servicenow')
+    || heroExperts.some((e) => /servicenow/i.test(e.name || ''))
+    || heroWorkflows.some((w) => /servicenow/i.test(w.name || ''));
+  if (serviceNowInScope) {
+    chips = [
+      { label: '🎫 Open a ServiceNow incident', prompt: 'I want to open a ServiceNow incident' },
+      { label: '✦ My open ServiceNow incidents', prompt: 'Show my open ServiceNow incidents' },
+      { label: '✦ Search the ServiceNow KB', prompt: 'Search the ServiceNow knowledge base' },
+      ...chips,
+    ];
+  }
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px 16px 12px' }}>

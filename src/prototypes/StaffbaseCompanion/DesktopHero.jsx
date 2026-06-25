@@ -20,6 +20,29 @@ const TILE_PALETTES = [
   { bg: '#F5F0FF', border: 'rgba(124, 58, 237, 0.18)', icon: '#7C3AED', iconBg: 'rgba(124, 58, 237, 0.12)' },
 ];
 
+// When the ServiceNow connector is wired into this workspace, we swap the
+// generic quick-prompt chips for these so trying ServiceNow is obvious to
+// everyone. `kind: 'flow'` renders the ▶ glyph (the incident-create flow);
+// the reads render the ✦ glyph.
+const SERVICENOW_STARTERS = [
+  { kind: 'flow',      title: 'Open a ServiceNow incident', prompt: 'I want to open a ServiceNow incident' },
+  { kind: 'assistant', title: 'My open ServiceNow incidents', prompt: 'Show my open ServiceNow incidents' },
+  { kind: 'assistant', title: 'Search the ServiceNow KB',   prompt: 'Search the ServiceNow knowledge base' },
+];
+
+// Is the ServiceNow connector present in this workspace's scope? Checks the
+// connector list first, then falls back to the expert/flow names so it lights
+// up as soon as ServiceNow is seeded — linked or not (an unlinked click routes
+// to the ServiceNow expert, which nudges the user to connect).
+function serviceNowInScope(heroData) {
+  const conns = heroData?.connections || heroData?.connectors || [];
+  if (conns.some((c) => c.id === 'servicenow' || c.provider === 'servicenow')) return true;
+  const experts = heroData?.experts || heroData?.assistants || [];
+  const workflows = heroData?.workflows || heroData?.flows || [];
+  return experts.some((e) => /servicenow/i.test(e.name || ''))
+    || workflows.some((w) => /servicenow/i.test(w.name || ''));
+}
+
 // Turn a Studio entry (assistant or flow) into a tile descriptor. The first
 // sample prompt becomes the tile's call-to-action; if Studio didn't seed one
 // we fall back to a benign "Help me with X" prompt that still routes the
@@ -75,9 +98,15 @@ export default function DesktopHero({ user, heroData, onPick }) {
       };
     }
 
+    // When ServiceNow is wired in, make trying it obvious: replace the generic
+    // quick-prompt chips with ServiceNow starters.
+    const chips = serviceNowInScope(heroData)
+      ? SERVICENOW_STARTERS
+      : candidates.slice(3, 9);
+
     return {
       tiles: candidates.slice(0, 3),
-      chips: candidates.slice(3, 9),
+      chips,
       assistantCount: experts.length,
       flowCount: workflows.length,
       studioEmpty: false,
