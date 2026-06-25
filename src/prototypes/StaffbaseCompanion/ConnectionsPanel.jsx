@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { CheckCircle2, Plug, AlertCircle, LogOut, Users, Monitor, Newspaper, Building2, Menu, KeyRound, ExternalLink, RefreshCw } from 'lucide-react';
+import { CheckCircle2, Plug, AlertCircle, LogOut, Users, Monitor, Newspaper, Building2, Menu, KeyRound, ExternalLink, RefreshCw, Ticket } from 'lucide-react';
 import { disconnectProvider, refreshProfile } from './api.js';
 
 const CONNECTORS = [
   { id: 'campsite',   provider: 'campsite',  name: 'Staffbase Campsite (SSO)', description: 'Sign in to the Staffbase Campsite intranet via SAML SSO using your Google account. One-click web session — no API token needed.', icon: KeyRound,  color: '#00C7B2', alwaysOn: false, ctaConnect: 'Sign in to Campsite', cta2: 'Open Campsite' },
   { id: 'intranet',   provider: null,        name: 'Staffbase Intranet (read-only API)', description: 'Read live posts, channels, and people from campsite.staffbase.com via the Staffbase Platform API token.', icon: Newspaper, color: '#0EA5E9', alwaysOn: true, live: true },
   { id: 'atlassian',  provider: 'atlassian', name: 'Atlassian',     description: 'Real Confluence + Jira. Search pages, summarize, comment, update issues.', icon: Building2, color: '#0052CC', alwaysOn: false },
+  { id: 'servicenow', provider: 'servicenow', name: 'ServiceNow',   description: 'Real ServiceNow ITSM. Search the knowledge base and view, create & update incidents. Your roles/ACLs are enforced server-side.', icon: Ticket, color: '#62D84E', alwaysOn: false },
   { id: 'hr_portal',  provider: null,        name: 'HR Portal',     description: 'Employee directory, PTO, org chart, policies, holidays, FAQs', icon: Users,    color: '#7C3AED', alwaysOn: true },
   { id: 'it_helpdesk', provider: null,       name: 'IT Helpdesk',   description: 'Tickets, equipment, software, security policies',              icon: Monitor,  color: '#2563EB', alwaysOn: true },
 ];
