@@ -31,7 +31,9 @@ export const STORAGE_KEY = 'staffbase.navigator.config.v2'
 // bad photo prompts retake instead of silently flowing through. The seed
 // also tags itself with SEED_VERSION so the client can detect a stale
 // server config and call reseed() automatically.
-export const CONFIG_VERSION = 11
+// v12: add the ServiceNow connector to the seed and attach it to the IT
+// Support expert so the chat can route ServiceNow KB / incident requests to it.
+export const CONFIG_VERSION = 12
 
 export function keyForBranch(branchId) {
   return branchId ? `${STORAGE_KEY}:${branchId}` : STORAGE_KEY
