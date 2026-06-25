@@ -33,7 +33,9 @@ export const STORAGE_KEY = 'staffbase.navigator.config.v2'
 // server config and call reseed() automatically.
 // v12: add the ServiceNow connector to the seed and attach it to the IT
 // Support expert so the chat can route ServiceNow KB / incident requests to it.
-export const CONFIG_VERSION = 12
+// v13: dedicated ServiceNow expert (off IT Support) + "Open a ServiceNow
+// incident" guided form flow.
+export const CONFIG_VERSION = 13
 
 export function keyForBranch(branchId) {
   return branchId ? `${STORAGE_KEY}:${branchId}` : STORAGE_KEY
