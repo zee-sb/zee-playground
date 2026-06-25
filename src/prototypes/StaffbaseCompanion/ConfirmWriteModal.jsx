@@ -55,17 +55,32 @@ function ConfluenceGlyph({ size = 18 }) {
   );
 }
 
+// ServiceNow — stylised ticket mark in the ServiceNow green. Inline, no logo
+// download, recognisable enough for a demo without claiming the official mark.
+function ServiceNowGlyph({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <rect x="2" y="6" width="20" height="12" rx="3" fill="#62D84E" />
+      <circle cx="12" cy="12" r="3.1" fill="#0E5A2B" />
+      <path d="M2 10.5a2 2 0 010 3M22 10.5a2 2 0 000 3" stroke="#fff" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 // ── Action presentations ──────────────────────────────────────────────────
-// Maps each known atlassian write tool to its human-readable shape: which
-// product chip to show, what to call the action, and which arg fields to
-// render as labelled rows. Everything else lives behind a 'Show payload'
-// disclosure for the curious.
+// Maps each known write tool to its human-readable shape: which product chip
+// to show, what to call the action, and which arg fields to render as labelled
+// rows. Everything else lives behind a 'Show payload' disclosure.
 
 const PRODUCTS = {
   jira:       { glyph: JiraGlyph,       name: 'Jira',       color: '#0052CC' },
   confluence: { glyph: ConfluenceGlyph, name: 'Confluence', color: '#0052CC' },
   atlassian:  { glyph: AtlassianGlyph,  name: 'Atlassian',  color: '#0052CC' },
+  servicenow: { glyph: ServiceNowGlyph, name: 'ServiceNow', color: '#15803D' },
 };
+
+// Friendly value maps for ServiceNow's numeric fields.
+const PRIORITY_LABELS = { '1': 'High', '2': 'Medium', '3': 'Low' };
 
 const ACTIONS = {
   create_issue: {
@@ -120,13 +135,55 @@ const ACTIONS = {
       { key: 'body',   label: 'Comment', long: true },
     ],
   },
+  // ── ServiceNow ──────────────────────────────────────────────────────────
+  servicenow_create_incident: {
+    label: 'Create ServiceNow incident',
+    product: 'servicenow',
+    summary: (a) => a.short_description || '(untitled)',
+    rows: [
+      { key: 'short_description', label: 'Summary' },
+      { key: 'category',          label: 'Category' },
+      { key: 'urgency',           label: 'Urgency', format: (v) => PRIORITY_LABELS[v] || v },
+      { key: 'impact',            label: 'Impact',  format: (v) => PRIORITY_LABELS[v] || v },
+      { key: 'description',       label: 'Details', long: true },
+    ],
+  },
+  servicenow_update_incident: {
+    label: 'Update ServiceNow incident',
+    product: 'servicenow',
+    summary: (a) => a.sys_id ? `Incident ${a.sys_id}` : 'Update',
+    rows: [
+      { key: 'sys_id', label: 'Incident' },
+      { key: 'fields', label: 'Changes', long: true },
+    ],
+  },
+  servicenow_add_comment: {
+    label: 'Comment on ServiceNow incident',
+    product: 'servicenow',
+    summary: (a) => a.sys_id ? `On ${a.sys_id}` : 'Comment',
+    rows: [
+      { key: 'sys_id',    label: 'Incident' },
+      { key: 'comment',   label: 'Comment', long: true },
+      { key: 'work_note', label: 'Work note', long: true },
+    ],
+  },
 };
+
+// Infer the product for a tool we don't have an explicit ACTIONS entry for,
+// from its name prefix — so an unmapped servicenow_* tool never falls back to
+// Atlassian branding.
+function inferProduct(name) {
+  if (/^servicenow/.test(name)) return 'servicenow';
+  if (/jira|issue/.test(name)) return 'jira';
+  if (/page|confluence/.test(name)) return 'confluence';
+  return 'atlassian';
+}
 
 function actionMeta(toolCall) {
   const name = toolCall?.name || '';
   const action = ACTIONS[name] || {
     label: name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || 'Write action',
-    product: 'atlassian',
+    product: inferProduct(name),
     summary: () => '',
     rows: [],
   };
@@ -191,6 +248,7 @@ function ActionCard({ tc }) {
         <div className="px-3 py-2.5 space-y-1.5">
           {presentRows.map((row) => {
             const v = args[row.key];
+            const shown = row.format ? row.format(v) : formatValue(v);
             if (row.long) {
               return (
                 <div key={row.key} className="pt-1">
@@ -201,7 +259,7 @@ function ActionCard({ tc }) {
                     className="text-[12px] text-[#18181B] bg-[#FAFAFA] border border-[#E4E4E7] rounded-md p-2 whitespace-pre-wrap break-words leading-relaxed"
                     style={{ maxHeight: 160, overflow: 'auto' }}
                   >
-                    {formatValue(v)}
+                    {shown}
                   </div>
                 </div>
               );
@@ -209,7 +267,7 @@ function ActionCard({ tc }) {
             return (
               <div key={row.key} className="flex items-baseline gap-2 text-[12px]">
                 <div className="text-[#71717A] flex-shrink-0 w-20">{row.label}</div>
-                <div className="text-[#18181B] flex-1 min-w-0 break-words">{formatValue(v)}</div>
+                <div className="text-[#18181B] flex-1 min-w-0 break-words">{shown}</div>
               </div>
             );
           })}
@@ -277,7 +335,7 @@ export default function ConfirmWriteModal({ toolCalls, onConfirm, onCancel, busy
               {toolCalls.length > 1 ? ` + ${toolCalls.length - 1} more` : ''}
             </div>
             <div className="text-[11px] text-[#71717A] mt-0.5 leading-snug">
-              Companion will make this change in your real Atlassian instance.
+              Navigator will make this change in your real {firstMeta.product.name} instance.
             </div>
           </div>
           <button

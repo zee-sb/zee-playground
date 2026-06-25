@@ -4,7 +4,7 @@ import {
   ArrowLeft, Plug, BookOpen, MessageSquare, ChevronRight, Loader2,
   CheckCircle, XCircle, User, Wrench, FileText, Zap, Send, RotateCcw,
   ChevronDown, ChevronUp, AlertCircle, Calendar, MapPin, Mail, Clock,
-  Users, Building2, X, Sparkles, Bot, Server, ExternalLink, ShieldCheck,
+  Users, Building2, X, Sparkles, Bot, Server, ExternalLink, ShieldCheck, Ticket,
 } from 'lucide-react';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -57,6 +57,12 @@ const SERVERS = [
     description: 'Confluence + Jira — requires real Atlassian OAuth via Companion',
     base: '/api/mcp-atlassian', auth: 'oauth-google',
     color: '#0052CC', icon: BookOpen,
+  },
+  {
+    id: 'servicenow', protocol: 'mcp', name: 'ServiceNow ITSM',
+    description: 'Knowledge base search + incident read/create/update — runs on each user\'s own ServiceNow OAuth token via Companion',
+    base: '/api/mcp-servicenow', auth: 'oauth-google',
+    color: '#62D84E', icon: Ticket,
   },
   {
     id: 'onboarding', protocol: 'a2a', name: 'Staffbase Onboarding Agent',
