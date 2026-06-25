@@ -228,7 +228,14 @@ async function serviceNowConnect(req, res) {
   const base = appUrl(req);
   const redirectUri = `${base}/api/connections/servicenow/callback`;
   const nonce = randomBytes(16).toString('hex');
-  const state = `${nonce}.${session.userId}`;
+  // Thread the originating surface through the (signed) state so the callback
+  // returns the user to where they started — Studio vs companion — instead of
+  // always bouncing to the companion app. Encoded base64url so the '.'
+  // delimiter stays unambiguous.
+  let returnTo = new URL(req.url, base).searchParams.get('return') || '/prototypes/staffbase-companion';
+  if (!returnTo.startsWith('/')) returnTo = '/prototypes/staffbase-companion';
+  const retEnc = Buffer.from(returnTo).toString('base64url');
+  const state = `${nonce}.${session.userId}.${retEnc}`;
   const stateJwt = await issueStateJwt(state);
   let url;
   try {
@@ -251,10 +258,13 @@ async function serviceNowCallback(req, res) {
     return;
   }
   const base = appUrl(req);
+  // Default return target until we recover the originating surface from state.
+  let returnTo = '/prototypes/staffbase-companion';
   const bounce = (code) => {
-    const params = code ? `?connect_error=${encodeURIComponent(code)}` : '';
+    const sep = returnTo.includes('?') ? '&' : '?';
+    const params = code ? `${sep}connect_error=${encodeURIComponent(code)}` : '';
     res.setHeader('Set-Cookie', clearStateCookieHeader());
-    res.writeHead(302, { Location: `${base}/prototypes/staffbase-companion${params}` });
+    res.writeHead(302, { Location: `${base}${returnTo}${params}` });
     res.end();
   };
   if (!dbConfigured()) return bounce('db_not_configured');
@@ -272,8 +282,16 @@ async function serviceNowCallback(req, res) {
   const cookies = parseCookies(req.headers.cookie || '');
   const stateInCookie = await verifyStateJwt(cookies[COOKIE_NAMES.state]);
   if (!stateInCookie || stateInCookie !== state) return bounce('state_mismatch');
-  const [, signedUserId] = state.split('.');
+  const parts = state.split('.');
+  const signedUserId = parts[1];
   if (signedUserId !== session.userId) return bounce('state_user_mismatch');
+  // Recover the originating surface (Studio vs companion) from state.
+  try {
+    if (parts[2]) {
+      const r = Buffer.from(parts[2], 'base64url').toString('utf8');
+      if (r.startsWith('/')) returnTo = r;
+    }
+  } catch { /* keep default */ }
 
   const redirectUri = `${base}/api/connections/servicenow/callback`;
   try {
@@ -286,13 +304,16 @@ async function serviceNowCallback(req, res) {
       tokens,
       scopeStr: tokens.scope || SERVICENOW_SCOPES,
     });
+    const sep = returnTo.includes('?') ? '&' : '?';
     res.setHeader('Set-Cookie', clearStateCookieHeader());
     res.setHeader('Cache-Control', 'no-store');
-    res.writeHead(302, { Location: `${base}/prototypes/staffbase-companion?connected=servicenow` });
+    res.writeHead(302, { Location: `${base}${returnTo}${sep}connected=servicenow` });
     res.end();
   } catch (err) {
     console.error('[connections/servicenow/callback]', err);
-    return bounce('callback_failed');
+    // Surface the real reason in the URL so failures are diagnosable without
+    // server logs (e.g. "ServiceNow 401: access_denied" → bad redirect/secret).
+    return bounce(`callback_failed: ${String(err.message || err).slice(0, 220)}`);
   }
 }
 

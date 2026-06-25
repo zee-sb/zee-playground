@@ -392,7 +392,10 @@ function MicrosoftConnectorPanel({ connection, onConnectionsChange }) {
 // confirmation before they run. ServiceNow enforces the user's own roles/ACLs.
 function ServiceNowConnectorPanel({ connection }) {
   const connected = connection.status === 'connected'
-  const connectUrl = connection.connectEndpoint || '/api/connections/servicenow/connect'
+  // Return to the Studio Connections tab after the OAuth round-trip (instead of
+  // the default companion-app landing).
+  const base = connection.connectEndpoint || '/api/connections/servicenow/connect'
+  const connectUrl = `${base}?return=${encodeURIComponent('/prototypes/navigator-studio/connections')}`
   const writeTools = connection.writeTools || []
 
   return (
