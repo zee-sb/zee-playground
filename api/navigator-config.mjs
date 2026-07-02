@@ -20,7 +20,7 @@ import {
   ensureConfigRow,
   RevisionConflictError,
 } from '../lib/workspace-config.mjs';
-import { getBlueprint, listExperts, createExpert, deleteExpert } from '../lib/blueprints.mjs';
+import { getBlueprint, listExperts, createExpert, deleteExpertsForBranch } from '../lib/blueprints.mjs';
 import { checkConfigHealth } from '../lib/navigator-health.mjs';
 import { buildSeedConfigPayload, buildSeedExperts } from '../lib/seed.mjs';
 import { dbConfigured } from '../lib/db.mjs';
@@ -251,11 +251,58 @@ async function handleReseed(req, res) {
   const tenant = await getActiveTenant(req);
   if (!tenant) return res.status(503).json({ error: 'branch_unavailable' });
 
-  // 1) Wipe experts for this branch and re-insert the seed list.
-  const existing = await listExperts(tenant.branchId);
-  for (const a of existing) {
-    await deleteExpert({ branchId: tenant.branchId, id: a.id });
+  // Reseeding rewrites navigator_experts with a delete-then-insert, which is
+  // NOT atomic. When several clients boot at once (Studio + Companion, or a few
+  // browser tabs) they can all observe a stale seedVersion and fire reseed
+  // concurrently — each reads the current expert list, deletes it, and
+  // re-inserts the whole seed, producing DUPLICATE experts. That is exactly how
+  // prod accumulated 13–55 experts per branch, which in turn pushed the
+  // Atlassian-owning "Project Workspace" expert past the router's top-N window
+  // so Confluence/Jira questions fell out of scope.
+  //
+  // Serialize on the config-revision CAS: claim the branch by bumping the
+  // config row FIRST. The single reseed that wins the compare-and-swap is the
+  // only one allowed to touch experts; every racing caller trips the revision
+  // conflict and returns the winner's state WITHOUT re-inserting anything.
+  await ensureConfigRow(tenant.branchId);
+  const current = await getConfig(tenant.branchId);
+  const seedPayload = buildSeedConfigPayload();
+  let saved;
+  try {
+    saved = await saveConfig({
+      branchId: tenant.branchId,
+      config: seedPayload,
+      baseRevision: current?.revision ?? 0,
+      userId: null,
+    });
+  } catch (err) {
+    if (err instanceof RevisionConflictError) {
+      // A concurrent reseed already claimed this branch. Do NOT rewrite
+      // experts — just return whatever the winner left behind.
+      const [cfg, experts] = await Promise.all([
+        getConfig(tenant.branchId).catch(() => null),
+        listExperts(tenant.branchId).catch(() => []),
+      ]);
+      return res.status(200).json({
+        branchId: tenant.branchId,
+        branchName: tenant.branchName,
+        config: cfg ? {
+          connections: cfg.connections,
+          workflows: cfg.workflows,
+          tenantOverrides: cfg.tenantOverrides,
+        } : null,
+        revision: cfg?.revision ?? err.currentRevision,
+        experts,
+        preserved: ['workspace_blueprints', 'connections', 'conversations'],
+        concurrentReseedSkipped: true,
+      });
+    }
+    throw err;
   }
+
+  // We won the claim — we are the only writer allowed to rewrite experts.
+  // Single-statement wipe (atomic) then re-insert the canonical seed list.
+  await deleteExpertsForBranch({ branchId: tenant.branchId });
   const seedExperts = buildSeedExperts();
   const created = [];
   for (const a of seedExperts) {
@@ -268,19 +315,6 @@ async function handleReseed(req, res) {
     });
     created.push(row);
   }
-
-  // 2) Rewrite the navigator_config row to the seed payload. CAS-safe:
-  //    fetch current revision first, then save with that revision so we
-  //    don't trip the optimistic concurrency check.
-  await ensureConfigRow(tenant.branchId);
-  const current = await getConfig(tenant.branchId);
-  const seedPayload = buildSeedConfigPayload();
-  const saved = await saveConfig({
-    branchId: tenant.branchId,
-    config: seedPayload,
-    baseRevision: current?.revision ?? 0,
-    userId: null,
-  });
 
   return res.status(200).json({
     branchId: tenant.branchId,
