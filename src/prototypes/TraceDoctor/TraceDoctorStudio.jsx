@@ -102,11 +102,71 @@ function FindingCard({ f }) {
       <div className="flex items-center gap-2 mb-1.5">
         <span className={`w-2 h-2 rounded-full ${sev.dot}`} />
         <span className="text-[11px] font-bold uppercase tracking-wide text-[#64748B]">{LAYER_LABEL[f.layer] || f.layer}</span>
+        {f.source === 'llm' && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold bg-violet-100 text-violet-700">AI</span>
+        )}
         <span className="text-[10px] text-[#94A3B8] ml-auto">{f.severity} · {f.confidence}</span>
       </div>
       <div className="text-[14px] font-semibold text-[#18181B] mb-2">{f.title}</div>
       <div className="text-[13px] text-[#475569] leading-relaxed mb-2"><b className="text-[#334155]">Evidence:</b> {f.evidence}</div>
       <div className="text-[13px] text-[#475569] leading-relaxed"><b className="text-[#334155]">Fix:</b> {f.recommended_fix}</div>
+    </div>
+  );
+}
+
+function AINarrative({ llm }) {
+  if (!llm || !llm.narrative) return null;
+  return (
+    <div className="border border-violet-200 bg-violet-50 rounded-xl p-4">
+      <div className="text-[11px] font-bold uppercase tracking-wide text-violet-700 mb-1.5">
+        {llm.error ? 'AI review unavailable' : 'Root cause (AI reasoning)'}
+      </div>
+      <div className="text-[13px] text-[#334155] leading-relaxed">{llm.narrative}</div>
+    </div>
+  );
+}
+
+function SystemPromptReview({ llm }) {
+  const issues = llm?.system_prompt_review?.issues;
+  if (!issues || !issues.length) return null;
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wide text-[#94A3B8] mb-2">System prompt review</div>
+      <ul className="space-y-1.5">
+        {issues.map((issue, i) => (
+          <li key={i} className="text-[13px] text-[#475569] leading-relaxed pl-3 border-l-2 border-violet-200">{issue}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SearchCallReview({ llm, searchCalls }) {
+  const review = llm?.search_call_review;
+  if (!review || !review.length) return null;
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wide text-[#94A3B8] mb-2">Search calls reviewed</div>
+      <div className="space-y-2">
+        {review.map((r, i) => {
+          const call = searchCalls?.[r.index];
+          return (
+            <div key={i} className="border border-[#E4E4E7] rounded-lg p-3">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[11px] font-semibold text-[#334155]">Call {r.index + 1}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${r.query_quality === 'good' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{r.query_quality} query</span>
+                {r.root_cause !== 'none' && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-zinc-100 text-zinc-600">root: {r.root_cause}</span>
+                )}
+              </div>
+              {call?.query?.semanticQuery && (
+                <div className="text-[12px] text-[#71717A] font-mono truncate mb-1">query: {call.query.semanticQuery}</div>
+              )}
+              <div className="text-[13px] text-[#475569]">{r.note}</div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -145,6 +205,7 @@ function TraceDetail({ id, onClose }) {
           <div className="text-[11px] font-bold uppercase tracking-wide text-[#94A3B8] mb-1">Question</div>
           <div className="text-[14px] text-[#334155]">{trace.question || '—'}</div>
         </div>
+        <AINarrative llm={trace.signals?.llm} />
         <div>
           <div className="text-[11px] font-bold uppercase tracking-wide text-[#94A3B8] mb-2">Eval scores</div>
           <ScoreChips signals={trace.signals} />
@@ -158,6 +219,8 @@ function TraceDetail({ id, onClose }) {
               : <div className="text-[14px] text-emerald-600">✅ No problems detected.</div>}
           </div>
         </div>
+        <SystemPromptReview llm={trace.signals?.llm} />
+        <SearchCallReview llm={trace.signals?.llm} searchCalls={trace.signals?.llm?.search_calls} />
         <details className="border border-[#E4E4E7] rounded-xl">
           <summary className="cursor-pointer px-4 py-3 text-[13px] font-semibold text-[#475569]">Full report (markdown)</summary>
           <div className="px-5 py-4 prose prose-sm max-w-none text-[13px] border-t border-[#F1F5F9]">

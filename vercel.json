@@ -7,7 +7,8 @@
     "api/a2a.mjs": { "maxDuration": 30 },
     "api/companion.mjs": { "maxDuration": 60 },
     "api/connections.mjs": { "maxDuration": 15 },
-    "api/tenants.mjs": { "maxDuration": 15 }
+    "api/tenants.mjs": { "maxDuration": 15 },
+    "api/mcp/[flavor].mjs": { "maxDuration": 60 }
   },
   "rewrites": [
     { "source": "/api/mcp", "destination": "/api/mcp/hr" },
