@@ -10,7 +10,8 @@
 //   /api/mcp-staffbase  → /api/mcp/staffbase
 //   /api/mcp-voices     → /api/mcp/voices     (Staffbase Voices — recognition, pulse)
 //   /api/mcp-servicenow → /api/mcp/servicenow (ServiceNow ITSM — per-user OAuth)
-//   /api/mcp-trace-doctor → /api/mcp/trace-doctor (Langfuse trace analyzer)
+//   /api/mcp-trace-doctor → /api/mcp/trace-doctor (Langfuse trace analyzer, Slack MCP)
+//   /api/trace-doctor   → /api/mcp/trace-doctor-app (Langfuse trace analyzer, in-app REST API)
 
 import hrHandler from '../../lib/mcp-servers/hr.mjs';
 import atlassianHandler from '../../lib/mcp-servers/atlassian.mjs';
@@ -22,6 +23,7 @@ import kbHandler from '../../lib/mcp-servers/kb.mjs';
 import voicesHandler from '../../lib/mcp-servers/voices.mjs';
 import servicenowHandler from '../../lib/mcp-servers/servicenow.mjs';
 import traceDoctorHandler from '../../lib/mcp-servers/trace-doctor.mjs';
+import traceDoctorAppHandler from '../../lib/mcp-servers/trace-doctor-app.mjs';
 
 const HANDLERS = {
   hr: hrHandler,
@@ -34,6 +36,7 @@ const HANDLERS = {
   voices: voicesHandler,
   servicenow: servicenowHandler,
   'trace-doctor': traceDoctorHandler,
+  'trace-doctor-app': traceDoctorAppHandler,
 };
 
 function resolveFlavor(req) {

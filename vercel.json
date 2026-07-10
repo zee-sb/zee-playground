@@ -12,6 +12,7 @@
   "rewrites": [
     { "source": "/api/mcp", "destination": "/api/mcp/hr" },
     { "source": "/api/mcp-:flavor", "destination": "/api/mcp/:flavor" },
+    { "source": "/api/trace-doctor", "destination": "/api/mcp/trace-doctor-app" },
     { "source": "/api/auth/:rest*", "destination": "/api/auth?_path=/api/auth/:rest*" },
     { "source": "/api/companion/:rest*", "destination": "/api/companion?_path=/api/companion/:rest*" },
     { "source": "/api/connections/:rest*", "destination": "/api/connections?_path=/api/connections/:rest*" },
