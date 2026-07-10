@@ -10,6 +10,7 @@
 //   /api/mcp-staffbase  → /api/mcp/staffbase
 //   /api/mcp-voices     → /api/mcp/voices     (Staffbase Voices — recognition, pulse)
 //   /api/mcp-servicenow → /api/mcp/servicenow (ServiceNow ITSM — per-user OAuth)
+//   /api/mcp-trace-doctor → /api/mcp/trace-doctor (Langfuse trace analyzer)
 
 import hrHandler from '../../lib/mcp-servers/hr.mjs';
 import atlassianHandler from '../../lib/mcp-servers/atlassian.mjs';
@@ -20,6 +21,7 @@ import staffbaseHandler from '../../lib/mcp-servers/staffbase.mjs';
 import kbHandler from '../../lib/mcp-servers/kb.mjs';
 import voicesHandler from '../../lib/mcp-servers/voices.mjs';
 import servicenowHandler from '../../lib/mcp-servers/servicenow.mjs';
+import traceDoctorHandler from '../../lib/mcp-servers/trace-doctor.mjs';
 
 const HANDLERS = {
   hr: hrHandler,
@@ -31,6 +33,7 @@ const HANDLERS = {
   kb: kbHandler,
   voices: voicesHandler,
   servicenow: servicenowHandler,
+  'trace-doctor': traceDoctorHandler,
 };
 
 function resolveFlavor(req) {

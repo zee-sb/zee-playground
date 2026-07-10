@@ -1,11 +1,12 @@
 import React from 'react'
 import { Routes, Route, useParams, useNavigate, Link } from 'react-router-dom'
-import { Sparkles, MessageCircle } from 'lucide-react'
+import { Sparkles, MessageCircle, Stethoscope } from 'lucide-react'
 import NavigatorStudio from './prototypes/Navigator/NavigatorStudio'
 import NavigatorSetupStudio from './prototypes/NavigatorSetup/NavigatorSetupStudio'
 import StaffbaseCompanion from './prototypes/StaffbaseCompanion'
 import MCPDemoStudio from './prototypes/MCPDemo/MCPDemoStudio'
 import A2ADemoStudio from './prototypes/A2ADemo/A2ADemoStudio'
+import TraceDoctorStudio from './prototypes/TraceDoctor/TraceDoctorStudio'
 import { TenantProvider } from './prototypes/AIAssistant/useActiveTenant'
 import { TenantPicker } from './components/TenantPicker'
 
@@ -41,6 +42,15 @@ const PROTOTYPES = [
     status: "live",
     icon: MessageCircle,
     component: StaffbaseCompanion
+  },
+  {
+    id: "trace-doctor",
+    title: "Trace Doctor — Langfuse Trace Analyzer",
+    description: "Upload one or many Langfuse conversation traces and get a root-cause report per trace: what went wrong (prompt, search query, retrieval, tool calls, or wrong sources), the eval scores, and the recommended fix. Search and browse every trace the team has analyzed; same-session uploads are merged so there are no duplicates. Password-protected.",
+    epic: "Navigator",
+    status: "live",
+    icon: Stethoscope,
+    component: TraceDoctorStudio
   }
 ];
 
