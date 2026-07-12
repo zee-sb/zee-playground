@@ -226,6 +226,9 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
   // Dynamic Hero chips driven by Studio (assistants + flows visible to the
   // signed-in user). Loaded lazily; falls back to legacy chips when empty.
   const [heroData, setHeroData] = useState(null);
+  // Proactive "welcome back" briefing (open items + team updates), shown above
+  // the hero chips on chat open. Loaded lazily; null → nothing to show.
+  const [briefingData, setBriefingData] = useState(null);
   const endRef = useRef(null);
   const atlassianLinked = connections.some((c) => c.provider === 'atlassian');
 
@@ -380,6 +383,21 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, branchId]);
 
+  // Load the proactive briefing once per mount. Non-blocking; failures are
+  // silent (the hero still renders). Only shown on the empty state.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(withBranchQuery('/api/companion/briefing', branchId))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data || data.emptyState) return;
+        if ((data.cards && data.cards.length) || data.greeting) setBriefingData(data);
+      })
+      .catch(() => { /* ignore */ });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId, branchId]);
+
   const handleEvent = useCallback((evt) => {
     setItems((prev) => {
       const next = [...prev];
@@ -396,6 +414,10 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
         const trace = [...next].reverse().find((i) => i.kind === 'trace');
         if (trace) { trace.route = { tier1: evt.tier1, tier2: evt.tier2, fallbackUsed: !!evt.fallbackUsed }; }
         else next.push({ kind: 'trace', route: { tier1: evt.tier1, tier2: evt.tier2, fallbackUsed: !!evt.fallbackUsed } });
+      } else if (evt.type === 'plan') {
+        // "Reasons visibly" — a live checklist that ticks off as tools run.
+        const steps = (evt.steps || []).map((label, i) => ({ label, status: i === 0 ? 'active' : 'pending' }));
+        if (steps.length) next.push({ kind: 'plan', steps, complete: false });
       } else if (evt.type === 'studio_empty') {
         // The orchestrator fell back to legacy mode — surface it on the trace card.
         const trace = [...next].reverse().find((i) => i.kind === 'trace');
@@ -655,6 +677,18 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           item.result = evt.result;
           item.status = evt.result?.error ? 'error' : (evt.result?.cancelled ? 'error' : 'done');
         }
+        // Advance the live plan: complete the active step, activate the next.
+        const plan = [...next].reverse().find((i) => i.kind === 'plan' && !i.complete);
+        if (plan) {
+          const active = plan.steps.findIndex((s) => s.status === 'active');
+          if (active >= 0) {
+            plan.steps[active].status = 'done';
+            // Leave the final step for the composing phase (marked on 'done').
+            const nextIdx = plan.steps.findIndex((s, i) => i > active && s.status === 'pending');
+            if (nextIdx >= 0 && nextIdx < plan.steps.length - 1) plan.steps[nextIdx].status = 'active';
+            else if (nextIdx >= 0) plan.steps[nextIdx].status = 'active';
+          }
+        }
       } else if (evt.type === 'tool_call_pending') {
         for (const tc of evt.toolCalls) {
           next.push({ kind: 'tool', id: tc.id, name: tc.name, connector: tc.connector || 'atlassian', args: tc.args, status: 'pending' });
@@ -668,6 +702,9 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           last.suggestions = suggestions;
           delete last.streaming;
         }
+        // Mark any in-flight plan complete — every step done.
+        const plan = [...next].reverse().find((i) => i.kind === 'plan' && !i.complete);
+        if (plan) { plan.steps.forEach((s) => { s.status = 'done'; }); plan.complete = true; }
       } else if (evt.type === 'error') {
         setError(evt.message);
       } else if (evt.type === 'truncated') {
@@ -944,17 +981,20 @@ export default function ChatPanel({ conversationId, user, connections = [], onNa
           />
         )}
         {empty ? (
-          isMobile ? (
-            <Hero
-              user={user}
-              atlassianLinked={atlassianLinked}
-              heroData={heroData}
-              onPick={send}
-              onConnect={onNavigateConnections}
-            />
-          ) : (
-            <DesktopHero user={user} heroData={heroData} onPick={send} />
-          )
+          <>
+            {briefingData && <Briefing data={briefingData} onPick={send} isMobile={isMobile} />}
+            {isMobile ? (
+              <Hero
+                user={user}
+                atlassianLinked={atlassianLinked}
+                heroData={heroData}
+                onPick={send}
+                onConnect={onNavigateConnections}
+              />
+            ) : (
+              <DesktopHero user={user} heroData={heroData} onPick={send} />
+            )}
+          </>
         ) : (
           <div className="cw-root" style={{
             // Desktop centres the reading column at ~760px and anchors the
@@ -1181,6 +1221,113 @@ function AppHeader({ user, connections, onSignOut, onNewConversation, onOpenHist
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Briefing (proactive "welcome back" surface) ─────────────────────────────
+// Rendered above the hero chips on chat open. Cards summarize open items and
+// live team updates; tapping a card's action starts a grounded chat turn.
+function Briefing({ data, onPick, isMobile }) {
+  const cards = data?.cards || [];
+  if (!cards.length && !data?.greeting) return null;
+  const toneColor = (tone) => (tone === 'positive' ? '#00C7B2' : tone === 'attention' ? '#F59E0B' : '#6B7280');
+  return (
+    <div style={{
+      width: '100%', maxWidth: isMobile ? '100%' : 760, margin: '0 auto',
+      padding: isMobile ? '8px 4px 4px' : '24px 0 8px',
+    }}>
+      {data?.greeting && (
+        <div style={{ marginBottom: 12, padding: isMobile ? '0 4px' : 0 }}>
+          <div style={{ fontSize: isMobile ? 18 : 22, fontWeight: 700, color: '#1A1A2E' }}>
+            {data.greeting.headline}
+          </div>
+          {data.greeting.sub && (
+            <div style={{ fontSize: 13, color: '#6B7280', marginTop: 2 }}>{data.greeting.sub}</div>
+          )}
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {cards.map((card) => (
+          <button
+            key={card.id}
+            type="button"
+            onClick={() => card.action?.prompt && onPick(card.action.prompt)}
+            style={{
+              textAlign: 'left', border: '1px solid #E5E7EB', borderRadius: 12,
+              background: '#FFFFFF', padding: '12px 14px', cursor: 'pointer',
+              display: 'flex', gap: 12, alignItems: 'flex-start', transition: 'border-color .15s, box-shadow .15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#00C7B2'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,199,178,0.12)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#E5E7EB'; e.currentTarget.style.boxShadow = 'none'; }}
+          >
+            <span style={{ fontSize: 20, lineHeight: '24px', flexShrink: 0 }}>{card.icon || '•'}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: toneColor(card.tone) }}>
+                  {card.title}
+                </span>
+              </span>
+              {card.body && (
+                <span style={{ display: 'block', fontSize: 14, color: '#1A1A2E', marginTop: 3, lineHeight: 1.4 }}>{card.body}</span>
+              )}
+              {Array.isArray(card.posts) && card.posts.length > 0 && (
+                <span style={{ display: 'block', marginTop: 4 }}>
+                  {card.posts.slice(0, 3).map((p) => (
+                    <span key={p.id} style={{ display: 'block', fontSize: 13, color: '#374151', lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      • {p.title}
+                    </span>
+                  ))}
+                </span>
+              )}
+              {card.action?.label && (
+                <span style={{ display: 'inline-block', marginTop: 8, fontSize: 13, fontWeight: 600, color: '#00C7B2' }}>
+                  {card.action.label} →
+                </span>
+              )}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── PlanCard ("reasons visibly" — live checklist that ticks off) ────────────
+function PlanCard({ steps = [], complete = false }) {
+  if (!steps.length) return null;
+  return (
+    <div style={{
+      alignSelf: 'flex-start', maxWidth: '92%', margin: '2px 0',
+      border: '1px solid #E5E7EB', borderRadius: 12, background: '#FAFAFA',
+      padding: '10px 12px',
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: '#6B7280', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span>{complete ? '✓ Plan' : '◔ Working through it'}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {steps.map((s, i) => {
+          const isDone = s.status === 'done';
+          const isActive = s.status === 'active';
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: isDone ? '#6B7280' : '#1A1A2E' }}>
+              <span style={{
+                width: 16, height: 16, flexShrink: 0, borderRadius: '50%',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10, fontWeight: 700,
+                background: isDone ? '#00C7B2' : isActive ? '#FFFFFF' : '#FFFFFF',
+                color: isDone ? '#FFFFFF' : '#9CA3AF',
+                border: isDone ? 'none' : isActive ? '2px solid #00C7B2' : '2px solid #E5E7EB',
+                animation: isActive ? 'cwPulse 1.2s ease-in-out infinite' : 'none',
+              }}>
+                {isDone ? '✓' : ''}
+              </span>
+              <span style={{ textDecoration: isDone ? 'none' : 'none', opacity: s.status === 'pending' ? 0.55 : 1 }}>{s.label}</span>
+            </div>
+          );
+        })}
+      </div>
+      <style>{`@keyframes cwPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(0,199,178,0.4);} 50% { box-shadow: 0 0 0 4px rgba(0,199,178,0);} }`}</style>
     </div>
   );
 }
@@ -2065,6 +2212,9 @@ function Item({
   }
   if (item.kind === 'trace') {
     return <TraceCard route={item.route} intent={item.intent} connectors={item.connectors} />;
+  }
+  if (item.kind === 'plan') {
+    return <PlanCard steps={item.steps} complete={item.complete} />;
   }
   if (item.kind === 'flow') {
     if (item.stepMachine) {

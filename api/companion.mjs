@@ -16,10 +16,12 @@ import { loadStudio, materializeActiveScope, userToAudience } from '../lib/studi
 import { listConnectionsForUser } from '../lib/connections.mjs';
 import { getVoiceProvider } from '../lib/voice/provider.mjs';
 import { redactPII } from '../lib/voice/pii-redact.mjs';
-import { withStaffbaseContext, getBranch } from '../lib/staffbase.mjs';
+import { withStaffbaseContext, getBranch, listRecentPosts } from '../lib/staffbase.mjs';
 import { resolveBranchId, getTenantContext } from '../lib/tenants.mjs';
 import { resolveDefaultLang } from '../lib/i18n/resolve-default-lang.mjs';
 import { SUPPORTED_LANGS } from '../data/languages.mjs';
+import { syncProfileMemory, extractConversationMemory } from '../lib/memory/extract.mjs';
+import { getMemoriesForUser, getBriefingCache, saveBriefingCache } from '../lib/memory/store.mjs';
 
 function baseUrlOf(req) {
   const proto = req.headers['x-forwarded-proto'] || 'http';
@@ -57,6 +59,7 @@ export default async function handler(req, res) {
     if (path === '/api/companion/chat')          return await chat(req, res);
     if (path === '/api/companion/confirm')       return await confirm(req, res);
     if (path === '/api/companion/hero')          return await hero(req, res);
+    if (path === '/api/companion/briefing')      return await briefing(req, res);
     if (path === '/api/companion/transcribe')    return await transcribe(req, res);
     if (path === '/api/companion/tts')           return await tts(req, res);
     if (path === '/api/companion/me/preferences') return await mePreferences(req, res);
@@ -288,6 +291,16 @@ async function chat(req, res) {
     title: own[0].title,
   };
 
+  // "Knows you" — deterministic profile → memory sync so the assistant knows
+  // this user's role/team/preferred language from turn one. Idempotent + cheap
+  // (a few UPSERTs); best-effort so it never blocks the turn.
+  await syncProfileMemory({
+    userId: session.userId,
+    branchId: convoBranch || activeBranchForGuard || null,
+    userProfile,
+    preferredLanguage: own[0].preferred_language,
+  }).catch((e) => console.warn('[companion/chat] syncProfileMemory:', e.message));
+
   res.setHeader('Content-Type', 'application/x-ndjson');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
@@ -458,6 +471,22 @@ async function chat(req, res) {
     emit({ type: 'error', message: err.message || String(err) });
   } finally {
     res.end();
+    // Post-turn memory extraction. The client already has its full response, so
+    // this runs after res.end() to keep the function warm without adding latency
+    // to the turn. Best-effort; self-gates on message count. Only on real
+    // user-message turns (not form/confirm submissions).
+    if (message) {
+      try {
+        await extractConversationMemory({
+          openai: createAIClient(), // `openai` is block-scoped to the try above
+          conversationId,
+          userId: session.userId,
+          branchId: convoBranch || activeBranchForGuard || null,
+        });
+      } catch (e) {
+        console.warn('[companion/chat] extractConversationMemory:', e.message);
+      }
+    }
   }
 }
 
@@ -680,6 +709,80 @@ async function hero(req, res) {
     studioEmpty: false,
     defaultLang,
   });
+}
+
+// ── GET /api/companion/briefing ────────────────────────────────────────
+// Proactive "welcome back" surface, rendered on chat open. Assembles 2–4 cards
+// from real signals (open memory items + live team-channel posts + an org
+// nudge) with the user_briefing cache as a flaky-signal-proof fallback. Every
+// card's action.prompt feeds straight into the chat's send() — a tap starts a
+// grounded turn. Strictly scoped by (branch, user).
+async function briefing(req, res) {
+  if (!dbConfigured()) { res.status(200).json({ cards: [], emptyState: true }); return; }
+  const session = await getUserFromReq(req);
+  if (!session) { res.status(401).json({ error: 'not_signed_in' }); return; }
+
+  const branchId = await resolveBranchId(req).catch(() => null);
+  let profile = null;
+  try {
+    const rows = await sql`select display_name, department, title from users where id = ${session.userId} limit 1`;
+    profile = rows[0] || null;
+  } catch { /* fall through */ }
+  const firstName = (profile?.display_name || '').trim().split(/\s+/)[0] || 'there';
+  const greeting = {
+    headline: `Welcome back, ${firstName}`,
+    sub: [profile?.title, profile?.department].filter(Boolean).join(' · ') || null,
+  };
+
+  const cards = [];
+  let liveOk = false;
+
+  // 1) Open items from memory (tickets / PTO / requests awaiting action).
+  try {
+    const open = await getMemoriesForUser(session.userId, { kinds: ['open_item'], limit: 3 });
+    for (const o of open) {
+      if (o.status === 'resolved') {
+        cards.push({ id: `mem:${o.mem_key}`, type: 'open_item', icon: '✅', tone: 'positive',
+          title: 'Resolved', body: o.mem_value,
+          action: { label: 'See details', prompt: `What was the resolution on "${o.mem_value}"?` } });
+      } else {
+        cards.push({ id: `mem:${o.mem_key}`, type: 'open_item', icon: '🎫', tone: 'attention',
+          title: 'Still open', body: o.mem_value,
+          action: { label: 'Check status', prompt: `What's the latest on: ${o.mem_value}?` } });
+      }
+    }
+    liveOk = true;
+  } catch (e) { console.warn('[companion/briefing] open items:', e.message); }
+
+  // 2) Team-channel activity — live Campsite posts (tenant-scoped).
+  try {
+    const tenantCtx = branchId ? await getTenantContext(branchId).catch(() => null) : null;
+    if (tenantCtx) {
+      const posts = await withStaffbaseContext(tenantCtx, () => listRecentPosts({ limit: 3 }).catch(() => []));
+      if (posts && posts.length) {
+        cards.push({
+          id: 'posts:recent', type: 'post_list', icon: '📣',
+          title: `${posts.length} recent update${posts.length > 1 ? 's' : ''} on Campsite`,
+          posts: posts.map((p) => ({ id: p.id, title: p.title, url: p.url })),
+          action: { label: 'Catch me up', prompt: 'Summarize the latest posts on our intranet.' },
+        });
+        liveOk = true;
+      }
+    }
+  } catch (e) { console.warn('[companion/briefing] posts:', e.message); }
+
+  // Success → refresh the cache. Failure/empty → serve the last good cache.
+  if (cards.length && liveOk) {
+    await saveBriefingCache(session.userId, branchId, cards, 'live');
+    res.status(200).json({ greeting, cards, source: 'live', emptyState: false });
+    return;
+  }
+  const cached = await getBriefingCache(session.userId);
+  if (cached && Array.isArray(cached.cards) && cached.cards.length) {
+    res.status(200).json({ greeting, cards: cached.cards, source: cached.source || 'seed', emptyState: false });
+    return;
+  }
+  res.status(200).json({ greeting, cards: [], source: 'live', emptyState: true });
 }
 
 async function rpc(baseUrl, endpoint, method, params, userId, branchId) {

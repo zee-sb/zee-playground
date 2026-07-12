@@ -8,6 +8,7 @@
 //   /api/mcp-intranet   → /api/mcp/intranet
 //   /api/mcp-it         → /api/mcp/it
 //   /api/mcp-staffbase  → /api/mcp/staffbase
+//   /api/mcp-knowledge  → /api/mcp/knowledge  (unified hybrid retrieval / RAG)
 //   /api/mcp-voices     → /api/mcp/voices     (Staffbase Voices — recognition, pulse)
 //   /api/mcp-servicenow → /api/mcp/servicenow (ServiceNow ITSM — per-user OAuth)
 //   /api/mcp-trace-doctor → /api/mcp/trace-doctor (Langfuse trace analyzer, Slack MCP)
@@ -20,6 +21,7 @@ import intranetHandler from '../../lib/mcp-servers/intranet.mjs';
 import itHandler from '../../lib/mcp-servers/it.mjs';
 import staffbaseHandler from '../../lib/mcp-servers/staffbase.mjs';
 import kbHandler from '../../lib/mcp-servers/kb.mjs';
+import knowledgeHandler from '../../lib/mcp-servers/knowledge.mjs';
 import voicesHandler from '../../lib/mcp-servers/voices.mjs';
 import servicenowHandler from '../../lib/mcp-servers/servicenow.mjs';
 import traceDoctorHandler from '../../lib/mcp-servers/trace-doctor.mjs';
@@ -33,6 +35,7 @@ const HANDLERS = {
   it: itHandler,
   staffbase: staffbaseHandler,
   kb: kbHandler,
+  knowledge: knowledgeHandler,
   voices: voicesHandler,
   servicenow: servicenowHandler,
   'trace-doctor': traceDoctorHandler,

@@ -24,6 +24,7 @@ import { getBlueprint, listExperts, createExpert, deleteExpertsForBranch } from 
 import { checkConfigHealth } from '../lib/navigator-health.mjs';
 import { buildSeedConfigPayload, buildSeedExperts } from '../lib/seed.mjs';
 import { dbConfigured } from '../lib/db.mjs';
+import { indexAll, indexKb, indexStaffbaseForBranch } from '../lib/knowledge-index.mjs';
 
 // Memoize the deep-check result per (branchId, revision) so the LLM call
 // only fires when something has actually changed.
@@ -39,7 +40,8 @@ export default async function handler(req, res) {
     if (action === 'save') return await handleSave(req, res);
     if (action === 'health') return await handleHealth(req, res, url);
     if (action === 'reseed') return await handleReseed(req, res);
-    res.status(400).json({ error: 'unknown action — expected load | save | health | reseed' });
+    if (action === 'reindex') return await handleReindex(req, res, url);
+    res.status(400).json({ error: 'unknown action — expected load | save | health | reseed | reindex' });
   } catch (err) {
     if (err instanceof RevisionConflictError) {
       return res.status(409).json({
@@ -245,6 +247,33 @@ async function handleHealth(req, res, url) {
 // to re-run the (expensive) discovery wizard. Also preserves
 // `users.connections` rows so a user with an OAuth token doesn't have to
 // re-auth after the admin disables and re-enables a connection.
+// On-demand knowledge re-index — refreshes the knowledge_chunks corpus without a
+// redeploy (build-time indexing covers the normal case). Guarded by REINDEX_TOKEN
+// when set; open in dev when unset.
+//   POST /api/navigator-config?action=reindex[&branch=<id>][&kbOnly=1]
+async function handleReindex(req, res, url) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
+  if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });
+  const expected = process.env.REINDEX_TOKEN;
+  if (expected) {
+    const hdr = req.headers?.authorization || '';
+    const token = hdr.startsWith('Bearer ') ? hdr.slice(7) : url.searchParams.get('token');
+    if (token !== expected) return res.status(401).json({ error: 'unauthorized' });
+  }
+  const branch = url.searchParams.get('branch');
+  const kbOnly = url.searchParams.get('kbOnly') === '1';
+  try {
+    let result;
+    if (kbOnly) result = { kb: await indexKb(), staffbase: [] };
+    else if (branch) result = { kb: await indexKb(), staffbase: [await indexStaffbaseForBranch(branch)] };
+    else result = await indexAll({ includeStaffbase: true });
+    return res.status(200).json({ ok: true, result });
+  } catch (err) {
+    console.error('[navigator-config/reindex]', err);
+    return res.status(500).json({ ok: false, error: err.message || 'internal_error' });
+  }
+}
+
 async function handleReseed(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
   if (!dbConfigured()) return res.status(503).json({ error: 'db_not_configured' });

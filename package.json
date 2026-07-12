@@ -10,7 +10,8 @@
     "db:migrate": "node db/migrate.mjs",
     "db:migrate:status": "node db/migrate.mjs --status",
     "db:migrate:baseline": "node db/migrate.mjs --baseline-existing",
-    "vercel-build": "node db/migrate.mjs && vite build"
+    "index:knowledge": "node scripts/index-knowledge.mjs",
+    "vercel-build": "node db/migrate.mjs && node scripts/index-knowledge.mjs && vite build"
   },
   "keywords": [
     "prototypes",
