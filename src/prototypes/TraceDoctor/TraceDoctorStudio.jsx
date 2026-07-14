@@ -4,7 +4,17 @@ import {
   Stethoscope, Upload, Search, LogOut, RefreshCw, FileJson,
   AlertTriangle, X, ChevronLeft, Layers, Trash2,
   Cloud, Download, CheckSquare, Square, Loader2,
+  Plus, Inbox, FileText,
 } from 'lucide-react';
+
+const STATUS_RANK = { NEEDS_FIX: 3, MINOR: 2, UNSCORABLE: 1, HEALTHY: 0 };
+// Pick the most-severe analyzed result so a pull lands the user on the trace
+// that most needs attention.
+function pickResultId(res) {
+  const rs = (res?.results || []).filter((r) => r && r.id);
+  rs.sort((a, b) => (STATUS_RANK[b.status] || 0) - (STATUS_RANK[a.status] || 0));
+  return rs[0]?.id || null;
+}
 
 // The static password is intentionally client-side (a convenience gate, not real
 // security). It is stored in localStorage and echoed to the API as x-td-pass.
@@ -306,7 +316,7 @@ function TraceDetail({ id, onClose }) {
 // browses sessions (conversations) in a configured environment, or pulls one
 // directly by session id, then analyzes + stores through the same pipeline as
 // upload. A session is resolved server-side to its member traces.
-function LangfusePanel({ onDone }) {
+function LangfusePanel({ onAnalyzed }) {
   const [envs, setEnvs] = useState(null);       // null = loading, [] = not configured
   const [env, setEnv] = useState('');
   const [tenant, setTenant] = useState('');     // Langfuse `environment` field = tenant slug
@@ -348,7 +358,7 @@ function LangfusePanel({ onDone }) {
       const brk = (res.results || []).reduce((a, r) => { if (r.status) a[r.status] = (a[r.status] || 0) + 1; return a; }, {});
       setMsg({ ...res, brk });
       if (resetSel) setSel(new Set());
-      onDone && onDone();
+      onAnalyzed && onAnalyzed(res);
     } catch (e) { setErr(e.message); }
     finally { setPulling(false); }
   };
@@ -448,7 +458,7 @@ function LangfusePanel({ onDone }) {
 }
 
 // ── Upload panel ──────────────────────────────────────────────────────
-function UploadPanel({ onDone }) {
+function UploadPanel({ onAnalyzed }) {
   const [busy, setBusy] = useState(false);
   const [paste, setPaste] = useState('');
   const [msg, setMsg] = useState(null);
@@ -463,7 +473,7 @@ function UploadPanel({ onDone }) {
       const brk = res.results.reduce((a, r) => { if (r.status) a[r.status] = (a[r.status] || 0) + 1; return a; }, {});
       setMsg({ ...res, brk });
       setPaste('');
-      onDone && onDone();
+      onAnalyzed && onAnalyzed(res);
     } catch (e) { setErr(e.message); }
     finally { setBusy(false); }
   };
@@ -526,6 +536,46 @@ function UploadPanel({ onDone }) {
   );
 }
 
+// ── Analyze drawer (slide-over) ───────────────────────────────────────
+// Acquisition lives here so the main view stays a clean triage surface. On a
+// successful analyze, the parent auto-selects the result and closes the drawer.
+function AnalyzeDrawer({ open, onClose, onAnalyzed }) {
+  const [tab, setTab] = useState('langfuse');
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [open, onClose]);
+  if (!open) return null;
+  const tabCls = (t) => `flex-1 text-[13px] font-semibold py-2 rounded-lg transition-colors ${tab === t ? 'bg-white text-[#18181B] shadow-sm' : 'text-[#64748B] hover:text-[#334155]'}`;
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      <div className="flex-1 bg-black/30 backdrop-blur-[1px]" onClick={onClose} />
+      <div className="w-full max-w-[460px] h-full bg-[#F8FAFC] border-l border-[#E4E4E7] shadow-2xl flex flex-col"
+        style={{ animation: 'tdSlideIn .22s cubic-bezier(.2,.8,.2,1)' }}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#E4E4E7] bg-white">
+          <div>
+            <div className="text-[15px] font-semibold text-[#18181B]">Analyze a conversation</div>
+            <div className="text-[12px] text-[#94A3B8]">Pull from Langfuse, or upload a trace</div>
+          </div>
+          <button onClick={onClose} className="text-[#94A3B8] hover:text-black"><X size={18} /></button>
+        </div>
+        <div className="px-5 pt-4">
+          <div className="flex gap-1 bg-[#F1F5F9] rounded-xl p-1">
+            <button onClick={() => setTab('langfuse')} className={tabCls('langfuse')}>Langfuse</button>
+            <button onClick={() => setTab('upload')} className={tabCls('upload')}>Upload JSON</button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {tab === 'langfuse' ? <LangfusePanel onAnalyzed={onAnalyzed} /> : <UploadPanel onAnalyzed={onAnalyzed} />}
+        </div>
+      </div>
+      <style>{'@keyframes tdSlideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}'}</style>
+    </div>
+  );
+}
+
 // ── Main workspace ────────────────────────────────────────────────────
 function Workspace({ onBack, onLogout }) {
   const [rows, setRows] = useState([]);
@@ -538,6 +588,7 @@ function Workspace({ onBack, onLogout }) {
   const [selectedId, setSelectedId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true); setError('');
@@ -545,13 +596,22 @@ function Workspace({ onBack, onLogout }) {
     if (q) params.set('q', q);
     if (statusFilter) params.set('status', statusFilter);
     if (envFilter) params.set('env', envFilter);
-    api(`?${params.toString()}`)
+    return api(`?${params.toString()}`)
       .then((d) => { setRows(d.rows || []); setStats(d.stats || {}); setTotal(d.total || 0); setEnvironments(d.environments || []); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [q, statusFilter, envFilter]);
 
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
+
+  // The fix: after an analyze, refresh the list AND jump to the most-severe
+  // result so the user immediately sees the report — not a silently longer list.
+  const handleAnalyzed = useCallback((res) => {
+    const id = pickResultId(res);
+    setDrawerOpen(false);
+    Promise.resolve(load()).then(() => { if (id) setSelectedId(id); });
+    if (id) setSelectedId(id);
+  }, [load]);
 
   // Group by session + environment so re-uploads / same session don't look like dupes.
   const groups = useMemo(() => {
@@ -564,39 +624,44 @@ function Workspace({ onBack, onLogout }) {
     return [...m.values()];
   }, [rows]);
 
+  const AnalyzeButton = ({ compact }) => (
+    <button onClick={() => setDrawerOpen(true)}
+      className={`bg-[#00C7B2] text-white rounded-lg font-semibold flex items-center gap-1.5 hover:brightness-105 transition ${compact ? 'px-3.5 py-1.5 text-[13px]' : 'px-4 py-2.5 text-[14px]'}`}>
+      <Plus size={compact ? 15 : 16} />Analyze
+    </button>
+  );
+
   return (
-    <div className="min-h-screen bg-[#F5F5F7] text-[#18181B] font-sans flex flex-col">
+    <div className="h-screen flex flex-col bg-[#F5F5F7] text-[#18181B] font-sans">
       {/* header */}
-      <header className="bg-white border-b border-[#E4E4E7] px-6">
-        <div className="max-w-[1400px] mx-auto flex items-center justify-between h-14">
+      <header className="bg-white border-b border-[#E4E4E7] px-5 shrink-0">
+        <div className="flex items-center justify-between h-14">
           <div className="flex items-center gap-2.5">
             <button onClick={onBack} className="text-[#94A3B8] hover:text-black"><ChevronLeft size={18} /></button>
             <div className="w-7 h-7 rounded-lg bg-[#00C7B2] grid place-items-center"><Stethoscope size={16} className="text-white" /></div>
             <span className="font-semibold text-[15px]">Trace Doctor</span>
-            <span className="text-[12px] text-[#A1A1AA] ml-1">{total} stored</span>
+            <span className="text-[12px] text-[#A1A1AA] ml-1 hidden sm:inline">{total} analyzed</span>
           </div>
-          <div className="flex items-center gap-3">
-            <button onClick={load} className="text-[#64748B] hover:text-black flex items-center gap-1 text-[13px]"><RefreshCw size={14} />Refresh</button>
-            <button onClick={onLogout} className="text-[#64748B] hover:text-black flex items-center gap-1 text-[13px]"><LogOut size={14} />Lock</button>
+          <div className="flex items-center gap-2.5">
+            <button onClick={load} title="Refresh" className="text-[#64748B] hover:text-black p-1.5"><RefreshCw size={15} /></button>
+            <button onClick={onLogout} title="Lock" className="text-[#64748B] hover:text-black p-1.5"><LogOut size={15} /></button>
+            <AnalyzeButton compact />
           </div>
         </div>
       </header>
 
-      <div className="max-w-[1400px] w-full mx-auto px-6 py-6 grid grid-cols-1 lg:grid-cols-[minmax(0,420px)_1fr] gap-6 flex-1">
-        {/* left: upload + list */}
-        <div className="space-y-4 min-w-0">
-          <LangfusePanel onDone={load} />
-          <UploadPanel onDone={load} />
-
-          {/* search + filters */}
-          <div className="bg-white border border-[#E4E4E7] rounded-2xl p-4">
-            <div className="flex items-center gap-2 border border-[#E4E4E7] rounded-lg px-3 py-2 mb-3">
+      <div className="flex-1 flex min-h-0">
+        {/* left: conversation inbox */}
+        <aside className={`w-full lg:w-[380px] shrink-0 border-r border-[#E4E4E7] bg-white flex-col min-h-0 ${selectedId ? 'hidden lg:flex' : 'flex'}`}>
+          {/* filter bar */}
+          <div className="p-3 border-b border-[#F1F5F9] shrink-0 space-y-2.5">
+            <div className="flex items-center gap-2 border border-[#E4E4E7] rounded-lg px-3 py-2">
               <Search size={15} className="text-[#94A3B8]" />
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search question, env, trace / session id…"
-                className="flex-1 text-[13px] outline-none" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search question, tenant, session…"
+                className="flex-1 text-[13px] outline-none bg-transparent" />
               {q && <button onClick={() => setQ('')}><X size={14} className="text-[#94A3B8]" /></button>}
             </div>
-            <div className="flex flex-wrap gap-1.5 mb-2">
+            <div className="flex flex-wrap gap-1.5">
               <button onClick={() => setStatusFilter('')} className={`text-[11px] px-2 py-1 rounded-md font-medium ${statusFilter === '' ? 'bg-[#111827] text-white' : 'bg-[#F1F5F9] text-[#475569]'}`}>All</button>
               {STATUSES.map((s) => (
                 <button key={s} onClick={() => setStatusFilter(statusFilter === s ? '' : s)}
@@ -614,49 +679,65 @@ function Workspace({ onBack, onLogout }) {
             )}
           </div>
 
-          {error && <div className="text-[13px] text-red-600 px-1">{error}</div>}
-
-          {/* grouped list */}
-          <div className="space-y-3">
-            {loading && !rows.length && <div className="text-[13px] text-[#94A3B8] px-1">Loading…</div>}
-            {!loading && !rows.length && <div className="text-[13px] text-[#94A3B8] px-1">No traces yet. Upload some above.</div>}
-            {groups.map((g, gi) => (
-              <div key={gi} className="bg-white border border-[#E4E4E7] rounded-2xl overflow-hidden">
-                <div className="px-4 py-2.5 bg-[#F8FAFC] border-b border-[#F1F5F9] flex items-center gap-2">
-                  <Layers size={13} className="text-[#94A3B8]" />
-                  <span className="text-[12px] font-semibold text-[#334155]">{g.environment || '—'}</span>
-                  <span className="text-[11px] text-[#94A3B8] font-mono truncate">session {(g.session_id || '—').slice(0, 12)}</span>
-                  <span className="text-[11px] text-[#94A3B8] ml-auto">{g.items.length} trace{g.items.length === 1 ? '' : 's'}</span>
+          {/* list */}
+          <div className="flex-1 overflow-y-auto">
+            {error && <div className="text-[13px] text-red-600 p-4">{error}</div>}
+            {loading && !rows.length && <div className="text-[13px] text-[#94A3B8] p-4">Loading…</div>}
+            {!loading && !rows.length && !error && (
+              <div className="grid place-items-center text-center p-8 h-full">
+                <div>
+                  <Inbox size={30} className="text-[#CBD5E1] mx-auto mb-3" />
+                  <div className="text-[14px] font-semibold text-[#475569]">No analyses yet</div>
+                  <div className="text-[12px] text-[#94A3B8] mt-1 mb-4 max-w-[220px]">Pull a conversation from Langfuse or upload a trace to get started.</div>
+                  <div className="inline-flex"><AnalyzeButton /></div>
                 </div>
-                {g.items.map((r) => (
-                  <button key={r.id} onClick={() => setSelectedId(r.id)}
-                    className={`w-full text-left px-4 py-3 border-b border-[#F8FAFC] last:border-0 hover:bg-[#F8FAFC] transition-colors ${selectedId === r.id ? 'bg-[#ECFDF5]' : ''}`}>
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${STATUS_STYLE[r.status] || ''}`}>{r.status}</span>
-                      <span className="text-[11px] text-[#94A3B8]">{(r.findings || []).length} finding{(r.findings || []).length === 1 ? '' : 's'}</span>
-                    </div>
-                    <div className="text-[13px] text-[#334155] line-clamp-1">{r.question || '—'}</div>
-                    <div className="text-[11px] text-[#94A3B8] mt-0.5 line-clamp-1">{r.summary || ''}</div>
-                  </button>
-                ))}
+              </div>
+            )}
+            {groups.map((g, gi) => (
+              <div key={gi}>
+                <div className="px-4 py-2 bg-[#FAFAFA] border-y border-[#F1F5F9] flex items-center gap-2 sticky top-0">
+                  <Layers size={12} className="text-[#94A3B8]" />
+                  <span className="text-[11px] font-semibold text-[#334155] truncate">{g.environment || '—'}</span>
+                  <span className="text-[10px] text-[#94A3B8] font-mono truncate">{(g.session_id || '—').slice(0, 12)}</span>
+                  <span className="text-[10px] text-[#94A3B8] ml-auto shrink-0">{g.items.length}</span>
+                </div>
+                {g.items.map((r) => {
+                  const active = selectedId === r.id;
+                  return (
+                    <button key={r.id} onClick={() => setSelectedId(r.id)}
+                      className={`w-full text-left px-4 py-3 border-b border-[#F4F4F5] transition-colors ${active ? 'bg-[#ECFDF5] border-l-2 border-l-[#00C7B2] pl-[14px]' : 'hover:bg-[#F8FAFC] border-l-2 border-l-transparent pl-[14px]'}`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${STATUS_STYLE[r.status] || ''}`}>{r.status}</span>
+                        <span className="text-[11px] text-[#94A3B8]">{(r.findings || []).length} finding{(r.findings || []).length === 1 ? '' : 's'}</span>
+                      </div>
+                      <div className="text-[13px] text-[#334155] line-clamp-2 leading-snug">{r.question || '—'}</div>
+                      <div className="text-[11px] text-[#94A3B8] mt-1 line-clamp-1">{r.summary || ''}</div>
+                    </button>
+                  );
+                })}
               </div>
             ))}
           </div>
-        </div>
+        </aside>
 
-        {/* right: detail */}
-        <div className="bg-white border border-[#E4E4E7] rounded-2xl min-h-[400px] overflow-hidden">
+        {/* right: report reader */}
+        <main className={`flex-1 min-w-0 bg-white ${selectedId ? 'block' : 'hidden lg:block'}`}>
           {selectedId
             ? <TraceDetail id={selectedId} onClose={() => setSelectedId(null)} />
             : <div className="h-full grid place-items-center text-center p-10">
-                <div>
-                  <Stethoscope size={40} className="text-[#CBD5E1] mx-auto mb-3" />
-                  <div className="text-[15px] font-semibold text-[#475569]">Select a trace to see its full report</div>
-                  <div className="text-[13px] text-[#94A3B8] mt-1">Upload traces on the left, then click any one to view findings, scores, and the recommended fix.</div>
+                <div className="max-w-[360px]">
+                  <div className="w-14 h-14 rounded-2xl bg-[#F1F5F9] grid place-items-center mx-auto mb-4">
+                    <FileText size={26} className="text-[#94A3B8]" />
+                  </div>
+                  <div className="text-[16px] font-semibold text-[#334155]">Select a conversation to read its report</div>
+                  <div className="text-[13px] text-[#94A3B8] mt-1.5 mb-5">Pick one from the list, or analyze a new conversation — findings, eval scores, tool &amp; retrieval breakdown, and the recommended fix.</div>
+                  <div className="inline-flex"><AnalyzeButton /></div>
                 </div>
               </div>}
-        </div>
+        </main>
       </div>
+
+      <AnalyzeDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onAnalyzed={handleAnalyzed} />
     </div>
   );
 }
