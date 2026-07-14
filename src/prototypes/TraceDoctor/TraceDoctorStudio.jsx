@@ -234,14 +234,16 @@ function TraceDetail({ id, onClose }) {
 }
 
 // ── Langfuse pull panel ───────────────────────────────────────────────
-// Browse and pull conversation traces straight from a configured Langfuse
-// environment, then analyze + store them through the same pipeline as upload.
+// The team identifies a conversation by its Langfuse SESSION id. This panel
+// browses sessions (conversations) in a configured environment, or pulls one
+// directly by session id, then analyzes + stores through the same pipeline as
+// upload. A session is resolved server-side to its member traces.
 function LangfusePanel({ onDone }) {
   const [envs, setEnvs] = useState(null);       // null = loading, [] = not configured
   const [env, setEnv] = useState('');
-  const [nameFilter, setNameFilter] = useState('Conversation'); // real convos by default
   const [tenant, setTenant] = useState('');     // Langfuse `environment` field = tenant slug
-  const [traces, setTraces] = useState([]);
+  const [sessionId, setSessionId] = useState(''); // paste to pull one conversation directly
+  const [sessions, setSessions] = useState([]);
   const [sel, setSel] = useState(() => new Set());
   const [browsing, setBrowsing] = useState(false);
   const [pulling, setPulling] = useState(false);
@@ -258,33 +260,33 @@ function LangfusePanel({ onDone }) {
     if (!env) return;
     setBrowsing(true); setErr(''); setMsg(null); setSel(new Set());
     try {
-      const params = new URLSearchParams({ action: 'langfuse-list', env, limit: '25' });
-      if (nameFilter.trim()) params.set('name', nameFilter.trim());
+      const params = new URLSearchParams({ action: 'langfuse-sessions', env, limit: '25' });
       if (tenant.trim()) params.set('environment', tenant.trim());
       const d = await api(`?${params.toString()}`);
-      setTraces(d.traces || []);
-      if (!(d.traces || []).length) setErr('No traces matched. Try clearing the name/tenant filter.');
+      setSessions(d.sessions || []);
+      if (!(d.sessions || []).length) setErr('No conversations found. Try a different tenant or environment.');
     } catch (e) { setErr(e.message); }
     finally { setBrowsing(false); }
   };
 
   const toggle = (id) => setSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const allSelected = traces.length > 0 && sel.size === traces.length;
-  const toggleAll = () => setSel(allSelected ? new Set() : new Set(traces.map((t) => t.id)));
+  const allSelected = sessions.length > 0 && sel.size === sessions.length;
+  const toggleAll = () => setSel(allSelected ? new Set() : new Set(sessions.map((s) => s.id)));
 
-  const pull = async () => {
-    const ids = [...sel];
-    if (!ids.length) return;
+  const runPull = async (body, resetSel) => {
     setPulling(true); setErr(''); setMsg(null);
     try {
-      const res = await api('?action=langfuse-pull', { method: 'POST', body: { env, ids } });
+      const res = await api('?action=langfuse-pull', { method: 'POST', body: { env, ...body } });
       const brk = (res.results || []).reduce((a, r) => { if (r.status) a[r.status] = (a[r.status] || 0) + 1; return a; }, {});
       setMsg({ ...res, brk });
-      setSel(new Set());
+      if (resetSel) setSel(new Set());
       onDone && onDone();
     } catch (e) { setErr(e.message); }
     finally { setPulling(false); }
   };
+
+  const pullSelected = () => { if (sel.size) runPull({ sessionIds: [...sel] }, true); };
+  const pullBySessionId = () => { const s = sessionId.trim(); if (s) runPull({ sessionId: s }, false); };
 
   if (envs === null) return null;                     // still loading — render nothing
   if (!envs.length) {
@@ -300,6 +302,7 @@ function LangfusePanel({ onDone }) {
       <div className="flex items-center gap-2 mb-3">
         <Cloud size={17} className="text-[#00C7B2]" />
         <span className="text-[14px] font-semibold text-[#334155]">Pull from Langfuse</span>
+        <span className="text-[11px] text-[#94A3B8] ml-auto">by conversation (session)</span>
       </div>
 
       <div className="grid grid-cols-2 gap-2 mb-2">
@@ -310,43 +313,56 @@ function LangfusePanel({ onDone }) {
         <input value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="tenant (e.g. fressnapf)"
           className="text-[12px] border border-[#E4E4E7] rounded-lg px-2 py-2 outline-none focus:border-[#00C7B2]" />
       </div>
+
+      {/* Direct pull by session id — the team's conversation identifier. */}
       <div className="flex items-center gap-2 mb-3">
-        <input value={nameFilter} onChange={(e) => setNameFilter(e.target.value)} placeholder="trace name filter"
-          className="flex-1 text-[12px] border border-[#E4E4E7] rounded-lg px-2 py-2 outline-none focus:border-[#00C7B2]" />
-        <button onClick={browse} disabled={browsing || !env}
-          className="bg-[#111827] text-white rounded-lg px-3 py-2 text-[12px] font-semibold disabled:opacity-40 flex items-center gap-1.5">
-          {browsing ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}Browse
+        <input value={sessionId} onChange={(e) => setSessionId(e.target.value)} placeholder="paste a session id (conversation)"
+          onKeyDown={(e) => { if (e.key === 'Enter') pullBySessionId(); }}
+          className="flex-1 text-[12px] font-mono border border-[#E4E4E7] rounded-lg px-2 py-2 outline-none focus:border-[#00C7B2]" />
+        <button onClick={pullBySessionId} disabled={pulling || !env || !sessionId.trim()}
+          className="bg-[#00C7B2] text-white rounded-lg px-3 py-2 text-[12px] font-semibold disabled:opacity-40 flex items-center gap-1.5">
+          {pulling ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}Pull
         </button>
       </div>
 
-      {traces.length > 0 && (
+      <div className="flex items-center gap-2 mb-3">
+        <div className="h-px bg-[#F1F5F9] flex-1" />
+        <span className="text-[10.5px] uppercase tracking-wide text-[#CBD5E1]">or browse recent conversations</span>
+        <div className="h-px bg-[#F1F5F9] flex-1" />
+      </div>
+      <button onClick={browse} disabled={browsing || !env}
+        className="w-full bg-[#111827] text-white rounded-lg px-3 py-2 text-[12px] font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5 mb-3">
+        {browsing ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}Browse recent conversations
+      </button>
+
+      {sessions.length > 0 && (
         <>
           <div className="flex items-center justify-between mb-1.5">
             <button onClick={toggleAll} className="text-[11px] text-[#64748B] flex items-center gap-1.5 hover:text-black">
-              {allSelected ? <CheckSquare size={13} /> : <Square size={13} />} Select all ({traces.length})
+              {allSelected ? <CheckSquare size={13} /> : <Square size={13} />} Select all ({sessions.length})
             </button>
             <span className="text-[11px] text-[#94A3B8]">{sel.size} selected</span>
           </div>
           <div className="max-h-[260px] overflow-y-auto space-y-1 mb-3 pr-1">
-            {traces.map((t) => {
-              const on = sel.has(t.id);
+            {sessions.map((s) => {
+              const on = sel.has(s.id);
               return (
-                <button key={t.id} onClick={() => toggle(t.id)}
+                <button key={s.id} onClick={() => toggle(s.id)}
                   className={`w-full text-left rounded-lg px-2.5 py-2 border flex items-start gap-2 ${on ? 'border-[#00C7B2] bg-[#F0FDFA]' : 'border-[#F1F5F9] bg-[#F8FAFC] hover:border-[#CBD5E1]'}`}>
                   {on ? <CheckSquare size={14} className="text-[#00C7B2] mt-0.5 shrink-0" /> : <Square size={14} className="text-[#CBD5E1] mt-0.5 shrink-0" />}
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[12px] text-[#334155] truncate">{t.preview || '(no input)'}</span>
-                    <span className="block text-[10.5px] text-[#94A3B8] font-mono truncate">
-                      {t.environment || '—'} · {new Date(t.timestamp).toLocaleString()} · {t.id.slice(0, 10)}
+                    <span className="block text-[12px] text-[#334155] font-mono truncate">{s.id}</span>
+                    <span className="block text-[10.5px] text-[#94A3B8] truncate">
+                      {s.environment || '—'} · {s.createdAt ? new Date(s.createdAt).toLocaleString() : ''}
                     </span>
                   </span>
                 </button>
               );
             })}
           </div>
-          <button onClick={pull} disabled={pulling || !sel.size}
+          <button onClick={pullSelected} disabled={pulling || !sel.size}
             className="w-full bg-[#00C7B2] text-white rounded-lg px-4 py-2 text-[13px] font-semibold disabled:opacity-40 flex items-center justify-center gap-2">
-            {pulling ? <><Loader2 size={14} className="animate-spin" />Pulling & analyzing…</> : <><Download size={14} />Pull & analyze {sel.size || ''} selected</>}
+            {pulling ? <><Loader2 size={14} className="animate-spin" />Pulling & analyzing…</> : <><Download size={14} />Pull & analyze {sel.size || ''} conversation{sel.size === 1 ? '' : 's'}</>}
           </button>
         </>
       )}
@@ -354,8 +370,9 @@ function LangfusePanel({ onDone }) {
       {err && <div className="mt-3 text-[13px] text-red-600 flex items-start gap-1.5"><AlertTriangle size={15} className="mt-0.5 shrink-0" />{err}</div>}
       {msg && (
         <div className="mt-3 text-[13px] text-[#334155] bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5">
-          Pulled <b>{msg.fetched}</b> from {msg.env} — <b>{msg.inserted}</b> new, <b>{msg.updated}</b> updated{msg.failed ? `, ${msg.failed} failed` : ''}.
+          Pulled <b>{msg.fetched}</b> trace{msg.fetched === 1 ? '' : 's'} from {msg.env} — <b>{msg.inserted}</b> new, <b>{msg.updated}</b> updated{msg.failed ? `, ${msg.failed} failed` : ''}.
           {' '}Breakdown: {Object.entries(msg.brk).map(([k, v]) => `${k} ${v}`).join(', ') || '—'}.
+          {(msg.sessionErrors?.length || msg.fetchErrors?.length) ? <span className="text-amber-600"> ({(msg.sessionErrors?.length || 0) + (msg.fetchErrors?.length || 0)} skipped)</span> : null}
         </div>
       )}
     </div>
