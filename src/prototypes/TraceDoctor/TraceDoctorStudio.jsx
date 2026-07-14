@@ -3,6 +3,7 @@ import Markdown from 'react-markdown';
 import {
   Stethoscope, Upload, Search, LogOut, RefreshCw, FileJson,
   AlertTriangle, X, ChevronLeft, Layers, Trash2,
+  Cloud, Download, CheckSquare, Square, Loader2,
 } from 'lucide-react';
 
 // The static password is intentionally client-side (a convenience gate, not real
@@ -232,6 +233,135 @@ function TraceDetail({ id, onClose }) {
   );
 }
 
+// ── Langfuse pull panel ───────────────────────────────────────────────
+// Browse and pull conversation traces straight from a configured Langfuse
+// environment, then analyze + store them through the same pipeline as upload.
+function LangfusePanel({ onDone }) {
+  const [envs, setEnvs] = useState(null);       // null = loading, [] = not configured
+  const [env, setEnv] = useState('');
+  const [nameFilter, setNameFilter] = useState('Conversation'); // real convos by default
+  const [tenant, setTenant] = useState('');     // Langfuse `environment` field = tenant slug
+  const [traces, setTraces] = useState([]);
+  const [sel, setSel] = useState(() => new Set());
+  const [browsing, setBrowsing] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    api('?action=langfuse-envs')
+      .then((d) => { setEnvs(d.environments || []); if (d.environments?.[0]) setEnv(d.environments[0].id); })
+      .catch(() => setEnvs([]));
+  }, []);
+
+  const browse = async () => {
+    if (!env) return;
+    setBrowsing(true); setErr(''); setMsg(null); setSel(new Set());
+    try {
+      const params = new URLSearchParams({ action: 'langfuse-list', env, limit: '25' });
+      if (nameFilter.trim()) params.set('name', nameFilter.trim());
+      if (tenant.trim()) params.set('environment', tenant.trim());
+      const d = await api(`?${params.toString()}`);
+      setTraces(d.traces || []);
+      if (!(d.traces || []).length) setErr('No traces matched. Try clearing the name/tenant filter.');
+    } catch (e) { setErr(e.message); }
+    finally { setBrowsing(false); }
+  };
+
+  const toggle = (id) => setSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allSelected = traces.length > 0 && sel.size === traces.length;
+  const toggleAll = () => setSel(allSelected ? new Set() : new Set(traces.map((t) => t.id)));
+
+  const pull = async () => {
+    const ids = [...sel];
+    if (!ids.length) return;
+    setPulling(true); setErr(''); setMsg(null);
+    try {
+      const res = await api('?action=langfuse-pull', { method: 'POST', body: { env, ids } });
+      const brk = (res.results || []).reduce((a, r) => { if (r.status) a[r.status] = (a[r.status] || 0) + 1; return a; }, {});
+      setMsg({ ...res, brk });
+      setSel(new Set());
+      onDone && onDone();
+    } catch (e) { setErr(e.message); }
+    finally { setPulling(false); }
+  };
+
+  if (envs === null) return null;                     // still loading — render nothing
+  if (!envs.length) {
+    return (
+      <div className="border border-[#E4E4E7] rounded-2xl p-4 bg-white text-[12px] text-[#94A3B8] flex items-center gap-2">
+        <Cloud size={15} /> Langfuse not configured on this deployment (set LANGFUSE_ENVIRONMENTS).
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-[#E4E4E7] rounded-2xl p-5 bg-white">
+      <div className="flex items-center gap-2 mb-3">
+        <Cloud size={17} className="text-[#00C7B2]" />
+        <span className="text-[14px] font-semibold text-[#334155]">Pull from Langfuse</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        <select value={env} onChange={(e) => setEnv(e.target.value)}
+          className="text-[12px] border border-[#E4E4E7] rounded-lg px-2 py-2 text-[#334155] outline-none focus:border-[#00C7B2]">
+          {envs.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
+        </select>
+        <input value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="tenant (e.g. fressnapf)"
+          className="text-[12px] border border-[#E4E4E7] rounded-lg px-2 py-2 outline-none focus:border-[#00C7B2]" />
+      </div>
+      <div className="flex items-center gap-2 mb-3">
+        <input value={nameFilter} onChange={(e) => setNameFilter(e.target.value)} placeholder="trace name filter"
+          className="flex-1 text-[12px] border border-[#E4E4E7] rounded-lg px-2 py-2 outline-none focus:border-[#00C7B2]" />
+        <button onClick={browse} disabled={browsing || !env}
+          className="bg-[#111827] text-white rounded-lg px-3 py-2 text-[12px] font-semibold disabled:opacity-40 flex items-center gap-1.5">
+          {browsing ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}Browse
+        </button>
+      </div>
+
+      {traces.length > 0 && (
+        <>
+          <div className="flex items-center justify-between mb-1.5">
+            <button onClick={toggleAll} className="text-[11px] text-[#64748B] flex items-center gap-1.5 hover:text-black">
+              {allSelected ? <CheckSquare size={13} /> : <Square size={13} />} Select all ({traces.length})
+            </button>
+            <span className="text-[11px] text-[#94A3B8]">{sel.size} selected</span>
+          </div>
+          <div className="max-h-[260px] overflow-y-auto space-y-1 mb-3 pr-1">
+            {traces.map((t) => {
+              const on = sel.has(t.id);
+              return (
+                <button key={t.id} onClick={() => toggle(t.id)}
+                  className={`w-full text-left rounded-lg px-2.5 py-2 border flex items-start gap-2 ${on ? 'border-[#00C7B2] bg-[#F0FDFA]' : 'border-[#F1F5F9] bg-[#F8FAFC] hover:border-[#CBD5E1]'}`}>
+                  {on ? <CheckSquare size={14} className="text-[#00C7B2] mt-0.5 shrink-0" /> : <Square size={14} className="text-[#CBD5E1] mt-0.5 shrink-0" />}
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12px] text-[#334155] truncate">{t.preview || '(no input)'}</span>
+                    <span className="block text-[10.5px] text-[#94A3B8] font-mono truncate">
+                      {t.environment || '—'} · {new Date(t.timestamp).toLocaleString()} · {t.id.slice(0, 10)}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <button onClick={pull} disabled={pulling || !sel.size}
+            className="w-full bg-[#00C7B2] text-white rounded-lg px-4 py-2 text-[13px] font-semibold disabled:opacity-40 flex items-center justify-center gap-2">
+            {pulling ? <><Loader2 size={14} className="animate-spin" />Pulling & analyzing…</> : <><Download size={14} />Pull & analyze {sel.size || ''} selected</>}
+          </button>
+        </>
+      )}
+
+      {err && <div className="mt-3 text-[13px] text-red-600 flex items-start gap-1.5"><AlertTriangle size={15} className="mt-0.5 shrink-0" />{err}</div>}
+      {msg && (
+        <div className="mt-3 text-[13px] text-[#334155] bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5">
+          Pulled <b>{msg.fetched}</b> from {msg.env} — <b>{msg.inserted}</b> new, <b>{msg.updated}</b> updated{msg.failed ? `, ${msg.failed} failed` : ''}.
+          {' '}Breakdown: {Object.entries(msg.brk).map(([k, v]) => `${k} ${v}`).join(', ') || '—'}.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Upload panel ──────────────────────────────────────────────────────
 function UploadPanel({ onDone }) {
   const [busy, setBusy] = useState(false);
@@ -370,6 +500,7 @@ function Workspace({ onBack, onLogout }) {
       <div className="max-w-[1400px] w-full mx-auto px-6 py-6 grid grid-cols-1 lg:grid-cols-[minmax(0,420px)_1fr] gap-6 flex-1">
         {/* left: upload + list */}
         <div className="space-y-4 min-w-0">
+          <LangfusePanel onDone={load} />
           <UploadPanel onDone={load} />
 
           {/* search + filters */}
