@@ -142,6 +142,73 @@ function SystemPromptReview({ llm }) {
   );
 }
 
+// Deterministic tool & retrieval activity (from signals.tool_activity) — the
+// concrete evidence behind the tool/retrieval/grounding findings.
+function ToolActivity({ act }) {
+  if (!act || !act.counts?.total) return null;
+  const g = act.grounding || {};
+  const Chip = ({ tone = 'zinc', children }) => (
+    <span className={`text-[11px] px-2 py-0.5 rounded-md font-medium ${tone === 'red' ? 'bg-red-100 text-red-700' : tone === 'amber' ? 'bg-amber-100 text-amber-700' : tone === 'green' ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}>{children}</span>
+  );
+  return (
+    <div>
+      <div className="text-[11px] font-bold uppercase tracking-wide text-[#94A3B8] mb-2">Tool &amp; retrieval</div>
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        <Chip>{act.counts.search} search{act.counts.search === 1 ? '' : 'es'}</Chip>
+        <Chip>{g.retrievedCount} retrieved</Chip>
+        <Chip tone={act.counts.display ? 'green' : 'zinc'}>{act.counts.display} cited</Chip>
+        {act.counts.selectAgent ? <Chip>{act.counts.selectAgent} selectAgent</Chip> : null}
+        {g.citedNotRetrieved?.length ? <Chip tone="red">{g.citedNotRetrieved.length} cited not retrieved</Chip> : null}
+        {act.failures?.length ? <Chip tone="red">{act.failures.length} tool failure{act.failures.length === 1 ? '' : 's'}</Chip> : null}
+      </div>
+
+      <div className="space-y-2">
+        {act.searches.map((s, i) => (
+          <div key={i} className="border border-[#E4E4E7] rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Search size={13} className="text-[#94A3B8]" />
+              <span className="text-[11px] font-semibold text-[#334155]">Search {i + 1}</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${s.empty ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                {s.resultCount == null ? '?' : s.resultCount} result{s.resultCount === 1 ? '' : 's'}{s.empty ? ' · empty' : ''}
+              </span>
+              {s.publishedAfter && <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-500">after {String(s.publishedAfter).slice(0, 10)}</span>}
+            </div>
+            {s.semanticQuery && <div className="text-[12px] text-[#71717A] font-mono mb-1 break-words">“{s.semanticQuery}”</div>}
+            {s.keywordTerms?.length ? <div className="text-[11px] text-[#94A3B8] mb-1">keywords: {s.keywordTerms.join(', ')}</div> : null}
+            {s.titles?.length ? (
+              <ul className="mt-1 space-y-0.5">
+                {s.titles.slice(0, 5).map((t, j) => <li key={j} className="text-[12px] text-[#475569] truncate">• {t}</li>)}
+              </ul>
+            ) : null}
+          </div>
+        ))}
+      </div>
+
+      {act.displayed?.length ? (
+        <div className="mt-2 border border-[#E4E4E7] rounded-lg p-3">
+          <div className="text-[11px] font-semibold text-[#334155] mb-1.5">Cited sources ({act.displayed.length})</div>
+          <div className="flex flex-wrap gap-1.5">
+            {act.displayed.map((d, i) => {
+              const bad = (g.citedNotRetrieved || []).some((t) => (t || '').toLowerCase().trim() === (d.title || '').toLowerCase().trim());
+              return (
+                <span key={i} className={`text-[11px] px-2 py-0.5 rounded-md ${bad ? 'bg-red-100 text-red-700 line-through decoration-red-400' : 'bg-[#F1F5F9] text-[#475569]'}`} title={bad ? 'Not returned by any search — ungrounded citation' : ''}>
+                  {String(d.title || '?').slice(0, 48)}
+                </span>
+              );
+            })}
+          </div>
+          {g.citedNotRetrieved?.length ? (
+            <div className="mt-2 text-[12px] text-red-600 flex items-start gap-1.5">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              Struck-through sources were cited but never returned by a search — ungrounded citations.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function SearchCallReview({ llm, searchCalls }) {
   const review = llm?.search_call_review;
   if (!review || !review.length) return null;
@@ -220,6 +287,7 @@ function TraceDetail({ id, onClose }) {
               : <div className="text-[14px] text-emerald-600">✅ No problems detected.</div>}
           </div>
         </div>
+        <ToolActivity act={trace.signals?.tool_activity} />
         <SystemPromptReview llm={trace.signals?.llm} />
         <SearchCallReview llm={trace.signals?.llm} searchCalls={trace.signals?.llm?.search_calls} />
         <details className="border border-[#E4E4E7] rounded-xl">
